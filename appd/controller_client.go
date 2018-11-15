@@ -40,15 +40,24 @@ func NewControllerClient(bag *m.AppDBag, logger *log.Logger) *ControllerClient {
 	cfg.Controller.AccessKey = bag.AccessKey
 	cfg.UseConfigFromEnv = true
 	cfg.InitTimeoutMs = 1000
-	appd.InitSDK(&cfg)
+	cfg.Logging.BaseDir = "__console__"
+	cfg.Logging.MinimumLevel = appd.APPD_LOG_LEVEL_DEBUG
+	if err := appd.InitSDK(&cfg); err != nil {
+		logger.Printf("Error initializing the AppDynamics SDK. %v\n", err)
+	} else {
+		logger.Printf("Initialized AppDynamics SDK successfully\n")
+	}
 	logger.Println(&cfg.Controller)
+
 	return &ControllerClient{Bag: bag, logger: logger}
 }
 
 func (c *ControllerClient) PostMetrics(metrics m.AppDMetricList) error {
+	c.logger.Println("Pushing Metrics through the agent:")
 	bt := appd.StartBT("PostMetrics", "")
 	for _, metric := range metrics.Items {
-		fmt.Println(metric)
+		metric.MetricPath = fmt.Sprintf(metric.MetricPath, c.Bag.TierName)
+		c.logger.Println(metric)
 		appd.AddCustomMetric("", metric.MetricPath,
 			metric.MetricTimeRollUpType,
 			metric.MetricClusterRollUpType,
@@ -56,6 +65,7 @@ func (c *ControllerClient) PostMetrics(metrics m.AppDMetricList) error {
 		appd.ReportCustomMetric(c.Bag.AppName, metric.MetricPath, metric.MetricValue)
 	}
 	appd.EndBT(bt)
+	c.logger.Println("Done pushing Metrics through the agent")
 
 	return nil
 }

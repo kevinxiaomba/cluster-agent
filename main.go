@@ -29,16 +29,25 @@ func buildParams() Flags {
 	params := Flags{}
 
 	flag.StringVar(&params.Kubeconfig, "kubeconfig", getKubeConfigPath(), "(optional) absolute path to the kubeconfig file")
+	flag.StringVar(&params.Bag.Account, "account-name", getAccountName(), "Account name")
+	flag.StringVar(&params.Bag.GlobalAccount, "global-account-name", getGLobalAccountName(), "Global Account name")
 	flag.StringVar(&params.Bag.AppName, "app-name", getAppName(), "Application name")
 	flag.StringVar(&params.Bag.TierName, "tier-name", getTierName(), "Tier name")
 	flag.StringVar(&params.Bag.NodeName, "node-name", getNodeName(), "Node name")
 	flag.StringVar(&params.Bag.ControllerUrl, "controller-dns", getControllerUrl(), "Controller DNS")
+	flag.StringVar(&params.Bag.EventServiceUrl, "events-url", getEventServiceURL(), "Event API service URL")
 	flag.StringVar(&params.Bag.SystemSSLCert, "system-ssl", getSystemSSL(), "System SSL Certificate File")
 	flag.StringVar(&params.Bag.AgentSSLCert, "agent-ssl", getAgentSSL(), "Agent SSL Certificate File")
 	flag.StringVar(&params.Bag.AccessKey, "access-key", getAccessKey(), "AppD Controller Access Key")
+	flag.StringVar(&params.Bag.EventKey, "event-key", getEventKey(), "Event API Key")
+	flag.StringVar(&params.Bag.RestAPICred, "rest-api-creds", getRestAPICred(), "Rest API Credentials")
+	flag.BoolVar(&params.Bag.SSLEnabled, "use-ssl", false, "Controller uses SSL connection")
+	flag.StringVar(&params.Bag.PodSchemaName, "schema-pods", "k8s_pod_snapshots", "Pod schema name")
+	flag.IntVar(&params.Bag.EventAPILimit, "event-batch-size", 100, "Max number of AppD events record to send in a batch")
 	var tempPort uint
 	flag.UintVar(&tempPort, "controller-port", getControllerPort(), "Controller Port")
 	params.Bag.ControllerPort = uint16(tempPort)
+	fmt.Printf("Controller Port: %d", params.Bag.ControllerPort)
 
 	flag.Parse()
 
@@ -112,6 +121,14 @@ func getKubeConfigPath() string {
 	return path
 }
 
+func getAccountName() string {
+	return os.Getenv("ACCOUNT_NAME")
+}
+
+func getGLobalAccountName() string {
+	return os.Getenv("GLOBAL_ACCOUNT_NAME")
+}
+
 func getAppName() string {
 	return os.Getenv("APPLICATION_NAME")
 }
@@ -129,7 +146,19 @@ func getControllerUrl() string {
 }
 
 func getAccessKey() string {
-	return os.Getenv("ACCESS_KEY") //"468b8634-6c42-443d-99e1-6b1e52d37b75"
+	return os.Getenv("ACCESS_KEY")
+}
+
+func getRestAPICred() string {
+	return os.Getenv("REST_API_CREDENTIALS")
+}
+
+func getEventServiceURL() string {
+	return os.Getenv("EVENTS_API_URL")
+}
+
+func getEventKey() string {
+	return os.Getenv("EVENT_ACCESS_KEY")
 }
 
 func getSystemSSL() string {
@@ -142,17 +171,10 @@ func getAgentSSL() string {
 
 func getControllerPort() uint {
 	port := os.Getenv("CONTROLLER_PORT")
-	if port != "" {
-		var base = 16
-		var size = 16
-		num, err := strconv.ParseUint(port, base, size)
-		if err != nil {
-			fmt.Printf("Invalid controller port: %s", port)
-			return 0
-		} else {
-			return uint(num)
-		}
-	} else {
-		return 0
+	val, err := strconv.Atoi(port)
+	if err != nil {
+		fmt.Printf("Cannot convert port value %s to int\n", port)
+		return 8090
 	}
+	return uint(val)
 }

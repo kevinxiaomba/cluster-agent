@@ -3,6 +3,8 @@ package workers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
 	"strings"
 	"sync"
 
@@ -16,22 +18,24 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/tools/cache"
 
+	app "github.com/sjeltuhin/clusterAgent/appd"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
-	//	"k8s.io/client-go/rest"
-	//	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/workqueue"
 )
 
 type PodWorker struct {
 	informer   cache.SharedIndexInformer
 	Client     *kubernetes.Clientset
-	AppName    string
+	Bag        *m.AppDBag
 	SummaryMap map[string]m.ClusterPodMetrics
+	WQ         workqueue.RateLimitingInterface
 }
 
-func NewPodWorker(client *kubernetes.Clientset, appName string) PodWorker {
-	pw := PodWorker{Client: client, AppName: appName, SummaryMap: make(map[string]m.ClusterPodMetrics)}
+func NewPodWorker(client *kubernetes.Clientset, bag *m.AppDBag) PodWorker {
+	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
+	pw := PodWorker{Client: client, Bag: bag, SummaryMap: make(map[string]m.ClusterPodMetrics), WQ: queue}
 	pw.initPodInformer(client)
 	return pw
 }
@@ -64,7 +68,54 @@ func (pw *PodWorker) initPodInformer(client *kubernetes.Clientset) cache.SharedI
 func (pw *PodWorker) onNewPod(obj interface{}) {
 	podObj := obj.(*v1.Pod)
 	fmt.Printf("Added Pod: %s %s\n", podObj.Namespace, podObj.Name)
-	pw.processNewObject(podObj)
+	podRecord := pw.processObject(podObj)
+	pw.WQ.Add(&podRecord)
+}
+
+func (pw *PodWorker) flushQueue() {
+	fmt.Println("Time to flush the queue")
+	var objList []m.PodSchema
+
+	var podRecord *m.PodSchema
+	var ok bool = true
+	count := 0
+	for ok == true {
+		podRecord, ok = pw.getNextQueueItem()
+		objList = append(objList, *podRecord)
+		count++
+		if count >= pw.Bag.EventAPILimit {
+			ok = false
+		}
+	}
+	fmt.Printf("Flushing queue with %d records", count)
+	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
+	rc := app.NewRestClient(pw.Bag, logger)
+	data, err := json.Marshal(objList)
+	schemaDef, e := json.Marshal(m.PodSchemaDefWrapper{})
+	if err == nil && e == nil {
+		if rc.SchemaExists(pw.Bag.PodSchemaName) == false {
+			fmt.Printf("Creating schema. %s", pw.Bag.PodSchemaName)
+			rc.CreateSchema(pw.Bag.PodSchemaName, schemaDef)
+			fmt.Printf("Schema %s created", pw.Bag.PodSchemaName)
+		} else {
+			fmt.Printf("Schema %s exists", pw.Bag.PodSchemaName)
+		}
+		rc.PostAppDEvents(pw.Bag.PodSchemaName, data)
+	} else {
+		fmt.Printf("Problems when serializing array of pod schemas. %v", err)
+	}
+}
+
+func (pw *PodWorker) getNextQueueItem() (*m.PodSchema, bool) {
+	podRecord, quit := pw.WQ.Get()
+
+	if quit {
+		return podRecord.(*m.PodSchema), false
+	}
+	defer pw.WQ.Done(podRecord)
+	pw.WQ.Forget(podRecord)
+
+	return podRecord.(*m.PodSchema), true
 }
 
 func (pw *PodWorker) onDeletePod(obj interface{}) {
@@ -79,13 +130,18 @@ func (pw *PodWorker) onUpdatePod(objOld interface{}, objNew interface{}) {
 
 func (pw PodWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	defer wg.Done()
+	defer pw.WQ.ShutDown()
 	wg.Add(1)
 
 	go pw.informer.Run(stopCh)
 
 	wg.Add(1)
 
-	go pw.appMetricTicker(stopCh, time.NewTicker(30*time.Second))
+	go pw.appMetricTicker(stopCh, time.NewTicker(15*time.Second))
+
+	//	wg.Add(1)
+
+	//	go pw.eventQueueTicker(stopCh, time.NewTicker(30*time.Second))
 
 	<-stopCh
 }
@@ -102,24 +158,44 @@ func (pw *PodWorker) appMetricTicker(stop <-chan struct{}, ticker *time.Ticker) 
 	}
 }
 
+func (pw *PodWorker) eventQueueTicker(stop <-chan struct{}, ticker *time.Ticker) {
+	for {
+		select {
+		case <-ticker.C:
+			pw.flushQueue()
+		case <-stop:
+			ticker.Stop()
+			return
+		}
+	}
+}
+
 func (pw *PodWorker) buildAppDMetrics() {
-	fmt.Println("Current cache:")
+	pw.SummaryMap = make(map[string]m.ClusterPodMetrics)
+	fmt.Println("Time to send metrics. Current cache:")
 	var count int = 0
 	for _, obj := range pw.informer.GetStore().List() {
 		podObject := obj.(*v1.Pod)
+		pw.processObject(podObject)
 		fmt.Printf("Pod %s\n", podObject.Name)
 		count++
 	}
 	fmt.Printf("Total: %d\n", count)
+
+	ml := pw.builAppDMetricsList()
+
+	fmt.Printf("Ready to push %d metrics\n", len(ml.Items))
+	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
+	appdController := app.NewControllerClient(pw.Bag, logger)
+	appdController.PostMetrics(ml)
 }
 
-func (pw *PodWorker) processNewObject(p *v1.Pod) m.PodSchema {
-
+func (pw *PodWorker) processObject(p *v1.Pod) m.PodSchema {
 	podObject := m.NewPodObj()
 	if p.ClusterName != "" {
 		podObject.ClusterName = p.ClusterName
 	} else {
-		podObject.ClusterName = pw.AppName
+		podObject.ClusterName = pw.Bag.AppName
 	}
 	podObject.Name = p.Name
 	podObject.Namespace = p.Namespace
@@ -131,21 +207,24 @@ func (pw *PodWorker) processNewObject(p *v1.Pod) m.PodSchema {
 	summary, ok := pw.SummaryMap[m.ALL]
 	if !ok {
 		summary = m.NewClusterPodMetrics(m.ALL, m.ALL)
+		pw.SummaryMap[m.ALL] = summary
 	}
 
 	//namespace metrics
-	summaryNS, ok := pw.SummaryMap[podObject.NodeName]
+	summaryNode, ok := pw.SummaryMap[podObject.NodeName]
 	if !ok {
-		summaryNS = m.NewClusterPodMetrics(m.ALL, podObject.NodeName)
+		summaryNode = m.NewClusterPodMetrics(m.ALL, podObject.NodeName)
+		pw.SummaryMap[podObject.NodeName] = summaryNode
 	}
 
 	//node metrics
-	summaryNode, ok := pw.SummaryMap[podObject.Namespace]
+	summaryNS, ok := pw.SummaryMap[podObject.Namespace]
 	if !ok {
-		summaryNode = m.NewClusterPodMetrics(podObject.Namespace, m.ALL)
+		summaryNS = m.NewClusterPodMetrics(podObject.Namespace, m.ALL)
+		pw.SummaryMap[podObject.Namespace] = summaryNS
 	}
 
-	summary.PodsCount++
+	summary.PodsCount = summary.PodsCount + 1
 	summaryNS.PodsCount++
 	summaryNode.PodsCount++
 
@@ -350,7 +429,8 @@ func (pw *PodWorker) processNewObject(p *v1.Pod) m.PodSchema {
 
 	}
 
-	fmt.Printf("Pod Object:\n%s\n", podObject.ToString())
+	pw.SummaryMap[m.ALL] = summary
+	//	fmt.Printf("Pod Object:\n%s\n", podObject.ToString())
 	return podObject
 }
 
@@ -412,7 +492,6 @@ func metricsWorkerPods(finished chan *m.PodMetricsObjList, client *kubernetes.Cl
 }
 
 func metricsWorkerSingle(finished chan *m.PodMetricsObj, client *kubernetes.Clientset, namespace string, podName string) {
-	fmt.Println("Metrics Worker Pods: Started")
 	var path string = ""
 	var metricsObj m.PodMetricsObj
 	if namespace != "" && podName != "" {
@@ -427,7 +506,7 @@ func metricsWorkerSingle(finished chan *m.PodMetricsObj, client *kubernetes.Clie
 		if merde != nil {
 			fmt.Printf("Unmarshal issues. %v\n", merde)
 		}
-		fmt.Println(&metricsObj)
+
 	}
 
 	finished <- &metricsObj
@@ -435,16 +514,18 @@ func metricsWorkerSingle(finished chan *m.PodMetricsObj, client *kubernetes.Clie
 
 func (pw PodWorker) builAppDMetricsList() m.AppDMetricList {
 	ml := m.NewAppDMetricList()
+	var list []m.AppDMetric
 	for _, value := range pw.SummaryMap {
 		p := &value
 		objMap := structs.Map(p)
 		for fieldName, fieldValue := range objMap {
-			if fieldName != "NodeName" && fieldName != "Namespace" && fieldName != "Path" && fieldName != "Metadata" {
+			if fieldName != "Nodename" && fieldName != "Namespace" && fieldName != "Path" && fieldName != "Metadata" {
 				appdMetric := m.NewAppDMetric(fieldName, fieldValue.(int64), value.Path)
+				list = append(list, appdMetric)
 				ml.AddMetrics(appdMetric)
-				fmt.Printf("Adding metric %s", appdMetric.ToString())
 			}
 		}
 	}
+	ml.Items = list
 	return ml
 }

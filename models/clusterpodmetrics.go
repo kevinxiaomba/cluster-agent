@@ -36,9 +36,9 @@ type ClusterPodMetrics struct {
 func NewClusterPodMetrics(ns string, node string) ClusterPodMetrics {
 	p := RootPath
 	if node != "" && node != ALL {
-		p = fmt.Sprintf("%s%s%s%s%s", p, METRIC_SEPARATOR, METRIC_PATH_NODES, METRIC_SEPARATOR, node)
+		p = fmt.Sprintf("%s%s%s%s%s", p, METRIC_PATH_NODES, METRIC_SEPARATOR, node, METRIC_SEPARATOR)
 	} else if ns != "" && ns != ALL {
-		p = fmt.Sprintf("%s%s%s%s%s", p, METRIC_SEPARATOR, METRIC_PATH_NAMESPACES, METRIC_SEPARATOR, ns)
+		p = fmt.Sprintf("%s%s%s%s%s", p, METRIC_PATH_NAMESPACES, METRIC_SEPARATOR, ns, METRIC_SEPARATOR)
 	}
 	return ClusterPodMetrics{Namespace: ns, Nodename: node, PodsCount: 0, Evictions: 0,
 		PodRestarts: 0, PodRunning: 0, PodFailed: 0, PodPending: 0, ContainerCount: 0, InitContainerCount: 0,

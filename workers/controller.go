@@ -26,6 +26,7 @@ func NewController(bag *m.AppDBag, client *kubernetes.Clientset) MainController 
 }
 
 func (c *MainController) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
+
 	//	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
 	//	appdController := app.NewControllerClient(c.Bag, logger)
 	//	wg.Add(1)
@@ -107,7 +108,7 @@ func nsWorker(finished chan *v1.NamespaceList, client *kubernetes.Clientset, wg 
 func (c *MainController) podsWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup) {
 	fmt.Println("Starting Pods worker")
 	defer wg.Done()
-	pw := NewPodWorker(client, c.Bag.AppName)
+	pw := NewPodWorker(client, c.Bag)
 	pw.Observe(stopCh, wg)
 	<-stopCh
 }

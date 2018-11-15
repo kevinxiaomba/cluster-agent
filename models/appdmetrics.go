@@ -28,7 +28,7 @@ type AppDMetricList struct {
 }
 
 func NewAppDMetric(name string, val int64, path string) AppDMetric {
-	p := fmt.Sprintf("%s%s%s", path, METRIC_SEPARATOR, name)
+	p := fmt.Sprintf("%s%s", path, name)
 	return AppDMetric{MetricName: name, MetricValue: val, MetricPath: p, MetricTimeRollUpType: appd.APPD_TIMEROLLUP_TYPE_CURRENT, MetricClusterRollUpType: appd.APPD_CLUSTERROLLUP_TYPE_INDIVIDUAL}
 }
 

@@ -134,15 +134,15 @@ func (mobj PodMetricsObj) GetPodUsage() UsageStats {
 		}
 
 		stats.CPU += cpuQ.MilliValue()
-		fmt.Printf("Pod CPU = %d\n", stats.CPU)
+		//		fmt.Printf("Pod CPU = %d\n", stats.CPU)
 
 		memQ, err := res.ParseQuantity(c.Usage.Memory)
 		if err != nil {
 			fmt.Printf("Cannot parse mem %s to quantity\n", c.Usage.Memory)
 		}
 		stats.Memory += memQ.MilliValue() / 1000
-		fmt.Printf("Pod Memory = %d\n", stats.Memory)
-		fmt.Printf("Pod Name: %s CPU: %s\n, Memory: %s\n", mobj.Metadata.Name, c.Usage.Cpu, c.Usage.Memory)
+		//		fmt.Printf("Pod Memory = %d\n", stats.Memory)
+		//		fmt.Printf("Pod Name: %s CPU: %s\n, Memory: %s\n", mobj.Metadata.Name, c.Usage.Cpu, c.Usage.Memory)
 	}
 	return stats
 }

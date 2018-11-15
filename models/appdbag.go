@@ -5,6 +5,7 @@ type AppDBag struct {
 	TierName        string
 	NodeName        string
 	Account         string
+	GlobalAccount   string
 	AccessKey       string
 	ControllerUrl   string
 	ControllerPort  uint16
@@ -14,4 +15,6 @@ type AppDBag struct {
 	EventKey        string
 	EventServiceUrl string
 	RestAPICred     string
+	EventAPILimit   int
+	PodSchemaName   string
 }
