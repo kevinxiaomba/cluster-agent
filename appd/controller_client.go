@@ -38,9 +38,9 @@ func NewControllerClient(bag *m.AppDBag, logger *log.Logger) *ControllerClient {
 	}
 	cfg.Controller.Account = bag.Account
 	cfg.Controller.AccessKey = bag.AccessKey
-	cfg.UseConfigFromEnv = true
+	cfg.UseConfigFromEnv = false
 	cfg.InitTimeoutMs = 1000
-	cfg.Logging.BaseDir = "__console__"
+	//	cfg.Logging.BaseDir = "__console__"
 	cfg.Logging.MinimumLevel = appd.APPD_LOG_LEVEL_DEBUG
 	if err := appd.InitSDK(&cfg); err != nil {
 		logger.Printf("Error initializing the AppDynamics SDK. %v\n", err)

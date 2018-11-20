@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 
-	//	"log"
-	//	"os"
+	"log"
+	"os"
 	"sync"
 
-	//	app "github.com/sjeltuhin/clusterAgent/appd"
+	app "github.com/sjeltuhin/clusterAgent/appd"
 	m "github.com/sjeltuhin/clusterAgent/models"
 
 	"k8s.io/api/core/v1"
@@ -27,8 +27,8 @@ func NewController(bag *m.AppDBag, client *kubernetes.Clientset) MainController 
 
 func (c *MainController) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 
-	//	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	//	appdController := app.NewControllerClient(c.Bag, logger)
+	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
+	appdController := app.NewControllerClient(c.Bag, logger)
 	//	wg.Add(1)
 	//	nsDone := make(chan *v1.NamespaceList)
 	//	go nsWorker(nsDone, c.K8sClient, wg)
@@ -46,7 +46,7 @@ func (c *MainController) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	go c.eventsWorker(stopCh, c.K8sClient, wg)
 
 	wg.Add(1)
-	go c.podsWorker(stopCh, c.K8sClient, wg)
+	go c.podsWorker(stopCh, c.K8sClient, wg, appdController)
 	//	podsDone := make(chan *m.AppDMetricList)
 	//	go c.podsWorker(stopCh, c.K8sClient, wg)
 
@@ -105,10 +105,10 @@ func nsWorker(finished chan *v1.NamespaceList, client *kubernetes.Clientset, wg 
 	finished <- ns
 }
 
-func (c *MainController) podsWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup) {
+func (c *MainController) podsWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
 	fmt.Println("Starting Pods worker")
 	defer wg.Done()
-	pw := NewPodWorker(client, c.Bag)
+	pw := NewPodWorker(client, c.Bag, appdController)
 	pw.Observe(stopCh, wg)
 	<-stopCh
 }

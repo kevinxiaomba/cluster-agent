@@ -21,21 +21,24 @@ import (
 	app "github.com/sjeltuhin/clusterAgent/appd"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+
+	//	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/workqueue"
 )
 
 type PodWorker struct {
-	informer   cache.SharedIndexInformer
-	Client     *kubernetes.Clientset
-	Bag        *m.AppDBag
-	SummaryMap map[string]m.ClusterPodMetrics
-	WQ         workqueue.RateLimitingInterface
+	informer       cache.SharedIndexInformer
+	Client         *kubernetes.Clientset
+	Bag            *m.AppDBag
+	SummaryMap     map[string]m.ClusterPodMetrics
+	WQ             workqueue.RateLimitingInterface
+	AppdController *app.ControllerClient
 }
 
-func NewPodWorker(client *kubernetes.Clientset, bag *m.AppDBag) PodWorker {
+func NewPodWorker(client *kubernetes.Clientset, bag *m.AppDBag, controller *app.ControllerClient) PodWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
-	pw := PodWorker{Client: client, Bag: bag, SummaryMap: make(map[string]m.ClusterPodMetrics), WQ: queue}
+	pw := PodWorker{Client: client, Bag: bag, SummaryMap: make(map[string]m.ClusterPodMetrics), WQ: queue, AppdController: controller}
 	pw.initPodInformer(client)
 	return pw
 }
@@ -72,34 +75,59 @@ func (pw *PodWorker) onNewPod(obj interface{}) {
 	pw.WQ.Add(&podRecord)
 }
 
-func (pw *PodWorker) flushQueue() {
-	fmt.Println("Time to flush the queue")
-	var objList []m.PodSchema
+func (pw *PodWorker) startEventQueueWorker(stopCh <-chan struct{}) {
+	//wait.Until(pw.flushQueue, 30*time.Second, stopCh)
+	pw.eventQueueTicker(stopCh, time.NewTicker(15*time.Second))
+}
 
+func (pw *PodWorker) flushQueue() {
+	count := pw.WQ.Len()
+	fmt.Printf("Flushing the queue of %d records", count)
+	if count == 0 {
+		return
+	}
+
+	var objList []m.PodSchema
 	var podRecord *m.PodSchema
 	var ok bool = true
-	count := 0
-	for ok == true {
+
+	for count >= 0 {
+
 		podRecord, ok = pw.getNextQueueItem()
-		objList = append(objList, *podRecord)
-		count++
-		if count >= pw.Bag.EventAPILimit {
-			ok = false
+		count = count - 1
+		if ok {
+			objList = append(objList, *podRecord)
+		} else {
+			fmt.Println("Queue shut down")
+		}
+		if count == 0 || len(objList) >= pw.Bag.EventAPILimit {
+			fmt.Printf("Sending %d records to AppD events API\n", len(objList))
+			pw.postPodRecords(&objList)
+			return
 		}
 	}
-	fmt.Printf("Flushing queue with %d records", count)
+
+}
+
+func (pw *PodWorker) postPodRecords(objList *[]m.PodSchema) {
 	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
 	rc := app.NewRestClient(pw.Bag, logger)
+	auth := rc.GetRestAuth()
+	fmt.Printf("Token: %s  Session ID: %s", auth.Token, auth.SessionID)
 	data, err := json.Marshal(objList)
-	schemaDef, e := json.Marshal(m.PodSchemaDefWrapper{})
+	schemaDefObj := m.NewPodSchemaDefWrapper()
+	schemaDef, e := json.Marshal(schemaDefObj)
+	fmt.Printf("Schema def: %s\n", string(schemaDef))
 	if err == nil && e == nil {
 		if rc.SchemaExists(pw.Bag.PodSchemaName) == false {
-			fmt.Printf("Creating schema. %s", pw.Bag.PodSchemaName)
-			rc.CreateSchema(pw.Bag.PodSchemaName, schemaDef)
-			fmt.Printf("Schema %s created", pw.Bag.PodSchemaName)
+			fmt.Printf("Creating schema. %s\n", pw.Bag.PodSchemaName)
+			if rc.CreateSchema(pw.Bag.PodSchemaName, schemaDef) != nil {
+				fmt.Printf("Schema %s created", pw.Bag.PodSchemaName)
+			}
 		} else {
 			fmt.Printf("Schema %s exists", pw.Bag.PodSchemaName)
 		}
+		fmt.Println("About to post records")
 		rc.PostAppDEvents(pw.Bag.PodSchemaName, data)
 	} else {
 		fmt.Printf("Problems when serializing array of pod schemas. %v", err)
@@ -132,18 +160,30 @@ func (pw PodWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	defer wg.Done()
 	defer pw.WQ.ShutDown()
 	wg.Add(1)
-
 	go pw.informer.Run(stopCh)
 
+	if !cache.WaitForCacheSync(stopCh, pw.HasSynced) {
+		fmt.Errorf("Timed out waiting for caches to sync")
+	}
+	fmt.Println("Cache syncronized. Starting the processing...")
+
 	wg.Add(1)
+	go pw.startMetricsWorker(stopCh)
 
-	go pw.appMetricTicker(stopCh, time.NewTicker(15*time.Second))
-
-	//	wg.Add(1)
-
-	//	go pw.eventQueueTicker(stopCh, time.NewTicker(30*time.Second))
+	wg.Add(1)
+	go pw.startEventQueueWorker(stopCh)
 
 	<-stopCh
+}
+
+func (pw *PodWorker) HasSynced() bool {
+	return pw.informer.HasSynced()
+}
+
+func (pw *PodWorker) startMetricsWorker(stopCh <-chan struct{}) {
+	//	wait.Until(pw.buildAppDMetrics, 45*time.Second, stopCh)
+	pw.appMetricTicker(stopCh, time.NewTicker(45*time.Second))
+
 }
 
 func (pw *PodWorker) appMetricTicker(stop <-chan struct{}, ticker *time.Ticker) {
@@ -185,9 +225,8 @@ func (pw *PodWorker) buildAppDMetrics() {
 	ml := pw.builAppDMetricsList()
 
 	fmt.Printf("Ready to push %d metrics\n", len(ml.Items))
-	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	appdController := app.NewControllerClient(pw.Bag, logger)
-	appdController.PostMetrics(ml)
+
+	pw.AppdController.PostMetrics(ml)
 }
 
 func (pw *PodWorker) processObject(p *v1.Pod) m.PodSchema {

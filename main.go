@@ -47,7 +47,6 @@ func buildParams() Flags {
 	var tempPort uint
 	flag.UintVar(&tempPort, "controller-port", getControllerPort(), "Controller Port")
 	params.Bag.ControllerPort = uint16(tempPort)
-	fmt.Printf("Controller Port: %d", params.Bag.ControllerPort)
 
 	flag.Parse()
 
@@ -65,7 +64,7 @@ func main() {
 
 	params := buildParams()
 
-	fmt.Printf("Parameters:\n %s", params)
+	fmt.Printf("Parameters:\n %s and NodeName = %s", params, params.Bag.NodeName)
 	config, err := authFromConfig(&params)
 	if err != nil {
 		log.Printf("Issues getting kube config. %s. Terminating...", err.Error())

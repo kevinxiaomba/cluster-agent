@@ -10,7 +10,7 @@ RUN go get ./
 
 RUN  go build
 
-
+ENV ACCOUNT_NAME customer1
 ENV ACCESS_KEY 45ed60c0-e6f4-4330-b0c2-9939a6884726
 ENV CONTROLLER_URL 451controllerbase-oscert-aoaz7jqm.srv.ravcloud.com
 ENV CONTROLLER_PORT 8090

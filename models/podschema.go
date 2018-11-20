@@ -15,45 +15,45 @@ type PodSchemaDef struct {
 	ClusterName                   string `json:"clusterName"`
 	Labels                        string `json:"labels"`
 	Annotations                   string `json:"annotations"`
-	ContainerCount                string `json:"name"`
-	InitContainerCount            string `json:"name"`
-	NodeName                      string `json:"name"`
-	Priority                      string `json:"name"`
-	RestartPolicy                 string `json:"name"`
-	ServiceAccountName            string `json:"name"`
-	TerminationGracePeriodSeconds string `json:"name"`
-	Tolerations                   string `json:"name"`
-	NodeAffinityPreferred         string `json:"name"`
-	NodeAffinityRequired          string `json:"name"`
-	HasPodAffinity                string `json:"name"`
-	HasPodAntiAffinity            string `json:"name"`
-	HostIP                        string `json:"name"`
-	Phase                         string `json:"name"`
-	PodIP                         string `json:"name"`
-	Reason                        string `json:"name"`
-	StartTime                     string `json:"name"`
-	LastTransitionTimeCondition   string `json:"name"`
-	ReasonCondition               string `json:"name"`
-	StatusCondition               string `json:"name"`
-	TypeCondition                 string `json:"name"`
-	LimitsDefined                 string `json:"name"`
-	LiveProbes                    string `json:"name"`
-	ReadyProbes                   string `json:"name"`
-	PodRestarts                   string `json:"name"`
-	NumPrivileged                 string `json:"name"`
-	Ports                         string `json:"name"`
-	MemRequest                    string `json:"name"`
-	CpuRequest                    string `json:"name"`
-	CpuLimit                      string `json:"name"`
-	MemLimit                      string `json:"name"`
-	CpuUse                        string `json:"name"`
-	MemUse                        string `json:"name"`
-	Images                        string `json:"name"`
-	WaitReasons                   string `json:"name"`
-	TermReasons                   string `json:"name"`
-	RunningStartTime              string `json:"name"`
-	TerminationTime               string `json:"name"`
-	Mounts                        string `json:"name"`
+	ContainerCount                string `json:"containerCount"`
+	InitContainerCount            string `json:"initContainerCount"`
+	NodeName                      string `json:"nodeName"`
+	Priority                      string `json:"priority"`
+	RestartPolicy                 string `json:"restartPolicy"`
+	ServiceAccountName            string `json:"serviceAccountName"`
+	TerminationGracePeriodSeconds string `json:"terminationGracePeriodSeconds"`
+	Tolerations                   string `json:"tolerations"`
+	NodeAffinityPreferred         string `json:"nodeAffinityPreferred"`
+	NodeAffinityRequired          string `json:"nodeAffinityRequired"`
+	HasPodAffinity                string `json:"hasPodAffinity"`
+	HasPodAntiAffinity            string `json:"hasPodAntiAffinity"`
+	HostIP                        string `json:"hostIP"`
+	Phase                         string `json:"phase"`
+	PodIP                         string `json:"podIP"`
+	Reason                        string `json:"reason"`
+	StartTime                     string `json:"startTime"`
+	LastTransitionTimeCondition   string `json:"lastTransitionTimeCondition"`
+	ReasonCondition               string `json:"reasonCondition"`
+	StatusCondition               string `json:"statusCondition"`
+	TypeCondition                 string `json:"typeCondition"`
+	LimitsDefined                 string `json:"limitsDefined"`
+	LiveProbes                    string `json:"liveProbes"`
+	ReadyProbes                   string `json:"readyProbes"`
+	PodRestarts                   string `json:"podRestarts"`
+	NumPrivileged                 string `json:"numPrivileged"`
+	Ports                         string `json:"ports"`
+	MemRequest                    string `json:"memRequest"`
+	CpuRequest                    string `json:"cpuRequest"`
+	CpuLimit                      string `json:"cpuLimit"`
+	MemLimit                      string `json:"memLimit"`
+	CpuUse                        string `json:"cpuUse"`
+	MemUse                        string `json:"memUse"`
+	Images                        string `json:"images"`
+	WaitReasons                   string `json:"waitReasons"`
+	TermReasons                   string `json:"termReasons"`
+	RunningStartTime              string `json:"runningStartTime"`
+	TerminationTime               string `json:"terminationTime"`
+	Mounts                        string `json:"mounts"`
 }
 
 func NewPodSchemaDefWrapper() PodSchemaDefWrapper {
@@ -64,7 +64,7 @@ func NewPodSchemaDefWrapper() PodSchemaDefWrapper {
 
 func NewPodSchemaDef() PodSchemaDef {
 	pdsd := PodSchemaDef{Name: "string", Namespace: "string", ClusterName: "string", Labels: "string", Annotations: "string", ContainerCount: "integer",
-		InitContainerCount: "integer", NodeName: "string", Priority: "string", RestartPolicy: "string", ServiceAccountName: "string", TerminationGracePeriodSeconds: "integer",
+		InitContainerCount: "integer", NodeName: "string", Priority: "integer", RestartPolicy: "string", ServiceAccountName: "string", TerminationGracePeriodSeconds: "integer",
 		Tolerations: "string", NodeAffinityPreferred: "string", NodeAffinityRequired: "string", HasPodAffinity: "boolean", HasPodAntiAffinity: "boolean",
 		HostIP: "string", Phase: "string", PodIP: "string", Reason: "string", StartTime: "date", LastTransitionTimeCondition: "date", ReasonCondition: "string",
 		StatusCondition: "string", TypeCondition: "string", LimitsDefined: "boolean", LiveProbes: "integer", ReadyProbes: "integer", PodRestarts: "integer",
@@ -97,7 +97,7 @@ type PodSchema struct {
 	Reason                        string    `json:"reason"`
 	StartTime                     time.Time `json:"startTime"`
 	LastTransitionTimeCondition   time.Time `json:"lastTransitionTimeCondition"`
-	ReasonCondition               string    `json:"eeasonCondition"`
+	ReasonCondition               string    `json:"reasonCondition"`
 	StatusCondition               string    `json:"statusCondition"`
 	TypeCondition                 string    `json:"typeCondition"`
 	LimitsDefined                 bool      `json:"limitsDefined"`
