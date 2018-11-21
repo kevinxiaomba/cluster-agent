@@ -43,6 +43,7 @@ func buildParams() Flags {
 	flag.StringVar(&params.Bag.RestAPICred, "rest-api-creds", getRestAPICred(), "Rest API Credentials")
 	flag.BoolVar(&params.Bag.SSLEnabled, "use-ssl", false, "Controller uses SSL connection")
 	flag.StringVar(&params.Bag.PodSchemaName, "schema-pods", "k8s_pod_snapshots", "Pod schema name")
+	flag.StringVar(&params.Bag.DashboardTemplatePath, "template-path", getTemplatePath(), "Pod schema name")
 	flag.IntVar(&params.Bag.EventAPILimit, "event-batch-size", 100, "Max number of AppD events record to send in a batch")
 	var tempPort uint
 	flag.UintVar(&tempPort, "controller-port", getControllerPort(), "Controller Port")
@@ -166,6 +167,18 @@ func getSystemSSL() string {
 
 func getAgentSSL() string {
 	return os.Getenv("AGENT_SSL")
+}
+
+func getTemplatePath() string {
+	templPath := os.Getenv("DASH_TEMPLATE__PATH")
+	if templPath == "" {
+		absPath, err := filepath.Abs("templates/k8s_dashboard_template.json")
+		if err != nil {
+			fmt.Printf("Cannot find dashbaord template. %v\n", err)
+		}
+		templPath = absPath
+	}
+	return templPath
 }
 
 func getControllerPort() uint {

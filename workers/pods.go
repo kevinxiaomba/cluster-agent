@@ -112,8 +112,6 @@ func (pw *PodWorker) flushQueue() {
 func (pw *PodWorker) postPodRecords(objList *[]m.PodSchema) {
 	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
 	rc := app.NewRestClient(pw.Bag, logger)
-	auth := rc.GetRestAuth()
-	fmt.Printf("Token: %s  Session ID: %s", auth.Token, auth.SessionID)
 	data, err := json.Marshal(objList)
 	schemaDefObj := m.NewPodSchemaDefWrapper()
 	schemaDef, e := json.Marshal(schemaDefObj)

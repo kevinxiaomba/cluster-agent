@@ -28,45 +28,48 @@ func NewController(bag *m.AppDBag, client *kubernetes.Clientset) MainController 
 func (c *MainController) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 
 	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	appdController := app.NewControllerClient(c.Bag, logger)
-	//	wg.Add(1)
-	//	nsDone := make(chan *v1.NamespaceList)
-	//	go nsWorker(nsDone, c.K8sClient, wg)
+
+	rc := app.NewRestClient(c.Bag, logger)
+	rc.CreateDashboard()
+	//	appdController := app.NewControllerClient(c.Bag, logger)
+	//	//	wg.Add(1)
+	//	//	nsDone := make(chan *v1.NamespaceList)
+	//	//	go nsWorker(nsDone, c.K8sClient, wg)
+
+	//	//	wg.Add(1)
+	//	//	nodesDone := make(chan *v1.NodeList)
+	//	//	go nodesWorker(nodesDone, c.K8sClient, wg)
+
+	//	//	wg.Add(1)
+	//	//	metricsDoneNodes := make(chan *m.NodeMetricsObjList)
+	//	//	go metricsWorkerNodes(metricsDoneNodes, c.K8sClient, wg)
 
 	//	wg.Add(1)
-	//	nodesDone := make(chan *v1.NodeList)
-	//	go nodesWorker(nodesDone, c.K8sClient, wg)
+	//	//	eventsDone := make(chan *m.AppDMetricList)
+	//	go c.eventsWorker(stopCh, c.K8sClient, wg)
 
 	//	wg.Add(1)
-	//	metricsDoneNodes := make(chan *m.NodeMetricsObjList)
-	//	go metricsWorkerNodes(metricsDoneNodes, c.K8sClient, wg)
+	//	go c.podsWorker(stopCh, c.K8sClient, wg, appdController)
+	//	//	podsDone := make(chan *m.AppDMetricList)
+	//	//	go c.podsWorker(stopCh, c.K8sClient, wg)
 
-	wg.Add(1)
-	//	eventsDone := make(chan *m.AppDMetricList)
-	go c.eventsWorker(stopCh, c.K8sClient, wg)
+	//	//	nsList := <-nsDone
+	//	//	recordNamespaces(nsList)
 
-	wg.Add(1)
-	go c.podsWorker(stopCh, c.K8sClient, wg, appdController)
-	//	podsDone := make(chan *m.AppDMetricList)
-	//	go c.podsWorker(stopCh, c.K8sClient, wg)
+	//	//	nodesList := <-nodesDone
+	//	//	recordNodes(nodesList)
 
-	//	nsList := <-nsDone
-	//	recordNamespaces(nsList)
+	//	//	podMetricsList := <-podsDone
+	//	//	recordMetrics("Pods", podMetricsList)
+	//	//	appdController.PostMetrics(*podMetricsList)
 
-	//	nodesList := <-nodesDone
-	//	recordNodes(nodesList)
+	//	//	metricsDataNodes := <-metricsDoneNodes
+	//	//	metricsDataNodes.PrintNodeList()
 
-	//	podMetricsList := <-podsDone
-	//	recordMetrics("Pods", podMetricsList)
-	//	appdController.PostMetrics(*podMetricsList)
+	//	//	eventMetrics := <-eventsDone
+	//	//	recordMetrics("Events", eventMetrics)
 
-	//	metricsDataNodes := <-metricsDoneNodes
-	//	metricsDataNodes.PrintNodeList()
-
-	//	eventMetrics := <-eventsDone
-	//	recordMetrics("Events", eventMetrics)
-
-	<-stopCh
+	//	<-stopCh
 }
 
 func recordNamespaces(nsList *v1.NamespaceList) {

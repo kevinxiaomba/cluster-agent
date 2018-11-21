@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
+	"mime/multipart"
 	"net/http"
+	"os"
 
 	m "github.com/sjeltuhin/clusterAgent/models"
 )
@@ -39,7 +42,6 @@ func (rc *RestClient) SchemaExists(schemaName string) bool {
 		}
 		if resp != nil && resp.Body != nil {
 			fmt.Println("response Status:", resp.Status)
-			fmt.Println("response Headers:", resp.Header)
 
 			defer resp.Body.Close()
 			body, _ := ioutil.ReadAll(resp.Body)
@@ -70,7 +72,6 @@ func (rc *RestClient) CreateSchema(schemaName string, data []byte) []byte {
 		defer resp.Body.Close()
 
 		fmt.Println("response Status:", resp.Status)
-		fmt.Println("response Headers:", resp.Header)
 		body, _ := ioutil.ReadAll(resp.Body)
 		fmt.Println("response Body:", string(body))
 
@@ -93,27 +94,22 @@ func (rc *RestClient) PostAppDEvents(schemaName string, data []byte) []byte {
 	defer resp.Body.Close()
 
 	fmt.Println("response Status:", resp.Status)
-	fmt.Println("response Headers:", resp.Header)
 	body, _ := ioutil.ReadAll(resp.Body)
 	fmt.Println("response Body:", string(body))
 	return body
 }
 
-func (rc *RestClient) GetRestAuth() AppDRestAuth {
+func (rc *RestClient) GetRestAuth() (AppDRestAuth, error) {
 	restAuth := NewRestAuth("", "")
-	controllerHost := rc.Bag.ControllerUrl
-	if rc.Bag.SSLEnabled {
-		controllerHost = fmt.Sprintf("https://%s/controller/", controllerHost)
-	} else {
-		controllerHost = fmt.Sprintf("http://%s:%d/controller/", controllerHost, rc.Bag.ControllerPort)
-	}
-	url := controllerHost + "auth?action=login"
+
+	url := rc.getControllerUrl() + "auth?action=login"
 	fmt.Printf("Auth url: %s", url)
 	bu := []byte(rc.Bag.RestAPICred)
 	creds := base64.StdEncoding.EncodeToString(bu)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		fmt.Printf("Issues building request for obtaining session and cookie. %v", err)
+		return restAuth, err
 	}
 	authHeader := "Basic " + creds
 	req.Header.Set("Authorization", authHeader)
@@ -123,6 +119,7 @@ func (rc *RestClient) GetRestAuth() AppDRestAuth {
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("Issues obtaining session and cookie. %v", err)
+		return restAuth, err
 	}
 	for _, cookie := range resp.Cookies() {
 		if cookie.Name == "X-CSRF-TOKEN" {
@@ -133,5 +130,112 @@ func (rc *RestClient) GetRestAuth() AppDRestAuth {
 		}
 	}
 
-	return restAuth
+	return restAuth, nil
+}
+
+func (rc *RestClient) getControllerUrl() string {
+	controllerHost := rc.Bag.ControllerUrl
+	if rc.Bag.SSLEnabled {
+		controllerHost = fmt.Sprintf("https://%s/controller/", controllerHost)
+	} else {
+		controllerHost = fmt.Sprintf("http://%s:%d/controller/", controllerHost, rc.Bag.ControllerPort)
+	}
+	return controllerHost
+}
+
+func (rc *RestClient) CallAppDController(path, method string, data []byte) ([]byte, error) {
+	auth, err := rc.GetRestAuth()
+	if err != nil {
+		return nil, fmt.Errorf("Auth failed. Cannot call AppD controller")
+	}
+
+	url := rc.getControllerUrl() + path
+	var body io.Reader = nil
+	if data != nil {
+		body = bytes.NewBuffer(data)
+	}
+	req, err := http.NewRequest(method, url, body)
+	req.Header.Set("Accept", "application/json")
+	if method == "POST" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.Header.Set("X-CSRF-TOKEN", auth.Token)
+	req.Header.Set("Cookie", auth.getAuthCookie())
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("Unable to post events. %v", err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	fmt.Println("response Status:", resp.Status)
+	b, _ := ioutil.ReadAll(resp.Body)
+	fmt.Println("response Body:", string(b))
+	return b, nil
+}
+
+func (rc *RestClient) CreateDashboard() ([]byte, error) {
+
+	url := rc.getControllerUrl() + "CustomDashboardImportExportServlet"
+
+	fmt.Printf("\nCreating dashboard: %s\n", url)
+
+	bu := []byte(rc.Bag.RestAPICred)
+	creds := base64.StdEncoding.EncodeToString(bu)
+
+	fmt.Printf("Credentials: %s\n", creds)
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	file, err := os.Open(rc.Bag.DashboardTemplatePath)
+	if err != nil {
+		fmt.Printf("Unable to Open template file. %v\n", err)
+		return nil, err
+	}
+	defer file.Close()
+
+	fmt.Printf("\nGot the file: %s\n", file.Name())
+
+	part, err := writer.CreateFormFile("bullshit", file.Name())
+	if err != nil {
+		fmt.Printf("Unable to create part for file uploads. %v\n", err)
+		return nil, err
+	}
+	_, errC := io.Copy(part, file)
+	if errC != nil {
+		fmt.Printf("Unable to copy part for file uploads. %v\n", errC)
+		return nil, errC
+	}
+
+	fmt.Println("Copied the part")
+	err = writer.Close()
+	if err != nil {
+		fmt.Printf("Unable to create request for dashboard post. %v\n", err)
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", url, body)
+	if err != nil {
+		fmt.Printf("Unable to create request for dashboard post. %v\n", err)
+	}
+	authHeader := "Basic " + creds
+	req.Header.Set("Authorization", authHeader)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Printf("Unable to create dashboard. %v\n", err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	fmt.Println("response Status:", resp.Status)
+	b, _ := ioutil.ReadAll(resp.Body)
+	fmt.Println("response Body:", string(b))
+	return b, nil
+
 }
