@@ -3,8 +3,10 @@ package workers
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -14,6 +16,7 @@ import (
 	m "github.com/sjeltuhin/clusterAgent/models"
 
 	//	"github.com/sjeltuhin/clusterAgent/watchers"
+
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/tools/cache"
@@ -147,11 +150,21 @@ func (pw *PodWorker) getNextQueueItem() (*m.PodSchema, bool) {
 func (pw *PodWorker) onDeletePod(obj interface{}) {
 	podObj := obj.(*v1.Pod)
 	fmt.Printf("Deleted Pod: %s %s\n", podObj.Namespace, podObj.Name)
+	podRecord := pw.processObject(podObj)
+	pw.WQ.Add(&podRecord)
 }
 
 func (pw *PodWorker) onUpdatePod(objOld interface{}, objNew interface{}) {
 	podObj := objNew.(*v1.Pod)
-	fmt.Printf("Pod changed: %s %s\n", podObj.Namespace, podObj.Name)
+	podOldObj := objOld.(*v1.Pod)
+
+	podRecord := pw.processObject(podObj)
+	podOldRecord := pw.processObject(podOldObj)
+
+	if !podRecord.Equals(&podOldRecord) {
+		fmt.Printf("Pod changed: %s %s\n", podObj.Namespace, podObj.Name)
+		pw.WQ.Add(&podRecord)
+	}
 }
 
 func (pw PodWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
@@ -245,6 +258,7 @@ func (pw *PodWorker) processObject(p *v1.Pod) m.PodSchema {
 	if !ok {
 		summary = m.NewClusterPodMetrics(m.ALL, m.ALL)
 		pw.SummaryMap[m.ALL] = summary
+		pw.registerMetrics(&summary)
 	}
 
 	//namespace metrics
@@ -252,6 +266,7 @@ func (pw *PodWorker) processObject(p *v1.Pod) m.PodSchema {
 	if !ok {
 		summaryNode = m.NewClusterPodMetrics(m.ALL, podObject.NodeName)
 		pw.SummaryMap[podObject.NodeName] = summaryNode
+		pw.registerMetrics(&summaryNode)
 	}
 
 	//node metrics
@@ -259,6 +274,7 @@ func (pw *PodWorker) processObject(p *v1.Pod) m.PodSchema {
 	if !ok {
 		summaryNS = m.NewClusterPodMetrics(podObject.Namespace, m.ALL)
 		pw.SummaryMap[podObject.Namespace] = summaryNS
+		pw.registerMetrics(&summaryNS)
 	}
 
 	summary.PodsCount = summary.PodsCount + 1
@@ -471,6 +487,40 @@ func (pw *PodWorker) processObject(p *v1.Pod) m.PodSchema {
 	return podObject
 }
 
+func (pw PodWorker) getLogs(namespace, podName string, logOptions *v1.PodLogOptions, out io.Writer) error {
+	req := pw.Client.RESTClient().Get().
+		Namespace(namespace).
+		Name(podName).
+		Resource("pods").
+		SubResource("log").
+		Param("follow", strconv.FormatBool(logOptions.Follow)).
+		Param("container", logOptions.Container).
+		Param("previous", strconv.FormatBool(logOptions.Previous)).
+		Param("timestamps", strconv.FormatBool(logOptions.Timestamps))
+
+	if logOptions.SinceSeconds != nil {
+		req.Param("sinceSeconds", strconv.FormatInt(*logOptions.SinceSeconds, 10))
+	}
+	if logOptions.SinceTime != nil {
+		req.Param("sinceTime", logOptions.SinceTime.Format(time.RFC3339))
+	}
+	if logOptions.LimitBytes != nil {
+		req.Param("limitBytes", strconv.FormatInt(*logOptions.LimitBytes, 10))
+	}
+	if logOptions.TailLines != nil {
+		req.Param("tailLines", strconv.FormatInt(*logOptions.TailLines, 10))
+	}
+	readCloser, err := req.Stream()
+	if err != nil {
+		return err
+	}
+
+	defer readCloser.Close()
+	_, err = io.Copy(out, readCloser)
+	return err
+
+}
+
 //func (pw PodWorker) BuildPodsSnapshot() m.AppDMetricList {
 //	fmt.Println("Pods Worker: Started")
 //	var metricsMap *map[string]m.UsageStats = pw.GetPodMetrics()
@@ -553,16 +603,26 @@ func (pw PodWorker) builAppDMetricsList() m.AppDMetricList {
 	ml := m.NewAppDMetricList()
 	var list []m.AppDMetric
 	for _, value := range pw.SummaryMap {
-		p := &value
-		objMap := structs.Map(p)
-		for fieldName, fieldValue := range objMap {
-			if fieldName != "Nodename" && fieldName != "Namespace" && fieldName != "Path" && fieldName != "Metadata" {
-				appdMetric := m.NewAppDMetric(fieldName, fieldValue.(int64), value.Path)
-				list = append(list, appdMetric)
-				ml.AddMetrics(appdMetric)
-			}
-		}
+		pw.addMetricToList(&value, &list)
 	}
 	ml.Items = list
 	return ml
+}
+
+func (pw PodWorker) addMetricToList(metric *m.ClusterPodMetrics, list *[]m.AppDMetric) {
+	objMap := structs.Map(metric)
+	for fieldName, fieldValue := range objMap {
+		if fieldName != "Nodename" && fieldName != "Namespace" && fieldName != "Path" && fieldName != "Metadata" {
+			appdMetric := m.NewAppDMetric(fieldName, fieldValue.(int64), metric.Path)
+			*list = append(*list, appdMetric)
+		}
+	}
+}
+
+func (pw PodWorker) registerMetrics(metric *m.ClusterPodMetrics) {
+	ml := m.NewAppDMetricList()
+	var list []m.AppDMetric
+	pw.addMetricToList(metric, &list)
+	ml.Items = list
+	pw.AppdController.RegisterMetrics(ml)
 }

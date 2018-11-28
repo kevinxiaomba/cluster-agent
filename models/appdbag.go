@@ -18,4 +18,5 @@ type AppDBag struct {
 	EventAPILimit         int
 	PodSchemaName         string
 	DashboardTemplatePath string
+	DashboardSuffix       string
 }

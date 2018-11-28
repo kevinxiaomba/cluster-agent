@@ -2,6 +2,7 @@ package models
 
 import (
 	"fmt"
+	"reflect"
 	"time"
 )
 
@@ -122,6 +123,10 @@ type PodSchema struct {
 
 type PodObjList struct {
 	Items []PodSchema
+}
+
+func (ps *PodSchema) Equals(obj *PodSchema) bool {
+	return reflect.DeepEqual(*ps, *obj)
 }
 
 func NewPodObjList() PodObjList {

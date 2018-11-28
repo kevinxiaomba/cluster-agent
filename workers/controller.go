@@ -3,10 +3,12 @@ package workers
 import (
 	"encoding/json"
 	"fmt"
-
+	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"sync"
+	"time"
 
 	app "github.com/sjeltuhin/clusterAgent/appd"
 	m "github.com/sjeltuhin/clusterAgent/models"
@@ -19,55 +21,25 @@ import (
 type MainController struct {
 	Bag       *m.AppDBag
 	K8sClient *kubernetes.Clientset
+	Logger    *log.Logger
 }
 
-func NewController(bag *m.AppDBag, client *kubernetes.Clientset) MainController {
-	return MainController{bag, client}
+func NewController(bag *m.AppDBag, client *kubernetes.Clientset, l *log.Logger) MainController {
+	return MainController{bag, client, l}
 }
 
 func (c *MainController) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 
-	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
+	appdController := app.NewControllerClient(c.Bag, c.Logger)
 
-	rc := app.NewRestClient(c.Bag, logger)
-	rc.CreateDashboard()
-	//	appdController := app.NewControllerClient(c.Bag, logger)
-	//	//	wg.Add(1)
-	//	//	nsDone := make(chan *v1.NamespaceList)
-	//	//	go nsWorker(nsDone, c.K8sClient, wg)
+	wg.Add(1)
+	go c.eventsWorker(stopCh, c.K8sClient, wg)
 
-	//	//	wg.Add(1)
-	//	//	nodesDone := make(chan *v1.NodeList)
-	//	//	go nodesWorker(nodesDone, c.K8sClient, wg)
+	wg.Add(1)
+	go c.podsWorker(stopCh, c.K8sClient, wg, appdController)
 
-	//	//	wg.Add(1)
-	//	//	metricsDoneNodes := make(chan *m.NodeMetricsObjList)
-	//	//	go metricsWorkerNodes(metricsDoneNodes, c.K8sClient, wg)
-
-	//	wg.Add(1)
-	//	//	eventsDone := make(chan *m.AppDMetricList)
-	//	go c.eventsWorker(stopCh, c.K8sClient, wg)
-
-	//	wg.Add(1)
-	//	go c.podsWorker(stopCh, c.K8sClient, wg, appdController)
-	//	//	podsDone := make(chan *m.AppDMetricList)
-	//	//	go c.podsWorker(stopCh, c.K8sClient, wg)
-
-	//	//	nsList := <-nsDone
-	//	//	recordNamespaces(nsList)
-
-	//	//	nodesList := <-nodesDone
-	//	//	recordNodes(nodesList)
-
-	//	//	podMetricsList := <-podsDone
-	//	//	recordMetrics("Pods", podMetricsList)
-	//	//	appdController.PostMetrics(*podMetricsList)
-
-	//	//	metricsDataNodes := <-metricsDoneNodes
-	//	//	metricsDataNodes.PrintNodeList()
-
-	//	//	eventMetrics := <-eventsDone
-	//	//	recordMetrics("Events", eventMetrics)
+	wg.Add(1)
+	go c.startDashboardWorker(stopCh)
 
 	//	<-stopCh
 }
@@ -94,6 +66,86 @@ func recordMetrics(entity string, metrics *m.AppDMetricList) {
 	for _, pd := range metrics.Items {
 		fmt.Printf(template, pd.MetricName)
 	}
+}
+
+func (c *MainController) startDashboardWorker(stopCh <-chan struct{}) {
+	c.dashboardTicker(stopCh, time.NewTicker(1*time.Minute))
+}
+
+func (c *MainController) dashboardTicker(stop <-chan struct{}, ticker *time.Ticker) {
+	for {
+		select {
+		case <-ticker.C:
+			c.ensureDashboard()
+		case <-stop:
+			ticker.Stop()
+			return
+		}
+	}
+}
+
+func (c *MainController) ensureDashboard() {
+	fmt.Println("Checking the dashboard")
+	rc := app.NewRestClient(c.Bag, c.Logger)
+	data, err := rc.CallAppDController("restui/dashboards/getAllDashboardsByType/false", "GET", nil)
+	if err != nil {
+		fmt.Printf("Unable to get the list of dashaboard. %v\n", err)
+		return
+	}
+	var list []m.Dashboard
+	e := json.Unmarshal(data, &list)
+	if e != nil {
+		fmt.Printf("Unable to deserialize the list of dashaboards. %v\n", e)
+		return
+	}
+	dashName := fmt.Sprintf("%s-%s-%s", c.Bag.AppName, c.Bag.TierName, c.Bag.DashboardSuffix)
+	exists := false
+	for _, d := range list {
+		if d.Name == dashName {
+			exists = true
+			fmt.Printf("Dashaboard %s exists. No action required\n", dashName)
+			break
+		}
+	}
+	if !exists {
+		fmt.Printf("Dashaboard %s does not exist. Creating...\n", dashName)
+		c.createDashboard(dashName)
+	}
+}
+
+func (c *MainController) createDashboard(dashName string) {
+
+	jsonFile, err := os.Open(c.Bag.DashboardTemplatePath)
+	// if we os.Open returns an error then handle it
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println("Successfully Opened Dashboard template")
+	defer jsonFile.Close()
+
+	byteValue, _ := ioutil.ReadAll(jsonFile)
+
+	var result map[string]interface{}
+	json.Unmarshal([]byte(byteValue), &result)
+
+	result["name"] = dashName
+
+	generated, errMar := json.Marshal(result)
+	if errMar != nil {
+		fmt.Println(errMar)
+		return
+	}
+	dir := filepath.Dir(c.Bag.DashboardTemplatePath)
+	fileForUpload := dir + "/GENERATED.json"
+	fmt.Printf("About to upload file %s...\n", fileForUpload)
+	errSave := ioutil.WriteFile(fileForUpload, generated, 0644)
+	if errSave != nil {
+		fmt.Printf("Issues when writing generated file. %v\n", errSave)
+	}
+	rc := app.NewRestClient(c.Bag, c.Logger)
+	rc.CreateDashboard(fileForUpload)
+
 }
 
 func nsWorker(finished chan *v1.NamespaceList, client *kubernetes.Clientset, wg *sync.WaitGroup) {

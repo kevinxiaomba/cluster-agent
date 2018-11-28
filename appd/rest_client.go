@@ -103,7 +103,6 @@ func (rc *RestClient) GetRestAuth() (AppDRestAuth, error) {
 	restAuth := NewRestAuth("", "")
 
 	url := rc.getControllerUrl() + "auth?action=login"
-	fmt.Printf("Auth url: %s", url)
 	bu := []byte(rc.Bag.RestAPICred)
 	creds := base64.StdEncoding.EncodeToString(bu)
 	req, err := http.NewRequest("GET", url, nil)
@@ -176,7 +175,7 @@ func (rc *RestClient) CallAppDController(path, method string, data []byte) ([]by
 	return b, nil
 }
 
-func (rc *RestClient) CreateDashboard() ([]byte, error) {
+func (rc *RestClient) CreateDashboard(templatePath string) ([]byte, error) {
 
 	url := rc.getControllerUrl() + "CustomDashboardImportExportServlet"
 
@@ -190,7 +189,7 @@ func (rc *RestClient) CreateDashboard() ([]byte, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	file, err := os.Open(rc.Bag.DashboardTemplatePath)
+	file, err := os.Open(templatePath)
 	if err != nil {
 		fmt.Printf("Unable to Open template file. %v\n", err)
 		return nil, err
@@ -199,7 +198,7 @@ func (rc *RestClient) CreateDashboard() ([]byte, error) {
 
 	fmt.Printf("\nGot the file: %s\n", file.Name())
 
-	part, err := writer.CreateFormFile("bullshit", file.Name())
+	part, err := writer.CreateFormFile("file", file.Name())
 	if err != nil {
 		fmt.Printf("Unable to create part for file uploads. %v\n", err)
 		return nil, err
@@ -210,7 +209,6 @@ func (rc *RestClient) CreateDashboard() ([]byte, error) {
 		return nil, errC
 	}
 
-	fmt.Println("Copied the part")
 	err = writer.Close()
 	if err != nil {
 		fmt.Printf("Unable to create request for dashboard post. %v\n", err)

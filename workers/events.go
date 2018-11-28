@@ -69,6 +69,7 @@ func (ew EventWorker) BuildEventSnapshot() m.AppDMetricList {
 
 	api := ew.Client.CoreV1()
 	_, err := api.Events("").List(metav1.ListOptions{})
+
 	if err != nil {
 		fmt.Printf("Issues getting events %s\n", err)
 		return m.NewAppDMetricList()

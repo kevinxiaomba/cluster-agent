@@ -12,8 +12,9 @@ import (
 )
 
 type ControllerClient struct {
-	logger *log.Logger
-	Bag    *m.AppDBag
+	logger     *log.Logger
+	Bag        *m.AppDBag
+	regMetrics map[string]bool
 }
 
 func NewControllerClient(bag *m.AppDBag, logger *log.Logger) *ControllerClient {
@@ -49,7 +50,30 @@ func NewControllerClient(bag *m.AppDBag, logger *log.Logger) *ControllerClient {
 	}
 	logger.Println(&cfg.Controller)
 
-	return &ControllerClient{Bag: bag, logger: logger}
+	return &ControllerClient{Bag: bag, logger: logger, regMetrics: make(map[string]bool)}
+}
+
+func (c *ControllerClient) RegisterMetrics(metrics m.AppDMetricList) error {
+	c.logger.Println("Registering Metrics with the agent:")
+	bt := appd.StartBT("RegMetrics", "")
+	for _, metric := range metrics.Items {
+
+		metric.MetricPath = fmt.Sprintf(metric.MetricPath, c.Bag.TierName)
+		_, exists := c.regMetrics[metric.MetricPath]
+		if !exists {
+			//		c.logger.Println(metric)
+			appd.AddCustomMetric("", metric.MetricPath,
+				metric.MetricTimeRollUpType,
+				metric.MetricClusterRollUpType,
+				appd.APPD_HOLEHANDLING_TYPE_REGULAR_COUNTER)
+			appd.ReportCustomMetric("", metric.MetricPath, 0)
+			c.regMetrics[metric.MetricPath] = true
+		}
+	}
+	appd.EndBT(bt)
+	c.logger.Println("Done registering Metrics with the agent")
+
+	return nil
 }
 
 func (c *ControllerClient) PostMetrics(metrics m.AppDMetricList) error {
@@ -58,11 +82,7 @@ func (c *ControllerClient) PostMetrics(metrics m.AppDMetricList) error {
 	for _, metric := range metrics.Items {
 		metric.MetricPath = fmt.Sprintf(metric.MetricPath, c.Bag.TierName)
 		c.logger.Println(metric)
-		appd.AddCustomMetric("", metric.MetricPath,
-			metric.MetricTimeRollUpType,
-			metric.MetricClusterRollUpType,
-			appd.APPD_HOLEHANDLING_TYPE_REGULAR_COUNTER)
-		appd.ReportCustomMetric(c.Bag.AppName, metric.MetricPath, metric.MetricValue)
+		appd.ReportCustomMetric("", metric.MetricPath, metric.MetricValue)
 	}
 	appd.EndBT(bt)
 	c.logger.Println("Done pushing Metrics through the agent")
