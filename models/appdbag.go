@@ -19,4 +19,12 @@ type AppDBag struct {
 	PodSchemaName         string
 	DashboardTemplatePath string
 	DashboardSuffix       string
+	AgentLabel            string
+	AppDAppLabel          string
+	AppDTierLabel         string
+	AgentMountName        string
+	AgentMountPath        string
+	JDKMountName          string
+	JDKMountPath          string
+	NodeNamePrefix        string
 }

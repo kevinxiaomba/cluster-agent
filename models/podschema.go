@@ -26,8 +26,10 @@ type PodSchemaDef struct {
 	Tolerations                   string `json:"tolerations"`
 	NodeAffinityPreferred         string `json:"nodeAffinityPreferred"`
 	NodeAffinityRequired          string `json:"nodeAffinityRequired"`
-	HasPodAffinity                string `json:"hasPodAffinity"`
-	HasPodAntiAffinity            string `json:"hasPodAntiAffinity"`
+	PodAffinityPreferred          string `json:"podAffinityPreferred"`
+	PodAffinityRequired           string `json:"podAffinityRequired"`
+	PodAntiAffinityPreferred      string `json:"podAntiAffinityPreferred"`
+	PodAntiAffinityRequired       string `json:"podAntiAffinityRequired"`
 	HostIP                        string `json:"hostIP"`
 	Phase                         string `json:"phase"`
 	PodIP                         string `json:"podIP"`
@@ -66,7 +68,8 @@ func NewPodSchemaDefWrapper() PodSchemaDefWrapper {
 func NewPodSchemaDef() PodSchemaDef {
 	pdsd := PodSchemaDef{Name: "string", Namespace: "string", ClusterName: "string", Labels: "string", Annotations: "string", ContainerCount: "integer",
 		InitContainerCount: "integer", NodeName: "string", Priority: "integer", RestartPolicy: "string", ServiceAccountName: "string", TerminationGracePeriodSeconds: "integer",
-		Tolerations: "string", NodeAffinityPreferred: "string", NodeAffinityRequired: "string", HasPodAffinity: "boolean", HasPodAntiAffinity: "boolean",
+		Tolerations: "string", NodeAffinityPreferred: "string", NodeAffinityRequired: "string", PodAffinityPreferred: "string", PodAffinityRequired: "string",
+		PodAntiAffinityPreferred: "string", PodAntiAffinityRequired: "string",
 		HostIP: "string", Phase: "string", PodIP: "string", Reason: "string", StartTime: "date", LastTransitionTimeCondition: "date", ReasonCondition: "string",
 		StatusCondition: "string", TypeCondition: "string", LimitsDefined: "boolean", LiveProbes: "integer", ReadyProbes: "integer", PodRestarts: "integer",
 		NumPrivileged: "integer", Ports: "string", MemRequest: "float", CpuRequest: "float", CpuLimit: "float", MemLimit: "float", CpuUse: "float", MemUse: "float",
@@ -90,8 +93,10 @@ type PodSchema struct {
 	Tolerations                   string    `json:"tolerations"`
 	NodeAffinityPreferred         string    `json:"nodeAffinityPreferred"`
 	NodeAffinityRequired          string    `json:"nodeAffinityRequired"`
-	HasPodAffinity                bool      `json:"hasPodAffinity"`
-	HasPodAntiAffinity            bool      `json:"hasPodAntiAffinity"`
+	PodAffinityPreferred          string    `json:"podAffinityPreferred"`
+	PodAffinityRequired           string    `json:"podAffinityRequired"`
+	PodAntiAffinityPreferred      string    `json:"podAntiAffinityPreferred"`
+	PodAntiAffinityRequired       string    `json:"podAntiAffinityRequired"`
 	HostIP                        string    `json:"hostIP"`
 	Phase                         string    `json:"phase"`
 	PodIP                         string    `json:"podIP"`
@@ -147,7 +152,7 @@ func (p PodSchema) ToString() string {
 		"TerminationTime: %s\n Mounts: %s\n",
 		p.Name, p.Namespace, p.ClusterName, p.Labels, p.Annotations, p.ContainerCount, p.InitContainerCount, p.NodeName,
 		p.Priority, p.RestartPolicy, p.ServiceAccountName, p.TerminationGracePeriodSeconds, p.Tolerations, p.NodeAffinityPreferred,
-		p.NodeAffinityRequired, p.HasPodAffinity, p.HasPodAntiAffinity, p.HostIP, p.Phase, p.PodIP, p.Reason, p.StartTime.String(),
+		p.NodeAffinityRequired, p.PodAffinityPreferred, p.PodAffinityRequired, p.PodAntiAffinityPreferred, p.PodAntiAffinityRequired, p.HostIP, p.Phase, p.PodIP, p.Reason, p.StartTime.String(),
 		p.LastTransitionTimeCondition, p.ReasonCondition, p.StatusCondition, p.TypeCondition, p.LimitsDefined, p.LiveProbes, p.ReadyProbes,
 		p.PodRestarts, p.NumPrivileged, p.Ports, p.MemRequest, p.CpuRequest, p.CpuLimit, p.MemLimit, p.CpuUse, p.MemUse,
 		p.Images, p.WaitReasons, p.TermReasons, p.RunningStartTime.String(), p.TerminationTime.String(), p.Mounts)

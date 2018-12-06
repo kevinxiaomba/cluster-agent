@@ -1402,7 +1402,7 @@
               "displayName" : "All",
               "functionType" : "VALUE",
               "inputMetricText" : false,
-              "metricPath" : "Application Infrastructure Performance|%s|Custom Metrics|Cluster Stats|Pods",
+              "metricPath" : "Application Infrastructure Performance|%s|Custom Metrics|Cluster Stats|PodsCount",
               "scopeEntity" : {
                 "subtype" : null,
                 "entityType" : "APPLICATION_COMPONENT",
@@ -2670,7 +2670,7 @@
           "displayName" : "null",
           "functionType" : "VALUE",
           "inputMetricText" : false,
-          "metricPath" : "Application Infrastructure Performance|%s|Custom Metrics|Cluster Stats|Pods",
+          "metricPath" : "Application Infrastructure Performance|%s|Custom Metrics|Cluster Stats|PodsCount",
           "scopeEntity" : {
             "subtype" : null,
             "entityType" : "APPLICATION_COMPONENT",
@@ -4027,7 +4027,7 @@
               "displayName" : "total",
               "functionType" : "VALUE",
               "inputMetricText" : false,
-              "metricPath" : "Application Infrastructure Performance|%s|Custom Metrics|Cluster Stats|Pods",
+              "metricPath" : "Application Infrastructure Performance|%s|Custom Metrics|Cluster Stats|PodsCount",
               "scopeEntity" : {
                 "subtype" : null,
                 "entityType" : "APPLICATION_COMPONENT",
@@ -4184,7 +4184,7 @@
               "displayName" : "total",
               "functionType" : "VALUE",
               "inputMetricText" : false,
-              "metricPath" : "Application Infrastructure Performance|%s|Custom Metrics|Cluster Stats|Pods",
+              "metricPath" : "Application Infrastructure Performance|%s|Custom Metrics|Cluster Stats|PodsCount",
               "scopeEntity" : {
                 "subtype" : null,
                 "entityType" : "APPLICATION_COMPONENT",
@@ -4341,7 +4341,7 @@
               "displayName" : "total",
               "functionType" : "VALUE",
               "inputMetricText" : false,
-              "metricPath" : "Application Infrastructure Performance|%s|Custom Metrics|Cluster Stats|Pods",
+              "metricPath" : "Application Infrastructure Performance|%s|Custom Metrics|Cluster Stats|PodsCount",
               "scopeEntity" : {
                 "subtype" : null,
                 "entityType" : "APPLICATION_COMPONENT",
@@ -4498,7 +4498,7 @@
               "displayName" : "total",
               "functionType" : "VALUE",
               "inputMetricText" : false,
-              "metricPath" : "Application Infrastructure Performance|%s|Custom Metrics|Cluster Stats|Pods",
+              "metricPath" : "Application Infrastructure Performance|%s|Custom Metrics|Cluster Stats|PodsCount",
               "scopeEntity" : {
                 "subtype" : null,
                 "entityType" : "APPLICATION_COMPONENT",
@@ -4655,7 +4655,7 @@
               "displayName" : "total",
               "functionType" : "VALUE",
               "inputMetricText" : false,
-              "metricPath" : "Application Infrastructure Performance|%s|Custom Metrics|Cluster Stats|Pods",
+              "metricPath" : "Application Infrastructure Performance|%s|Custom Metrics|Cluster Stats|PodsCount",
               "scopeEntity" : {
                 "subtype" : null,
                 "entityType" : "APPLICATION_COMPONENT",

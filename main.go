@@ -46,6 +46,14 @@ func buildParams() Flags {
 	flag.StringVar(&params.Bag.DashboardTemplatePath, "template-path", getTemplatePath(), "Dashboard template path")
 	flag.StringVar(&params.Bag.DashboardSuffix, "dash-name", getDashboardSuffix(), "Dashboard name")
 	flag.IntVar(&params.Bag.EventAPILimit, "event-batch-size", 100, "Max number of AppD events record to send in a batch")
+	flag.StringVar(&params.Bag.AgentLabel, "agent-label", "appd-agent", "AppD Agent Label")
+	flag.StringVar(&params.Bag.AppDAppLabel, "appd-app", "appd-app", "AppD App Label")
+	flag.StringVar(&params.Bag.AppDTierLabel, "appd-tier", "appd-tier", "AppD Tier Label")
+	flag.StringVar(&params.Bag.AgentMountName, "mount-name", "agent-repo", "AppD Agent Mount Name")
+	flag.StringVar(&params.Bag.AgentMountPath, "mount-path", "/opt/appd/AppServerAgent", "AppD Agent Mount Path")
+	flag.StringVar(&params.Bag.JDKMountName, "jdkmount-name", "jdk-repo", "JDK Mount Name")
+	flag.StringVar(&params.Bag.JDKMountPath, "jdkmount-path", "$JAVA_HOME/lib", "JDK Mount Path")
+	flag.StringVar(&params.Bag.NodeNamePrefix, "node-prefix", params.Bag.TierName, "Node name prefix. Used when node reuse is set to true")
 	var tempPort uint
 	flag.UintVar(&tempPort, "controller-port", getControllerPort(), "Controller Port")
 	params.Bag.ControllerPort = uint16(tempPort)
@@ -81,7 +89,7 @@ func main() {
 
 	var wg sync.WaitGroup
 	l := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	controller := w.NewController(&params.Bag, clientset, l)
+	controller := w.NewController(&params.Bag, clientset, l, config)
 	controller.Run(stop, &wg)
 
 	<-sigs

@@ -61,6 +61,21 @@ type PodMetricsObj struct {
 	}
 }
 
+type NodeMetricsObj struct {
+	Kind     string
+	Metadata struct {
+		Name              string
+		SelfLink          string
+		creationTimestamp string
+	}
+	Timestamp string
+	Window    string
+	Usage     struct {
+		Cpu    string
+		Memory string
+	}
+}
+
 type UsageStats struct {
 	Name   string
 	CPU    int64

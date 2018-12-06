@@ -76,12 +76,29 @@ func (c *ControllerClient) RegisterMetrics(metrics m.AppDMetricList) error {
 	return nil
 }
 
+func (c *ControllerClient) registerMetric(metric m.AppDMetric) error {
+	_, exists := c.regMetrics[metric.MetricPath]
+	if !exists {
+		c.logger.Println("Registering Metric with the agent:")
+		bt := appd.StartBT("RegSingleMetric", "")
+		appd.AddCustomMetric("", metric.MetricPath,
+			metric.MetricTimeRollUpType,
+			metric.MetricClusterRollUpType,
+			appd.APPD_HOLEHANDLING_TYPE_REGULAR_COUNTER)
+		appd.ReportCustomMetric("", metric.MetricPath, 0)
+		c.regMetrics[metric.MetricPath] = true
+		appd.EndBT(bt)
+	}
+
+	return nil
+}
+
 func (c *ControllerClient) PostMetrics(metrics m.AppDMetricList) error {
 	c.logger.Println("Pushing Metrics through the agent:")
 	bt := appd.StartBT("PostMetrics", "")
 	for _, metric := range metrics.Items {
+		c.registerMetric(metric)
 		metric.MetricPath = fmt.Sprintf(metric.MetricPath, c.Bag.TierName)
-		c.logger.Println(metric)
 		appd.ReportCustomMetric("", metric.MetricPath, metric.MetricValue)
 	}
 	appd.EndBT(bt)

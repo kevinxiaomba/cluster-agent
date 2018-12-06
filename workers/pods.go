@@ -14,6 +14,7 @@ import (
 
 	"github.com/fatih/structs"
 	m "github.com/sjeltuhin/clusterAgent/models"
+	"k8s.io/client-go/rest"
 
 	//	"github.com/sjeltuhin/clusterAgent/watchers"
 
@@ -37,11 +38,12 @@ type PodWorker struct {
 	SummaryMap     map[string]m.ClusterPodMetrics
 	WQ             workqueue.RateLimitingInterface
 	AppdController *app.ControllerClient
+	K8sConfig      *rest.Config
 }
 
-func NewPodWorker(client *kubernetes.Clientset, bag *m.AppDBag, controller *app.ControllerClient) PodWorker {
+func NewPodWorker(client *kubernetes.Clientset, bag *m.AppDBag, controller *app.ControllerClient, config *rest.Config) PodWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
-	pw := PodWorker{Client: client, Bag: bag, SummaryMap: make(map[string]m.ClusterPodMetrics), WQ: queue, AppdController: controller}
+	pw := PodWorker{Client: client, Bag: bag, SummaryMap: make(map[string]m.ClusterPodMetrics), WQ: queue, AppdController: controller, K8sConfig: config}
 	pw.initPodInformer(client)
 	return pw
 }
@@ -76,6 +78,15 @@ func (pw *PodWorker) onNewPod(obj interface{}) {
 	fmt.Printf("Added Pod: %s %s\n", podObj.Namespace, podObj.Name)
 	podRecord := pw.processObject(podObj)
 	pw.WQ.Add(&podRecord)
+
+	if podObj.Namespace == "dev" && podObj.Status.Phase == "Running" {
+		go pw.instrument(podObj)
+	}
+}
+
+func (pw *PodWorker) instrument(podObj *v1.Pod) {
+	injector := NewAgentInjector(pw.Client, pw.K8sConfig, pw.Bag)
+	injector.EnsureInstrumentation(podObj)
 }
 
 func (pw *PodWorker) startEventQueueWorker(stopCh <-chan struct{}) {
@@ -123,10 +134,10 @@ func (pw *PodWorker) postPodRecords(objList *[]m.PodSchema) {
 		if rc.SchemaExists(pw.Bag.PodSchemaName) == false {
 			fmt.Printf("Creating schema. %s\n", pw.Bag.PodSchemaName)
 			if rc.CreateSchema(pw.Bag.PodSchemaName, schemaDef) != nil {
-				fmt.Printf("Schema %s created", pw.Bag.PodSchemaName)
+				fmt.Printf("Schema %s created\n", pw.Bag.PodSchemaName)
 			}
 		} else {
-			fmt.Printf("Schema %s exists", pw.Bag.PodSchemaName)
+			fmt.Printf("Schema %s exists\n", pw.Bag.PodSchemaName)
 		}
 		fmt.Println("About to post records")
 		rc.PostAppDEvents(pw.Bag.PodSchemaName, data)
@@ -227,8 +238,8 @@ func (pw *PodWorker) buildAppDMetrics() {
 	var count int = 0
 	for _, obj := range pw.informer.GetStore().List() {
 		podObject := obj.(*v1.Pod)
-		pw.processObject(podObject)
-		fmt.Printf("Pod %s\n", podObject.Name)
+		podSchema := pw.processObject(podObject)
+		pw.summarize(&podSchema)
 		count++
 	}
 	fmt.Printf("Total: %d\n", count)
@@ -238,6 +249,140 @@ func (pw *PodWorker) buildAppDMetrics() {
 	fmt.Printf("Ready to push %d metrics\n", len(ml.Items))
 
 	pw.AppdController.PostMetrics(ml)
+}
+
+func (pw *PodWorker) summarize(podObject *m.PodSchema) {
+	//global metrics
+	summary, ok := pw.SummaryMap[m.ALL]
+	if !ok {
+		summary = m.NewClusterPodMetrics(pw.Bag, m.ALL, m.ALL)
+		pw.SummaryMap[m.ALL] = summary
+	}
+
+	//namespace metrics
+	summaryNode, ok := pw.SummaryMap[podObject.NodeName]
+	if !ok {
+		summaryNode = m.NewClusterPodMetrics(pw.Bag, m.ALL, podObject.NodeName)
+		pw.SummaryMap[podObject.NodeName] = summaryNode
+	}
+
+	//node metrics
+	summaryNS, ok := pw.SummaryMap[podObject.Namespace]
+	if !ok {
+		summaryNS = m.NewClusterPodMetrics(pw.Bag, podObject.Namespace, m.ALL)
+		pw.SummaryMap[podObject.Namespace] = summaryNS
+	}
+
+	summary.PodsCount++
+	summaryNS.PodsCount++
+	summaryNode.PodsCount++
+
+	summary.ContainerCount += int64(podObject.ContainerCount)
+	summaryNS.ContainerCount += int64(podObject.ContainerCount)
+	summaryNode.ContainerCount += int64(podObject.ContainerCount)
+
+	if !podObject.LimitsDefined {
+		summary.NoLimits++
+		summaryNS.NoLimits++
+		summaryNode.NoLimits++
+	}
+
+	summary.Privileged += int64(podObject.NumPrivileged)
+	summaryNS.Privileged += int64(podObject.NumPrivileged)
+	summaryNode.Privileged += int64(podObject.NumPrivileged)
+
+	summary.NoLivenessProbe += int64(podObject.LiveProbes)
+	summaryNS.NoLivenessProbe += int64(podObject.LiveProbes)
+	summaryNode.NoLivenessProbe += int64(podObject.LiveProbes)
+
+	summary.NoReadinessProbe += int64(podObject.ReadyProbes)
+	summaryNS.NoReadinessProbe += int64(podObject.ReadyProbes)
+	summaryNode.NoReadinessProbe += int64(podObject.ReadyProbes)
+
+	summary.LimitCpu += int64(podObject.CpuLimit)
+	summaryNS.LimitCpu += int64(podObject.CpuLimit)
+	summaryNode.LimitCpu += int64(podObject.CpuLimit)
+
+	summary.LimitMemory += int64(podObject.MemLimit)
+	summaryNS.LimitMemory += int64(podObject.MemLimit)
+	summaryNode.LimitMemory += int64(podObject.MemLimit)
+
+	summary.RequestCpu += int64(podObject.CpuRequest)
+	summaryNS.RequestCpu += int64(podObject.CpuRequest)
+	summaryNode.RequestCpu += int64(podObject.CpuRequest)
+
+	summary.RequestMemory += int64(podObject.MemRequest)
+	summaryNS.RequestMemory += int64(podObject.MemRequest)
+	summaryNode.RequestMemory += int64(podObject.MemRequest)
+
+	summary.InitContainerCount += int64(podObject.InitContainerCount)
+	summaryNS.InitContainerCount += int64(podObject.InitContainerCount)
+	summaryNode.InitContainerCount += int64(podObject.InitContainerCount)
+
+	if podObject.Tolerations != "" {
+		summary.HasTolerations++
+		summaryNS.HasTolerations++
+		summaryNode.HasTolerations++
+	}
+
+	if podObject.NodeAffinityRequired != "" || podObject.NodeAffinityPreferred != "" {
+		summary.HasNodeAffinity++
+		summaryNS.HasNodeAffinity++
+		summaryNode.HasNodeAffinity++
+	}
+
+	if podObject.PodAffinityPreferred != "" || podObject.PodAffinityRequired != "" {
+		summary.HasPodAffinity++
+		summaryNS.HasPodAffinity++
+		summaryNode.HasPodAffinity++
+	}
+
+	if podObject.PodAntiAffinityPreferred != "" || podObject.PodAntiAffinityRequired != "" {
+		summary.HasPodAntiAffinity++
+		summaryNS.HasPodAntiAffinity++
+		summaryNode.HasPodAntiAffinity++
+	}
+
+	switch podObject.Phase {
+	case "Pending":
+		summary.PodPending++
+		summaryNS.PodPending++
+		summaryNode.PodPending++
+		break
+	case "Failed":
+		summary.PodFailed++
+		summaryNS.PodFailed++
+		summaryNode.PodFailed++
+		break
+	case "Running":
+		summary.PodRunning++
+		summaryNS.PodRunning++
+		summaryNode.PodRunning++
+		break
+	}
+
+	if podObject.Reason != "" && podObject.Reason == "Evicted" {
+		summary.Evictions++
+		summaryNS.Evictions++
+		summaryNode.Evictions++
+	}
+
+	summary.PodRestarts += int64(podObject.PodRestarts)
+	summaryNS.PodRestarts += int64(podObject.PodRestarts)
+	summaryNode.PodRestarts += int64(podObject.PodRestarts)
+
+	summary.UseCpu += podObject.CpuUse
+	summary.UseMemory += podObject.MemUse
+
+	summaryNS.UseCpu += podObject.CpuUse
+	summaryNS.UseMemory += podObject.MemUse
+
+	summaryNode.UseCpu += podObject.CpuUse
+	summaryNode.UseMemory += podObject.MemUse
+
+	pw.SummaryMap[m.ALL] = summary
+	pw.SummaryMap[podObject.Namespace] = summaryNS
+	pw.SummaryMap[podObject.NodeName] = summaryNode
 }
 
 func (pw *PodWorker) processObject(p *v1.Pod) m.PodSchema {
@@ -251,35 +396,7 @@ func (pw *PodWorker) processObject(p *v1.Pod) m.PodSchema {
 	podObject.Namespace = p.Namespace
 	podObject.NodeName = p.Spec.NodeName
 
-	podMetricsObj := pw.GetPodMetricsSingle(p.Namespace, p.Name)
-
-	//global metrics
-	summary, ok := pw.SummaryMap[m.ALL]
-	if !ok {
-		summary = m.NewClusterPodMetrics(m.ALL, m.ALL)
-		pw.SummaryMap[m.ALL] = summary
-		pw.registerMetrics(&summary)
-	}
-
-	//namespace metrics
-	summaryNode, ok := pw.SummaryMap[podObject.NodeName]
-	if !ok {
-		summaryNode = m.NewClusterPodMetrics(m.ALL, podObject.NodeName)
-		pw.SummaryMap[podObject.NodeName] = summaryNode
-		pw.registerMetrics(&summaryNode)
-	}
-
-	//node metrics
-	summaryNS, ok := pw.SummaryMap[podObject.Namespace]
-	if !ok {
-		summaryNS = m.NewClusterPodMetrics(podObject.Namespace, m.ALL)
-		pw.SummaryMap[podObject.Namespace] = summaryNS
-		pw.registerMetrics(&summaryNS)
-	}
-
-	summary.PodsCount = summary.PodsCount + 1
-	summaryNS.PodsCount++
-	summaryNode.PodsCount++
+	podMetricsObj := pw.GetPodMetricsSingle(p, p.Namespace, p.Name)
 
 	var sb strings.Builder
 	for k, v := range p.Labels {
@@ -291,6 +408,7 @@ func (pw *PodWorker) processObject(p *v1.Pod) m.PodSchema {
 		fmt.Fprintf(&sb, "%s:%s;", k, v)
 	}
 	podObject.Annotations = sb.String()
+
 	podObject.ContainerCount = len(p.Spec.Containers)
 
 	var limitsDefined bool = false
@@ -341,9 +459,7 @@ func (pw *PodWorker) processObject(p *v1.Pod) m.PodSchema {
 			podObject.Mounts = sb.String()
 		}
 	}
-	if !limitsDefined {
-		podObject.LimitsDefined = limitsDefined
-	}
+	podObject.LimitsDefined = limitsDefined
 
 	podObject.InitContainerCount = len(p.Spec.InitContainers)
 
@@ -357,11 +473,13 @@ func (pw *PodWorker) processObject(p *v1.Pod) m.PodSchema {
 
 	podObject.RestartPolicy = string(p.Spec.RestartPolicy)
 
-	for i, t := range p.Spec.Tolerations {
-		if i == 0 {
-			podObject.Tolerations = fmt.Sprintf("%s;", t.String())
-		} else {
-			podObject.Tolerations = fmt.Sprintf("%s;%s", podObject.Tolerations, t.String())
+	if p.Spec.Tolerations != nil {
+		for i, t := range p.Spec.Tolerations {
+			if i == 0 {
+				podObject.Tolerations = fmt.Sprintf("%s;", t.String())
+			} else {
+				podObject.Tolerations = fmt.Sprintf("%s;%s", podObject.Tolerations, t.String())
+			}
 		}
 	}
 
@@ -391,14 +509,42 @@ func (pw *PodWorker) processObject(p *v1.Pod) m.PodSchema {
 				}
 				podObject.NodeAffinityRequired = sb.String()
 			}
+
 		}
 
 		if p.Spec.Affinity.PodAffinity != nil {
+			if p.Spec.Affinity.PodAffinity.PreferredDuringSchedulingIgnoredDuringExecution != nil {
+				var sb strings.Builder
+				for _, term := range p.Spec.Affinity.PodAffinity.PreferredDuringSchedulingIgnoredDuringExecution {
+					sb.WriteString(fmt.Sprintf("%d %s %s %s;", term.Weight, term.PodAffinityTerm.TopologyKey, term.PodAffinityTerm.LabelSelector, term.PodAffinityTerm.Namespaces))
+				}
+				podObject.PodAffinityPreferred = sb.String()
+			}
 
+			if p.Spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution != nil {
+				var sb strings.Builder
+				for _, term := range p.Spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution {
+					sb.WriteString(fmt.Sprintf("%s %s %s;", term.TopologyKey, term.LabelSelector, term.Namespaces))
+				}
+				podObject.PodAffinityRequired = sb.String()
+			}
 		}
 
 		if p.Spec.Affinity.PodAntiAffinity != nil {
-
+			if p.Spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution != nil {
+				var sb strings.Builder
+				for _, term := range p.Spec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution {
+					sb.WriteString(fmt.Sprintf("%d %s %s %s;", term.Weight, term.PodAffinityTerm.TopologyKey, term.PodAffinityTerm.LabelSelector, term.PodAffinityTerm.Namespaces))
+				}
+				podObject.PodAntiAffinityPreferred = sb.String()
+			}
+			if p.Spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution != nil {
+				var sb strings.Builder
+				for _, term := range p.Spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution {
+					sb.WriteString(fmt.Sprintf("%s %s %s;", term.TopologyKey, term.LabelSelector, term.Namespaces))
+				}
+				podObject.PodAntiAffinityRequired = sb.String()
+			}
 		}
 	}
 
@@ -406,32 +552,8 @@ func (pw *PodWorker) processObject(p *v1.Pod) m.PodSchema {
 
 	podObject.Phase = string(p.Status.Phase)
 
-	switch podObject.Phase {
-	case "Pending":
-		summary.PodPending++
-		summaryNS.PodPending++
-		summaryNode.PodPending++
-		break
-	case "Failed":
-		summary.PodFailed++
-		summaryNS.PodFailed++
-		summaryNode.PodFailed++
-		break
-	case "Running":
-		summary.PodRunning++
-		summaryNS.PodRunning++
-		summaryNode.PodRunning++
-		break
-	}
-
 	podObject.PodIP = p.Status.PodIP
 	podObject.Reason = p.Status.Reason
-
-	if podObject.Reason != "" && podObject.Reason == "Evicted" {
-		summary.Evictions++
-		summaryNS.Evictions++
-		summaryNode.Evictions++
-	}
 
 	if p.Status.StartTime != nil {
 		podObject.StartTime = p.Status.StartTime.Time
@@ -467,6 +589,7 @@ func (pw *PodWorker) processObject(p *v1.Pod) m.PodSchema {
 				podObject.RunningStartTime = st.State.Running.StartedAt.Time
 			}
 		}
+
 		podObject.Images = imBuilder.String()
 		podObject.WaitReasons = waitBuilder.String()
 		podObject.TermReasons = termBuilder.String()
@@ -482,8 +605,6 @@ func (pw *PodWorker) processObject(p *v1.Pod) m.PodSchema {
 
 	}
 
-	pw.SummaryMap[m.ALL] = summary
-	//	fmt.Printf("Pod Object:\n%s\n", podObject.ToString())
 	return podObject
 }
 
@@ -550,7 +671,10 @@ func (pw PodWorker) GetPodMetrics() *map[string]m.UsageStats {
 	return &objMap
 }
 
-func (pw PodWorker) GetPodMetricsSingle(namespace string, podName string) *m.PodMetricsObj {
+func (pw PodWorker) GetPodMetricsSingle(p *v1.Pod, namespace string, podName string) *m.PodMetricsObj {
+	if p.Status.Phase != "Running" {
+		return nil
+	}
 	metricsDone := make(chan *m.PodMetricsObj)
 	go metricsWorkerSingle(metricsDone, pw.Client, namespace, podName)
 
@@ -617,12 +741,4 @@ func (pw PodWorker) addMetricToList(metric *m.ClusterPodMetrics, list *[]m.AppDM
 			*list = append(*list, appdMetric)
 		}
 	}
-}
-
-func (pw PodWorker) registerMetrics(metric *m.ClusterPodMetrics) {
-	ml := m.NewAppDMetricList()
-	var list []m.AppDMetric
-	pw.addMetricToList(metric, &list)
-	ml.Items = list
-	pw.AppdController.RegisterMetrics(ml)
 }

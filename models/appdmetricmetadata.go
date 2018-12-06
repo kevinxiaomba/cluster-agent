@@ -6,3 +6,7 @@ type AppDMetricMetadata struct {
 	Path         string
 	Query        string
 }
+
+func NewAppDMetricMetadata(name, schema, path, query string) AppDMetricMetadata {
+	return AppDMetricMetadata{Name: name, ParentSchema: schema, Path: path, Query: query}
+}
