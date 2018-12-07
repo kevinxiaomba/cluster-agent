@@ -142,3 +142,11 @@ func writeSSLFromEnv(bag *m.AppDBag, logger *log.Logger) error {
 
 	return nil
 }
+
+func (c *ControllerClient) StartBT(name string) appd.BtHandle {
+	return appd.StartBT(name, "")
+}
+
+func (c *ControllerClient) StopBT(bth appd.BtHandle) {
+	appd.EndBT(bth)
+}

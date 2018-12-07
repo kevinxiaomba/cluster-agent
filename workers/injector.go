@@ -2,6 +2,7 @@ package workers
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 const (
 	GET_JAVA_PID_CMD    string = "ps -o pid,comm,args | grep java | awk '{print$1,$2,$3}'"
 	JDK_DIR             string = "$JAVA_HOME/lib/"
+	APPD_DIR            string = "/opt/appd/"
 	ATTACHED_ANNOTATION string = "appd-attached"
 )
 
@@ -47,19 +49,48 @@ func (ai AgentInjector) EnsureInstrumentation(podObj *v1.Pod) error {
 			tierName = v
 		}
 	}
+
 	for _, c := range podObj.Spec.Containers {
-		for _, vm := range c.VolumeMounts {
-			if vm.Name == ai.Bag.AgentMountName {
-				container = &c
-				break
-			}
-		}
+		container = &c
+		break
+		//		for _, vm := range c.VolumeMounts {
+		//			if vm.Name == ai.Bag.AgentMountName {
+		//				container = &c
+		//				break
+		//			}
+		//		}
 	}
 
 	if appName != "" && tierName != "" && container != nil {
 		var procName, args string
 		var procID int = 0
 		exec := NewExecutor(ai.ClientSet, ai.K8sConfig)
+		//copy files
+
+		//JDK tools
+		toolsPath, errFile := filepath.Abs("assets/tools.jar")
+		if errFile != nil {
+			fmt.Printf("Cannot find tools.jar. %v\n", errFile)
+		}
+		fmt.Printf("Copying file %s\n", toolsPath)
+		_, _, copyErr := exec.CopyFilesToPod(podObj, container.Name, toolsPath, JDK_DIR)
+		if copyErr != nil {
+			fmt.Printf("Copy failed. Aborting instrumentation. %v\n", copyErr)
+			return copyErr
+		}
+		//AppD Agent
+		appAgentPath, errAgentFile := filepath.Abs("assets/AppServerAgent")
+		if errAgentFile != nil {
+			fmt.Printf("Cannot find AppServerAgent directory. %v\n", errAgentFile)
+		}
+		fmt.Printf("Copying file %s\n", appAgentPath)
+		_, _, copyAgentErr := exec.CopyFilesToPod(podObj, container.Name, appAgentPath, APPD_DIR)
+		if copyAgentErr != nil {
+			fmt.Printf("Copy failed. Aborting instrumentation. %v\n", copyAgentErr)
+			return copyErr
+		}
+
+		//run attach
 		code, output, err := exec.RunCommandInPod(podObj.Name, podObj.Namespace, container.Name, "", GET_JAVA_PID_CMD)
 		if code == 0 {
 			legit := true

@@ -85,8 +85,10 @@ func (pw *PodWorker) onNewPod(obj interface{}) {
 }
 
 func (pw *PodWorker) instrument(podObj *v1.Pod) {
+	bth := pw.AppdController.StartBT("InstrumentAppD")
 	injector := NewAgentInjector(pw.Client, pw.K8sConfig, pw.Bag)
 	injector.EnsureInstrumentation(podObj)
+	pw.AppdController.StopBT(bth)
 }
 
 func (pw *PodWorker) startEventQueueWorker(stopCh <-chan struct{}) {
@@ -95,6 +97,7 @@ func (pw *PodWorker) startEventQueueWorker(stopCh <-chan struct{}) {
 }
 
 func (pw *PodWorker) flushQueue() {
+	bth := pw.AppdController.StartBT("FlushEventsQueue")
 	count := pw.WQ.Len()
 	fmt.Printf("Flushing the queue of %d records", count)
 	if count == 0 {
@@ -120,7 +123,7 @@ func (pw *PodWorker) flushQueue() {
 			return
 		}
 	}
-
+	pw.AppdController.StopBT(bth)
 }
 
 func (pw *PodWorker) postPodRecords(objList *[]m.PodSchema) {
@@ -175,6 +178,10 @@ func (pw *PodWorker) onUpdatePod(objOld interface{}, objNew interface{}) {
 	if !podRecord.Equals(&podOldRecord) {
 		fmt.Printf("Pod changed: %s %s\n", podObj.Namespace, podObj.Name)
 		pw.WQ.Add(&podRecord)
+	}
+
+	if podObj.Namespace == "dev" && podObj.Status.Phase == "Running" {
+		go pw.instrument(podObj)
 	}
 }
 
@@ -233,6 +240,7 @@ func (pw *PodWorker) eventQueueTicker(stop <-chan struct{}, ticker *time.Ticker)
 }
 
 func (pw *PodWorker) buildAppDMetrics() {
+	bth := pw.AppdController.StartBT("SendMetrics")
 	pw.SummaryMap = make(map[string]m.ClusterPodMetrics)
 	fmt.Println("Time to send metrics. Current cache:")
 	var count int = 0
@@ -249,6 +257,7 @@ func (pw *PodWorker) buildAppDMetrics() {
 	fmt.Printf("Ready to push %d metrics\n", len(ml.Items))
 
 	pw.AppdController.PostMetrics(ml)
+	pw.AppdController.StopBT(bth)
 }
 
 func (pw *PodWorker) summarize(podObject *m.PodSchema) {
