@@ -43,6 +43,7 @@ func buildParams() Flags {
 	flag.StringVar(&params.Bag.RestAPICred, "rest-api-creds", getRestAPICred(), "Rest API Credentials")
 	flag.BoolVar(&params.Bag.SSLEnabled, "use-ssl", false, "Controller uses SSL connection")
 	flag.StringVar(&params.Bag.PodSchemaName, "schema-pods", "k8s_pod_snapshots", "Pod schema name")
+	flag.StringVar(&params.Bag.ContainerSchemaName, "schema-containers", "k8s_container_snapshots", "Container schema name")
 	flag.StringVar(&params.Bag.DashboardTemplatePath, "template-path", getTemplatePath(), "Dashboard template path")
 	flag.StringVar(&params.Bag.DashboardSuffix, "dash-name", getDashboardSuffix(), "Dashboard name")
 	flag.IntVar(&params.Bag.EventAPILimit, "event-batch-size", 100, "Max number of AppD events record to send in a batch")

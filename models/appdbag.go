@@ -17,6 +17,8 @@ type AppDBag struct {
 	RestAPICred           string
 	EventAPILimit         int
 	PodSchemaName         string
+	ContainerSchemaName   string
+	JobSchemaName         string
 	DashboardTemplatePath string
 	DashboardSuffix       string
 	AgentLabel            string

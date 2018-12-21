@@ -5,11 +5,17 @@ import (
 	"fmt"
 )
 
+type AppDMetricInterface interface {
+	ShouldExcludeField(fieldName string) bool
+	GetPath() string
+}
+
 const RootPath string = "Server|Component:%s|Custom Metrics|Cluster Stats|"
 const ALL string = "all"
 const METRIC_SEPARATOR string = "|"
 const METRIC_PATH_NODES string = "Nodes"
 const METRIC_PATH_NAMESPACES string = "Namespaces"
+const METRIC_PATH_APPS string = "Pods"
 
 type AppDMetric struct {
 	MetricName              string

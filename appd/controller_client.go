@@ -79,7 +79,6 @@ func (c *ControllerClient) RegisterMetrics(metrics m.AppDMetricList) error {
 func (c *ControllerClient) registerMetric(metric m.AppDMetric) error {
 	_, exists := c.regMetrics[metric.MetricPath]
 	if !exists {
-		c.logger.Println("Registering Metric with the agent:")
 		bt := appd.StartBT("RegSingleMetric", "")
 		appd.AddCustomMetric("", metric.MetricPath,
 			metric.MetricTimeRollUpType,
@@ -97,8 +96,8 @@ func (c *ControllerClient) PostMetrics(metrics m.AppDMetricList) error {
 	c.logger.Println("Pushing Metrics through the agent:")
 	bt := appd.StartBT("PostMetrics", "")
 	for _, metric := range metrics.Items {
-		c.registerMetric(metric)
 		metric.MetricPath = fmt.Sprintf(metric.MetricPath, c.Bag.TierName)
+		c.registerMetric(metric)
 		appd.ReportCustomMetric("", metric.MetricPath, metric.MetricValue)
 	}
 	appd.EndBT(bt)

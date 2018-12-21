@@ -161,3 +161,29 @@ func (mobj PodMetricsObj) GetPodUsage() UsageStats {
 	}
 	return stats
 }
+
+func (mobj PodMetricsObj) GetContainerUsage(containerName string) UsageStats {
+	stats := UsageStats{}
+	stats.Name = mobj.Metadata.Name
+	stats.CPU = 0
+	stats.Memory = 0
+	for _, c := range mobj.Containers {
+		if c.Name == containerName {
+			fmt.Printf("Getting container stats %s\n", c.Name)
+			cpuQ, err := res.ParseQuantity(c.Usage.Cpu)
+			if err != nil {
+				fmt.Printf("Cannot parse cpu %s to quantity\n", c.Usage.Cpu)
+			}
+
+			stats.CPU = cpuQ.MilliValue()
+
+			memQ, err := res.ParseQuantity(c.Usage.Memory)
+			if err != nil {
+				fmt.Printf("Cannot parse mem %s to quantity\n", c.Usage.Memory)
+			}
+			stats.Memory = memQ.MilliValue() / 1000
+			break
+		}
+	}
+	return stats
+}

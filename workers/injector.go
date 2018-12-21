@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	m "github.com/sjeltuhin/clusterAgent/models"
 	"k8s.io/api/core/v1"
@@ -66,31 +67,13 @@ func (ai AgentInjector) EnsureInstrumentation(podObj *v1.Pod) error {
 		var procID int = 0
 		exec := NewExecutor(ai.ClientSet, ai.K8sConfig)
 		//copy files
-
-		//JDK tools
-		toolsPath, errFile := filepath.Abs("assets/tools.jar")
-		if errFile != nil {
-			fmt.Printf("Cannot find tools.jar. %v\n", errFile)
+		ok := ai.copyArtifacts(&exec, podObj, container.Name)
+		if !ok {
+			return fmt.Errorf("Unable to instrument. Failed to copy necessarry artifacts inot the pod")
 		}
-		fmt.Printf("Copying file %s\n", toolsPath)
-		_, _, copyErr := exec.CopyFilesToPod(podObj, container.Name, toolsPath, JDK_DIR)
-		if copyErr != nil {
-			fmt.Printf("Copy failed. Aborting instrumentation. %v\n", copyErr)
-			return copyErr
-		}
-		//AppD Agent
-		appAgentPath, errAgentFile := filepath.Abs("assets/AppServerAgent")
-		if errAgentFile != nil {
-			fmt.Printf("Cannot find AppServerAgent directory. %v\n", errAgentFile)
-		}
-		fmt.Printf("Copying file %s\n", appAgentPath)
-		_, _, copyAgentErr := exec.CopyFilesToPod(podObj, container.Name, appAgentPath, APPD_DIR)
-		if copyAgentErr != nil {
-			fmt.Printf("Copy failed. Aborting instrumentation. %v\n", copyAgentErr)
-			return copyErr
-		}
-
 		//run attach
+
+		fmt.Println("Artifacts copied. Starting instrumentation...")
 		code, output, err := exec.RunCommandInPod(podObj.Name, podObj.Namespace, container.Name, "", GET_JAVA_PID_CMD)
 		if code == 0 {
 			legit := true
@@ -128,6 +111,45 @@ func (ai AgentInjector) EnsureInstrumentation(podObj *v1.Pod) error {
 
 	return nil
 
+}
+
+func (ai AgentInjector) copyArtifacts(exec *Executor, podObj *v1.Pod, containerName string) bool {
+	okJDKChan := make(chan bool)
+	okAppDChan := make(chan bool)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	//JDK tools
+	go ai.copyFile(okJDKChan, &wg, exec, "assets/tools.jar", JDK_DIR, podObj, containerName)
+
+	wg.Add(1)
+	//AppD Agent
+	go ai.copyFile(okAppDChan, &wg, exec, "assets/AppServerAgent", APPD_DIR, podObj, containerName)
+
+	okJDK := <-okJDKChan
+	okAppD := <-okAppDChan
+
+	wg.Wait()
+
+	if !okJDK || !okAppD {
+		return false
+	}
+	return true
+}
+
+func (ai AgentInjector) copyFile(ok chan bool, wg *sync.WaitGroup, exec *Executor, fileName, dir string, podObj *v1.Pod, containerName string) {
+	defer wg.Done()
+	filePath, errFile := filepath.Abs(fileName)
+	if errFile != nil {
+		fmt.Printf("Cannot find %s path. %v\n", filePath, errFile)
+		ok <- false
+	}
+	fmt.Printf("Copying file %s\n", filePath)
+	_, _, copyErr := exec.CopyFilesToPod(podObj, containerName, filePath, dir)
+	if copyErr != nil {
+		fmt.Printf("Copy failed. Aborting instrumentation. %v\n", copyErr)
+		ok <- false
+	}
+	ok <- true
 }
 
 func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tierName string, containerName string, exec *Executor) error {

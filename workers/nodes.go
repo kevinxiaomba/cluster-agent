@@ -66,7 +66,6 @@ func (nw *NodesWorker) onNewNode(obj interface{}) {
 func (nw *NodesWorker) onDeleteNode(obj interface{}) {
 	nodeObj := obj.(*v1.Node)
 	fmt.Printf("Deleted Node: %s\n", nodeObj.Name)
-
 }
 
 func (nw *NodesWorker) onUpdateNode(objOld interface{}, objNew interface{}) {

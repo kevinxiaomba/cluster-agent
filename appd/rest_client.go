@@ -33,7 +33,7 @@ func (rc *RestClient) SchemaExists(schemaName string) bool {
 		req.Header.Set("Content-Type", "application/vnd.appd.events+json;v=2")
 		req.Header.Set("X-Events-API-AccountName", rc.Bag.GlobalAccount)
 		req.Header.Set("X-Events-API-Key", rc.Bag.EventKey)
-		fmt.Printf("Sending request. Account: %s   Event Key", rc.Bag.GlobalAccount, rc.Bag.EventKey)
+		fmt.Printf("Sending request. Account: %s   Event Key %s", rc.Bag.GlobalAccount, rc.Bag.EventKey)
 		client := &http.Client{}
 		resp, err := client.Do(req)
 		if err != nil {
@@ -45,7 +45,7 @@ func (rc *RestClient) SchemaExists(schemaName string) bool {
 
 			defer resp.Body.Close()
 			body, _ := ioutil.ReadAll(resp.Body)
-			fmt.Println("response Body:", string(body))
+			//			fmt.Println("response Body:", string(body))
 			return resp.StatusCode == 200 && body != nil && len(body) > 0
 		} else {
 			return false
