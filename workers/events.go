@@ -139,6 +139,7 @@ func (ew EventWorker) builAppDMetricsList() m.AppDMetricList {
 
 func eventFromPod(podObj *v1.Pod, reason string, message string, eventType string) *v1.Event {
 	or := v1.ObjectReference{Kind: "Pods", Namespace: podObj.Namespace}
+	source := v1.EventSource{Component: "AppDClusterAgent", Host: podObj.Spec.NodeName}
 	t := metav1.Time{Time: time.Now()}
 	namespace := podObj.Namespace
 	if namespace == "" {
@@ -157,6 +158,7 @@ func eventFromPod(podObj *v1.Pod, reason string, message string, eventType strin
 		LastTimestamp:  t,
 		Count:          1,
 		Type:           eventType,
+		Source:         source,
 	}
 
 }
