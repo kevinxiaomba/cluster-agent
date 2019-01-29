@@ -1,0 +1,49 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: appd-cluster-agent
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        name: appd-cluster-agent
+    spec:
+      serviceAccountName: appd-operator
+      containers:
+      - name: appd-cluster-agent-devops
+        image: sashaz/appd-cluster-agent@sha256:49030bc88bbfa678bd2ed3acb475f54003aa17c289c444e63325c73bc2275be3
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+            name: appd-clusteragent
+        env:
+        - name: ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              key: ACCESS_KEY
+              name: appd-clusteragent
+        - name: ACCOUNT_NAME
+          valueFrom:
+            secretKeyRef:
+              key: ACCOUNT_NAME
+              name: appd-clusteragent
+        - name: EVENT_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              key: EVENT_ACCESS_KEY
+              name: appd-clusteragent
+        - name: GLOBAL_ACCOUNT_NAME
+          valueFrom:
+            secretKeyRef:
+              key: GLOBAL_ACCOUNT_NAME
+              name: appd-clusteragent
+        - name: REST_API_CREDENTIALS
+          valueFrom:
+            secretKeyRef:
+              key: REST_API_CREDENTIALS
+              name: appd-clusteragent
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+    restartPolicy: Always

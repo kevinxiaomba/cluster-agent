@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -148,4 +149,87 @@ func (c *ControllerClient) StartBT(name string) appd.BtHandle {
 
 func (c *ControllerClient) StopBT(bth appd.BtHandle) {
 	appd.EndBT(bth)
+}
+
+func (c *ControllerClient) DetermineNodeID(appName string, nodeName string) (int, int, int, error) {
+	appID, err := c.FindAppID(appName)
+	if err != nil {
+		return appID, 0, 0, err
+	}
+
+	tierID, nodeID, e := c.FindNodeID(appID, nodeName)
+
+	if e != nil {
+		return appID, tierID, nodeID, e
+	}
+
+	return appID, tierID, nodeID, nil
+}
+
+func (c *ControllerClient) FindAppID(appName string) (int, error) {
+	var appID int = 0
+	path := fmt.Sprintf("restui/applicationManagerUiBean/applicationByName?applicationName=%s", appName)
+	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
+	rc := NewRestClient(c.Bag, logger)
+	data, err := rc.CallAppDController(path, "GET", nil)
+	if err != nil {
+		return appID, fmt.Errorf("Unable to find appID")
+	}
+	var appObj map[string]interface{}
+	errJson := json.Unmarshal(data, &appObj)
+	if errJson != nil {
+		return appID, fmt.Errorf("Unable to deserialize app object")
+	}
+	for key, val := range appObj {
+		if key == "id" {
+			appID = int(val.(float64))
+			break
+		}
+	}
+	fmt.Printf("App ID = %d ", appID)
+	return appID, nil
+}
+
+func (c *ControllerClient) FindNodeID(appID int, nodeName string) (int, int, error) {
+	var nodeID int = 0
+	var tierID int = 0
+	path := "restui/tiers/list/health"
+	jsonData := fmt.Sprintf(`{"requestFilter": {"queryParams": {"applicationId": %d}, "filters": []}, "resultColumns": ["TIER_NAME"], "columnSorts": [{"column": "TIER_NAME", "direction": "ASC"}], "searchFilters": [], "limit": -1, "offset": 0}`, appID)
+	d := []byte(jsonData)
+
+	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
+	rc := NewRestClient(c.Bag, logger)
+	data, err := rc.CallAppDController(path, "POST", d)
+	if err != nil {
+		return tierID, nodeID, fmt.Errorf("Unable to find nodeID")
+	}
+	var tierObj map[string]interface{}
+	errJson := json.Unmarshal(data, &tierObj)
+	if errJson != nil {
+		return tierID, nodeID, fmt.Errorf("Unable to deserialize tier object")
+	}
+	for key, val := range tierObj {
+		if key == "data" {
+			s := val.([]interface{})
+			for _, t := range s {
+				tier := t.(map[string]interface{})
+				tierID = int(tier["id"].(float64))
+				for k, prop := range tier {
+					if k == "children" {
+						for _, node := range prop.([]interface{}) {
+							nodeObj := node.(map[string]interface{})
+							for i, p := range nodeObj {
+								if i == "nodeName" && p == nodeName {
+									nodeID = int(nodeObj["nodeId"].(float64))
+									fmt.Printf("TierID: %d, nodeID: %d\n", tierID, nodeID)
+									return tierID, nodeID, nil
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return tierID, nodeID, nil
 }

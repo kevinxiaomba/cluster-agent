@@ -32,6 +32,9 @@ func (c *MainController) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	//	go c.startEventsWorker(stopCh, c.K8sClient, wg)
 
 	wg.Add(1)
+	go c.startDeployWorker(stopCh, c.K8sClient, wg, appdController)
+
+	wg.Add(1)
 	go c.startPodsWorker(stopCh, c.K8sClient, wg, appdController)
 
 	//	wg.Add(1)
@@ -66,10 +69,18 @@ func (c *MainController) startPodsWorker(stopCh <-chan struct{}, client *kuberne
 	<-stopCh
 }
 
+func (c *MainController) startDeployWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
+	fmt.Println("Starting Deployment worker")
+	defer wg.Done()
+	pw := NewDeployWorker(client, c.Bag, appdController)
+	pw.Observe(stopCh, wg)
+	<-stopCh
+}
+
 func (c *MainController) startEventsWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup) {
 	fmt.Println("Starting events worker")
 	defer wg.Done()
-	ew := NewEventWorker(client, c.Bag.AppName)
+	ew := NewEventWorker(client, c.Bag)
 	ew.Observe(stopCh, wg)
 }
 

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	//	"time"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -22,11 +22,11 @@ import (
 type EventWorker struct {
 	informer cache.SharedIndexInformer
 	Client   *kubernetes.Clientset
-	AppName  string
+	Bag      *m.AppDBag
 }
 
-func NewEventWorker(client *kubernetes.Clientset, appName string) EventWorker {
-	ew := EventWorker{initInformer(client), client, appName}
+func NewEventWorker(client *kubernetes.Clientset, bag *m.AppDBag) EventWorker {
+	ew := EventWorker{initInformer(client), client, bag}
 	return ew
 }
 
@@ -56,6 +56,16 @@ func onNewEvent(obj interface{}) {
 	fmt.Printf("Received event: %s %s %s\n", eventObj.Namespace, eventObj.Message, eventObj.Reason)
 }
 
+func EmitInstrumentationEvent(pod *v1.Pod, client *kubernetes.Clientset, reason, message, eventType string) error {
+	fmt.Printf("About to emit event: %s %s %s for pod %s-%s\n", reason, message, eventType, pod.Namespace, pod.Name)
+	event := eventFromPod(pod, reason, message, eventType)
+	_, err := client.Core().Events(pod.Namespace).Create(event)
+	if err != nil {
+		fmt.Printf("Issues when emitting instrumentation event %v\n", err)
+	}
+	return err
+}
+
 func (ew EventWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	defer wg.Done()
 	wg.Add(1)
@@ -83,18 +93,70 @@ func (ew EventWorker) BuildEventSnapshot() m.AppDMetricList {
 	return ew.builAppDMetricsList()
 }
 
+func (ew EventWorker) processObject(e *v1.Event) m.EventSchema {
+	eventObject := m.NewEventObj()
+
+	if e.ClusterName != "" {
+		eventObject.ClusterName = e.ClusterName
+	} else {
+		eventObject.ClusterName = ew.Bag.AppName
+	}
+
+	eventObject.Count = e.Count
+	eventObject.CreationTimestamp = e.CreationTimestamp.Time
+	eventObject.DeletionTimestamp = e.DeletionTimestamp.Time
+
+	eventObject.GenerateName = e.GenerateName
+	eventObject.Generation = e.Generation
+
+	eventObject.LastTimestamp = e.LastTimestamp.Time
+	eventObject.Message = e.Message
+	eventObject.Name = e.Name
+	eventObject.Namespace = e.Namespace
+	eventObject.ObjectKind = e.GetObjectKind().GroupVersionKind().Kind
+	eventObject.ObjectName = e.GetObjectMeta().GetName()
+	eventObject.ObjectNamespace = e.ObjectMeta.GetNamespace()
+	eventObject.ObjectResourceVersion = e.ObjectMeta.GetResourceVersion()
+	eventObject.ObjectUid = string(e.GetObjectMeta().GetUID())
+	for _, r := range e.GetOwnerReferences() {
+		eventObject.OwnerReferences += r.Name + ";"
+	}
+
+	eventObject.Reason = e.Reason
+	eventObject.ResourceVersion = e.GetResourceVersion()
+	eventObject.SelfLink = e.GetSelfLink()
+	eventObject.SourceComponent = e.Source.Component
+	eventObject.SourceHost = e.Source.Host
+
+	return eventObject
+}
+
 func (ew EventWorker) builAppDMetricsList() m.AppDMetricList {
 	ml := m.NewAppDMetricList()
-	//	for _, value := range ew.SummaryMap {
-	//		p := &value
-	//		objMap := structs.Map(p)
-	//		for fieldName, fieldValue := range objMap {
-	//			if fieldName != "NodeName" && fieldName != "Namespace" && fieldName != "Path" && fieldName != "Metadata" {
-	//				appdMetric := m.NewAppDMetric(fieldName, fieldValue.(int64), value.Path)
-	//				ml.AddMetrics(appdMetric)
-	//				fmt.Printf("Adding metric %s", appdMetric.ToString())
-	//			}
-	//		}
-	//	}
+
 	return ml
+}
+
+func eventFromPod(podObj *v1.Pod, reason string, message string, eventType string) *v1.Event {
+	or := v1.ObjectReference{Kind: "Pods", Namespace: podObj.Namespace}
+	t := metav1.Time{Time: time.Now()}
+	namespace := podObj.Namespace
+	if namespace == "" {
+		namespace = metav1.NamespaceDefault
+	}
+	return &v1.Event{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        fmt.Sprintf("%v.%x", podObj.Name, t.UnixNano()),
+			Namespace:   namespace,
+			Annotations: podObj.Annotations,
+		},
+		InvolvedObject: or,
+		Reason:         reason,
+		Message:        message,
+		FirstTimestamp: t,
+		LastTimestamp:  t,
+		Count:          1,
+		Type:           eventType,
+	}
+
 }

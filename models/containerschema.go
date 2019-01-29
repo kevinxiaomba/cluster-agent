@@ -74,6 +74,7 @@ type ContainerSchema struct {
 	TermReason      string    `json:"termReason"`
 	TerminationTime time.Time `json:"terminationTime"`
 	Mounts          string    `json:"mounts"`
+	Index           int8      `json:"-"`
 }
 
 type ContainerObjList struct {

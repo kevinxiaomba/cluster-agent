@@ -305,11 +305,14 @@ func (pw *JobsWorker) postJobRecords(objList *[]m.JobSchema) {
 	if err == nil && e == nil {
 		if rc.SchemaExists(pw.Bag.JobSchemaName) == false {
 			fmt.Printf("Creating schema. %s\n", pw.Bag.JobSchemaName)
-			if rc.CreateSchema(pw.Bag.JobSchemaName, schemaDef) != nil {
+			schemaObj, err := rc.CreateSchema(pw.Bag.JobSchemaName, schemaDef)
+			if err != nil {
+				return
+			} else if schemaObj != nil {
 				fmt.Printf("Schema %s created\n", pw.Bag.JobSchemaName)
+			} else {
+				fmt.Printf("Schema %s exists\n", pw.Bag.JobSchemaName)
 			}
-		} else {
-			fmt.Printf("Schema %s exists\n", pw.Bag.JobSchemaName)
 		}
 		fmt.Println("About to post records")
 		rc.PostAppDEvents(pw.Bag.JobSchemaName, data)

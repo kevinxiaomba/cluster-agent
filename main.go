@@ -26,6 +26,7 @@ type Flags struct {
 }
 
 func buildParams() Flags {
+	var method string
 	params := Flags{}
 
 	flag.StringVar(&params.Kubeconfig, "kubeconfig", getKubeConfigPath(), "(optional) absolute path to the kubeconfig file")
@@ -47,14 +48,28 @@ func buildParams() Flags {
 	flag.StringVar(&params.Bag.DashboardTemplatePath, "template-path", getTemplatePath(), "Dashboard template path")
 	flag.StringVar(&params.Bag.DashboardSuffix, "dash-name", getDashboardSuffix(), "Dashboard name")
 	flag.IntVar(&params.Bag.EventAPILimit, "event-batch-size", 100, "Max number of AppD events record to send in a batch")
+	flag.StringVar(&params.Bag.JavaAgentVersion, "java-agent-version", getJavaAgentVersion(), "AppD Java Agent Version")
+	flag.StringVar(&params.Bag.AppDJavaAttachImage, "java-attach-image", getJavaAttachImage(), "Java Attach Image")
+	flag.StringVar(&params.Bag.AppDDotNetAttachImage, "dotnet-attach-image", getDotNetAttachImage(), "DotNet Attach Image")
 	flag.StringVar(&params.Bag.AgentLabel, "agent-label", "appd-agent", "AppD Agent Label")
 	flag.StringVar(&params.Bag.AppDAppLabel, "appd-app", "appd-app", "AppD App Label")
 	flag.StringVar(&params.Bag.AppDTierLabel, "appd-tier", "appd-tier", "AppD Tier Label")
-	flag.StringVar(&params.Bag.AgentMountName, "mount-name", "agent-repo", "AppD Agent Mount Name")
-	flag.StringVar(&params.Bag.AgentMountPath, "mount-path", "/opt/appd/AppServerAgent", "AppD Agent Mount Path")
+	flag.StringVar(&params.Bag.AppDAnalyticsLabel, "appd-biq", "appd-biq", "AppD Analytics Label")
+	flag.StringVar(&params.Bag.AppLogMountName, "log-mount-name", "appd-volume", "App Log Mount Name")
+	flag.StringVar(&params.Bag.AppLogMountPath, "log-mount-path", "/opt/appdlogs", "App Log Mount Path")
+	flag.StringVar(&params.Bag.AgentMountName, "agent-mount-name", "appd-agent-repo", "AppD Agent Mount Name")
+	flag.StringVar(&params.Bag.AgentMountPath, "mount-path", "/opt/appd", "AppD Agent Mount Path")
 	flag.StringVar(&params.Bag.JDKMountName, "jdkmount-name", "jdk-repo", "JDK Mount Name")
 	flag.StringVar(&params.Bag.JDKMountPath, "jdkmount-path", "$JAVA_HOME/lib", "JDK Mount Path")
 	flag.StringVar(&params.Bag.NodeNamePrefix, "node-prefix", params.Bag.TierName, "Node name prefix. Used when node reuse is set to true")
+	flag.StringVar(&params.Bag.AnalyticsAgentUrl, "analytics-agent-url", getAnalyticsAgentUrl(), "Analytics Agent Url")
+	flag.StringVar(&params.Bag.AnalyticsAgentImage, "analytics-agent-image", getAnalyticsAgentImage(), "Analytics Agent Image")
+	flag.StringVar(&params.Bag.AnalyticsAgentContainerName, "analytics-agent-container-name", "appd-analytics-agent", "Analytics Agent Container Name")
+	flag.StringVar(&params.Bag.AppDInitContainerName, "appd-init-container-name", "appd-agent-attach", "AppD Init Container Name")
+	flag.StringVar(&method, "appd-instrument-method", getAgentInstrumentationMethod(), "AppD Agent Instrumentation Method (copy, mount)")
+	params.Bag.InstrumentationMethod = m.InstrumentationMethod(method)
+	flag.StringVar(&params.Bag.InitContainerDir, "init-container-dir", "/opt/temp/.", "Directory with artifacts in the init container")
+
 	var tempPort uint
 	flag.UintVar(&tempPort, "controller-port", getControllerPort(), "Controller Port")
 	params.Bag.ControllerPort = uint16(tempPort)
@@ -108,6 +123,7 @@ func authFromConfig(params *Flags) (*rest.Config, error) {
 		fmt.Printf("Kube config = %s", params.Kubeconfig)
 		return clientcmd.BuildConfigFromFlags("", params.Kubeconfig)
 	} else {
+		fmt.Printf("Using in-cluster auth")
 		return rest.InClusterConfig()
 	}
 
@@ -127,6 +143,11 @@ func getKubeConfigPath() string {
 		//try the default location
 		if home := homeDir(); home != "" {
 			path = filepath.Join(home, ".kube", "config")
+			//check if a valid path
+			if _, err := os.Stat(path); err != nil {
+				fmt.Printf("Default path to  %s does not exist", path)
+				path = ""
+			}
 		}
 	}
 	return path
@@ -187,6 +208,34 @@ func getDashboardSuffix() string {
 	}
 
 	return dn
+}
+
+func getJavaAgentVersion() string {
+	return os.Getenv("JAVA_AGENT_VERSION")
+}
+
+func getAnalyticsAgentUrl() string {
+	return os.Getenv("ANALYTICS_AGENT_URL")
+}
+
+func getAnalyticsAgentImage() string {
+	return os.Getenv("ANALYTICS_AGENT_IMAGE")
+}
+
+func getDotNetAttachImage() string {
+	return os.Getenv("DOTNET_ATTACH_IMAGE")
+}
+
+func getAgentInstrumentationMethod() string {
+	method := os.Getenv("AGENT_INSTRUMENTATION_METHOD")
+	if method == "" {
+		method = string(m.Copy)
+	}
+	return method
+}
+
+func getJavaAttachImage() string {
+	return os.Getenv("JAVA_ATTACH_IMAGE")
 }
 
 func getTemplatePath() string {

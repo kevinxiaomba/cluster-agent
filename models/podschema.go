@@ -125,7 +125,12 @@ type PodSchema struct {
 	PendingTime                   int64                      `json:"-"`
 	PodInitTime                   time.Time                  `json:"-"`
 	Containers                    map[string]ContainerSchema `json:"-"`
+	InitContainers                map[string]ContainerSchema `json:"-"`
 	Owner                         string                     `json:"-"`
+	IsEvicted                     bool                       `json:"-"`
+	AppID                         int                        `json:"-"`
+	TierID                        int                        `json:"-"`
+	NodeID                        int                        `json:"-"`
 }
 
 type PodObjList struct {
@@ -134,6 +139,10 @@ type PodObjList struct {
 
 func (ps *PodSchema) Equals(obj *PodSchema) bool {
 	return reflect.DeepEqual(*ps, *obj)
+}
+
+func (ps *PodSchema) GetPodKey() string {
+	return fmt.Sprintf("%s_%s", ps.Namespace, ps.Name)
 }
 
 func NewPodObjList() PodObjList {

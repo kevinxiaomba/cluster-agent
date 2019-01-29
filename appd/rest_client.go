@@ -9,6 +9,7 @@ import (
 	"log"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 
 	m "github.com/sjeltuhin/clusterAgent/models"
@@ -23,6 +24,27 @@ func NewRestClient(bag *m.AppDBag, logger *log.Logger) *RestClient {
 	return &RestClient{logger, bag}
 }
 
+func (rc *RestClient) getClient() *http.Client {
+	if rc.Bag.ProxyInfo != "" {
+		proxyUrl, err := url.Parse(rc.Bag.ProxyInfo)
+		if err != nil {
+			fmt.Print("Proxy url is invalid")
+			return &http.Client{}
+		}
+		return &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyUrl)}}
+	}
+	return &http.Client{}
+}
+
+func (rc *RestClient) addProxyAuth(req *http.Request) {
+	if rc.Bag.ProxyUser != "" && rc.Bag.ProxyPass != "" {
+		//adding proxy authentication
+		auth := fmt.Sprintf("%s:%s", rc.Bag.ProxyUser, rc.Bag.ProxyPass)
+		basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
+		req.Header.Add("Proxy-Authorization", basicAuth)
+	}
+}
+
 func (rc *RestClient) SchemaExists(schemaName string) bool {
 	req, err := http.NewRequest("GET", fmt.Sprintf("%s/events/schema/%s", rc.Bag.EventServiceUrl, schemaName), nil)
 	if err != nil {
@@ -33,7 +55,7 @@ func (rc *RestClient) SchemaExists(schemaName string) bool {
 		req.Header.Set("Content-Type", "application/vnd.appd.events+json;v=2")
 		req.Header.Set("X-Events-API-AccountName", rc.Bag.GlobalAccount)
 		req.Header.Set("X-Events-API-Key", rc.Bag.EventKey)
-		fmt.Printf("Sending request. Account: %s   Event Key %s", rc.Bag.GlobalAccount, rc.Bag.EventKey)
+		//		fmt.Printf("Sending request. Account: %s   Event Key %s", rc.Bag.GlobalAccount, rc.Bag.EventKey)
 		client := &http.Client{}
 		resp, err := client.Do(req)
 		if err != nil {
@@ -41,7 +63,7 @@ func (rc *RestClient) SchemaExists(schemaName string) bool {
 			return false
 		}
 		if resp != nil && resp.Body != nil {
-			fmt.Println("response Status:", resp.Status)
+			//			fmt.Println("response Status:", resp.Status)
 
 			defer resp.Body.Close()
 			body, _ := ioutil.ReadAll(resp.Body)
@@ -53,11 +75,11 @@ func (rc *RestClient) SchemaExists(schemaName string) bool {
 	}
 }
 
-func (rc *RestClient) CreateSchema(schemaName string, data []byte) []byte {
+func (rc *RestClient) CreateSchema(schemaName string, data []byte) ([]byte, error) {
 	req, err := http.NewRequest("POST", fmt.Sprintf("%s/events/schema/%s", rc.Bag.EventServiceUrl, schemaName), bytes.NewBuffer(data))
 	if err != nil {
 		fmt.Printf("Unable to initiate request. %v", err)
-		return nil
+		return nil, err
 	} else {
 		req.Header.Set("Accept", "application/vnd.appd.events+json;v=2")
 		req.Header.Set("Content-Type", "application/vnd.appd.events+json;v=2")
@@ -68,14 +90,15 @@ func (rc *RestClient) CreateSchema(schemaName string, data []byte) []byte {
 		resp, err := client.Do(req)
 		if err != nil {
 			fmt.Printf("Unable to create event schema %s. %v", schemaName, err)
+			return nil, err
 		}
 		defer resp.Body.Close()
 
-		fmt.Println("response Status:", resp.Status)
+		//		fmt.Println("response Status:", resp.Status)
 		body, _ := ioutil.ReadAll(resp.Body)
-		fmt.Println("response Body:", string(body))
+		//		fmt.Println("response Body:", string(body))
 
-		return body
+		return body, nil
 	}
 }
 
@@ -93,9 +116,9 @@ func (rc *RestClient) PostAppDEvents(schemaName string, data []byte) []byte {
 	}
 	defer resp.Body.Close()
 
-	fmt.Println("response Status:", resp.Status)
+	//	fmt.Println("response Status:", resp.Status)
 	body, _ := ioutil.ReadAll(resp.Body)
-	fmt.Println("response Body:", string(body))
+	//	fmt.Println("response Body:", string(body))
 	return body
 }
 
@@ -112,7 +135,7 @@ func (rc *RestClient) GetRestAuth() (AppDRestAuth, error) {
 	}
 	authHeader := "Basic " + creds
 	req.Header.Set("Authorization", authHeader)
-	fmt.Printf("Header: %s", authHeader)
+	//	fmt.Printf("Header: %s", authHeader)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -169,9 +192,9 @@ func (rc *RestClient) CallAppDController(path, method string, data []byte) ([]by
 	}
 	defer resp.Body.Close()
 
-	fmt.Println("response Status:", resp.Status)
+	//	fmt.Println("response Status:", resp.Status)
 	b, _ := ioutil.ReadAll(resp.Body)
-	fmt.Println("response Body:", string(b))
+	//	fmt.Println("response Body:", string(b))
 	return b, nil
 }
 

@@ -15,7 +15,9 @@ const ALL string = "all"
 const METRIC_SEPARATOR string = "|"
 const METRIC_PATH_NODES string = "Nodes"
 const METRIC_PATH_NAMESPACES string = "Namespaces"
-const METRIC_PATH_APPS string = "Pods"
+const METRIC_PATH_APPS string = "Deployments"
+const METRIC_PATH_CONT string = "Containers"
+const METRIC_PATH_INSTANCES string = "Instances"
 
 type AppDMetric struct {
 	MetricName              string
