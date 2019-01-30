@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	//	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/workqueue"
 )
@@ -46,13 +47,16 @@ type PodWorker struct {
 	K8sConfig           *rest.Config
 	PendingCache        []string
 	FailedCache         map[string]m.AttachStatus
+	ServiceCache        map[string]v1.Service
+	EndpointCache       map[string]v1.Endpoints
 }
 
 func NewPodWorker(client *kubernetes.Clientset, bag *m.AppDBag, controller *app.ControllerClient, config *rest.Config) PodWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 	pw := PodWorker{Client: client, Bag: bag, SummaryMap: make(map[string]m.ClusterPodMetrics), AppSummaryMap: make(map[string]m.ClusterAppMetrics),
 		ContainerSummaryMap: make(map[string]m.ClusterContainerMetrics), InstanceSummaryMap: make(map[string]m.ClusterInstanceMetrics),
-		WQ: queue, AppdController: controller, K8sConfig: config, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus)}
+		WQ: queue, AppdController: controller, K8sConfig: config, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus),
+		ServiceCache: make(map[string]v1.Service), EndpointCache: make(map[string]v1.Endpoints)}
 	pw.initPodInformer(client)
 	return pw
 }
@@ -307,6 +311,9 @@ func (pw PodWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 
 	wg.Add(1)
 	go pw.startEventQueueWorker(stopCh)
+
+	go pw.watchServices()
+	go pw.watchEndpoints()
 
 	<-stopCh
 }
@@ -663,6 +670,41 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 	podObject.Annotations = sb.String()
 
 	if !podObject.IsEvicted {
+		//find service
+		podLabels := labels.Set(p.Labels)
+		//check if service exists and routes to the ports
+		for _, svc := range pw.ServiceCache {
+			svcSelector := labels.SelectorFromSet(svc.Spec.Selector)
+			if svc.Namespace == podObject.Namespace && svcSelector.Matches(podLabels) {
+				fmt.Printf("Service %s found for pod %s\n", svc.Name, podObject.Name)
+				nodePort := false
+				for _, sp := range svc.Spec.Ports {
+					if sp.NodePort > 0 {
+						fmt.Printf("Service exposes nodePort %d\n", sp)
+						nodePort = true
+						break
+					}
+				}
+				ingressExists := false
+				for _, ingress := range svc.Status.LoadBalancer.Ingress {
+					fmt.Printf("Ingress %s %s found for service %s \n", ingress.Hostname, ingress.IP, svc.Name)
+					ingressExists = true
+				}
+				if !ingressExists && !nodePort {
+					fmt.Printf("Service %s does not have external connectivity\n", svc.Name)
+				}
+				podObject.Services = append(podObject.Services, svc)
+			}
+		}
+
+		for _, ep := range pw.EndpointCache {
+			epSelector := labels.SelectorFromSet(ep.Labels)
+			if ep.Namespace == podObject.Namespace && epSelector.Matches(podLabels) {
+				fmt.Printf("Endpoint %s found for pod %s\n", ep.Name, podObject.Name)
+				podObject.Endpoints = append(podObject.Endpoints, ep)
+			}
+		}
+
 		podObject.InitContainerCount = len(p.Spec.InitContainers)
 		podObject.ContainerCount = len(p.Spec.Containers)
 
@@ -675,14 +717,14 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 		}
 
 		for _, c := range p.Spec.Containers {
-			containerObj, limitsDefined := pw.processContainer(podObject, c, false)
+			containerObj, limitsDefined := pw.processContainer(p, podObject, c, false)
 
 			podObject.Containers[c.Name] = containerObj
 			podObject.LimitsDefined = limitsDefined
 		}
 
 		for _, c := range p.Spec.InitContainers {
-			containerObj, _ := pw.processContainer(podObject, c, true)
+			containerObj, _ := pw.processContainer(p, podObject, c, true)
 			podObject.InitContainers[c.Name] = containerObj
 		}
 	}
@@ -905,42 +947,47 @@ func findInitContainer(podObject *m.PodSchema, containerName string) *m.Containe
 	return nil
 }
 
-func (pw PodWorker) processContainer(podObject m.PodSchema, c v1.Container, init bool) (m.ContainerSchema, bool) {
+func (pw PodWorker) processContainer(podObj *v1.Pod, podSchema m.PodSchema, c v1.Container, init bool) (m.ContainerSchema, bool) {
 	var sb strings.Builder
 	var limitsDefined bool = false
 	containerObj := m.NewContainerObj()
 	containerObj.Name = c.Name
-	containerObj.Namespace = podObject.Namespace
-	containerObj.NodeName = podObject.NodeName
-	containerObj.PodName = podObject.Name
+	containerObj.Namespace = podSchema.Namespace
+	containerObj.NodeName = podSchema.NodeName
+	containerObj.PodName = podSchema.Name
 	containerObj.Init = init
-	containerObj.PodInitTime = podObject.PodInitTime
+	containerObj.PodInitTime = podSchema.PodInitTime
 
 	if c.SecurityContext != nil && c.SecurityContext.Privileged != nil && *c.SecurityContext.Privileged {
-		podObject.NumPrivileged++
+		podSchema.NumPrivileged++
 		containerObj.Privileged = 1
 	}
 
 	if c.LivenessProbe == nil {
-		podObject.LiveProbes++
+		podSchema.LiveProbes++
 		containerObj.LiveProbes = 1
 	}
 
+	for _, p := range c.Ports {
+		cp := pw.CheckPort(&p, podObj, podSchema)
+		containerObj.ContainerPorts = append(containerObj.ContainerPorts, *cp)
+	}
+
 	if c.ReadinessProbe == nil {
-		podObject.ReadyProbes++
+		podSchema.ReadyProbes++
 		containerObj.ReadyProbes = 1
 	}
 
 	if c.Resources.Requests != nil {
 		cpuReq, ok := c.Resources.Requests.Cpu().AsInt64()
 		if ok {
-			podObject.CpuRequest += cpuReq
+			podSchema.CpuRequest += cpuReq
 			containerObj.CpuRequest = cpuReq
 		}
 
 		memReq, ok := c.Resources.Requests.Memory().AsInt64()
 		if ok {
-			podObject.MemRequest += memReq
+			podSchema.MemRequest += memReq
 			containerObj.MemRequest = memReq
 		}
 		limitsDefined = true
@@ -949,13 +996,13 @@ func (pw PodWorker) processContainer(podObject m.PodSchema, c v1.Container, init
 	if c.Resources.Limits != nil {
 		cpuLim, ok := c.Resources.Limits.Cpu().AsInt64()
 		if ok {
-			podObject.CpuLimit += cpuLim
+			podSchema.CpuLimit += cpuLim
 			containerObj.CpuLimit = cpuLim
 		}
 
 		memLim, ok := c.Resources.Limits.Memory().AsInt64()
 		if ok {
-			podObject.MemLimit += memLim
+			podSchema.MemLimit += memLim
 			containerObj.MemLimit = memLim
 		}
 		limitsDefined = true
@@ -969,6 +1016,37 @@ func (pw PodWorker) processContainer(podObject m.PodSchema, c v1.Container, init
 		containerObj.Mounts = sb.String()
 	}
 	return containerObj, limitsDefined
+}
+
+func (pw PodWorker) CheckPort(port *v1.ContainerPort, podObj *v1.Pod, podSchema m.PodSchema) *m.ContainerPort {
+	cp := m.ContainerPort{}
+	cp.PortNumber = port.ContainerPort
+	cp.Name = port.Name
+
+	//check if service exists and routes to the ports
+	for _, svc := range podSchema.Services {
+		for _, sp := range svc.Spec.Ports {
+			if sp.TargetPort.IntVal == port.ContainerPort {
+				fmt.Printf("Port %d found. Name %s. Open for traffic\n", sp.TargetPort.IntVal, sp.Name)
+				//check if it is up
+				for _, ep := range podSchema.Endpoints {
+					for _, eps := range ep.Subsets {
+						for _, epsPort := range eps.Ports {
+							fmt.Printf("Endpoint Port %d found.\n", epsPort.Port)
+						}
+						for _, epsAddr := range eps.Addresses {
+							fmt.Printf("Healthy address  %s %s.\n", epsAddr.IP, epsAddr.Hostname)
+						}
+						for _, epsNRAdre := range eps.NotReadyAddresses {
+							fmt.Printf("Bad address  %s %s.\n", epsNRAdre.IP, epsNRAdre.Hostname)
+						}
+					}
+				}
+				cp.Available = true
+			}
+		}
+	}
+	return &cp
 }
 
 func compareString(val1, val2 string, differ bool) bool {
@@ -1015,6 +1093,7 @@ func (pw PodWorker) getLogs(namespace, podName string, logOptions *v1.PodLogOpti
 
 	defer readCloser.Close()
 	_, err = io.Copy(out, readCloser)
+	fmt.Printf("Pod %s logs: %s. %v\n", podName, out, err)
 	return err
 
 }
@@ -1115,3 +1194,172 @@ func (pw PodWorker) addMetricToList(objMap map[string]interface{}, metric m.AppD
 		}
 	}
 }
+
+func (pw PodWorker) watchServices() {
+	api := pw.Client.CoreV1()
+	listOptions := metav1.ListOptions{}
+	fmt.Println("Starting Service Watcher...")
+
+	watcher, err := api.Services(metav1.NamespaceAll).Watch(listOptions)
+	if err != nil {
+		fmt.Printf("Issues when setting up svc watcher. %v", err)
+	}
+
+	ch := watcher.ResultChan()
+
+	for ev := range ch {
+		svc, ok := ev.Object.(*v1.Service)
+		if !ok {
+			fmt.Printf("Expected Service, but received an object of an unknown type. ")
+			continue
+		}
+		switch ev.Type {
+		case watch.Added:
+			pw.onNewService(svc)
+			break
+
+		case watch.Deleted:
+			pw.onDeleteService(svc)
+			break
+
+		case watch.Modified:
+			pw.onUpdateService(svc)
+			break
+		}
+
+	}
+	fmt.Println("Exiting svc watcher.")
+}
+
+func (pw PodWorker) onNewService(svc *v1.Service) {
+	fmt.Printf("Added Service: %s\n", svc.Name)
+	pw.ServiceCache[utils.GetServiceKey(svc)] = *svc
+}
+
+func (pw PodWorker) onDeleteService(svc *v1.Service) {
+	_, ok := pw.ServiceCache[utils.GetServiceKey(svc)]
+	if ok {
+		delete(pw.ServiceCache, utils.GetServiceKey(svc))
+		fmt.Printf("Service %s deleted \n", svc.Name)
+	}
+}
+
+func (pw PodWorker) onUpdateService(svc *v1.Service) {
+	pw.ServiceCache[utils.GetServiceKey(svc)] = *svc
+	fmt.Printf("Updated Service: %s\n", svc.Name)
+
+}
+
+//end points
+func (pw PodWorker) watchEndpoints() {
+	api := pw.Client.CoreV1()
+	listOptions := metav1.ListOptions{}
+	fmt.Println("Starting Endpoint Watcher...")
+
+	watcher, err := api.Endpoints(metav1.NamespaceAll).Watch(listOptions)
+	if err != nil {
+		fmt.Printf("Issues when setting up ep watcher. %v", err)
+	}
+
+	ch := watcher.ResultChan()
+
+	for ev := range ch {
+		ep, ok := ev.Object.(*v1.Endpoints)
+		if !ok {
+			fmt.Printf("Expected Endpoints, but received an object of an unknown type. ")
+			continue
+		}
+		switch ev.Type {
+		case watch.Added:
+			pw.onNewEndpoint(ep)
+			break
+
+		case watch.Deleted:
+			pw.onDeleteEndpoint(ep)
+			break
+
+		case watch.Modified:
+			pw.onUpdateEndpoint(ep)
+			break
+		}
+
+	}
+	fmt.Println("Exiting svc watcher.")
+}
+
+func (pw PodWorker) onNewEndpoint(ep *v1.Endpoints) {
+	fmt.Printf("Added Endpoint: %s\n", ep.Name)
+	pw.EndpointCache[utils.GetEndpointKey(ep)] = *ep
+}
+
+func (pw PodWorker) onDeleteEndpoint(ep *v1.Endpoints) {
+	_, ok := pw.EndpointCache[utils.GetEndpointKey(ep)]
+	if ok {
+		delete(pw.EndpointCache, utils.GetEndpointKey(ep))
+		fmt.Printf("Endpoint %s deleted \n", ep.Name)
+	}
+}
+
+func (pw PodWorker) onUpdateEndpoint(ep *v1.Endpoints) {
+	pw.EndpointCache[utils.GetEndpointKey(ep)] = *ep
+	fmt.Printf("Endpoint Service: %s\n", ep.Name)
+
+}
+
+//PVs
+//func (pw PodWorker) watchEndPoints() {
+//	api := pw.Client.CoreV1()
+//	listOptions := metav1.ListOptions{}
+//	fmt.Println("Starting Persistent Volume Watcher...")
+
+//	watcher, err := api.PersistentVolumes(metav1.NamespaceAll).Watch(listOptions)
+//	if err != nil {
+//		fmt.Printf("Issues when setting up PV watcher. %v", err)
+//	}
+
+//	ch := watcher.ResultChan()
+
+//	for ev := range ch {
+//		pv, ok := ev.Object.(*v1.PersistentVolume)
+//		pv.Spec.
+////		quant := pvc.Spec.Resources.Requests[v1.ResourceStorage]
+//		if !ok {
+//			fmt.Printf("Expected Endpoints, but received an object of an unknown type. ")
+//			continue
+//		}
+//		switch ev.Type {
+//		case watch.Added:
+//			pw.onNewEndpoint(ep)
+//			break
+
+//		case watch.Deleted:
+//			pw.onDeleteEndpoint(ep)
+//			break
+
+//		case watch.Modified:
+//			pw.onUpdateEndpoint(ep)
+//			break
+//		}
+
+//	}
+//	fmt.Println("Exiting svc watcher.")
+//}
+
+//func (pw PodWorker) onNewEndpoint(ep *v1.Endpoints) {
+//	fmt.Printf("Added Endpoint: %s\n", ep.Name)
+//	pw.EndpointCache[utils.GetEndpointKey(ep)] = *ep
+//}
+
+//func (pw PodWorker) onDeleteEndpoint(ep *v1.Endpoints) {
+//	_, ok := pw.EndpointCache[utils.GetEndpointKey(ep)]
+//	if ok {
+//		delete(pw.EndpointCache, utils.GetEndpointKey(ep))
+//		fmt.Printf("Endpoint %s deleted \n", ep.Name)
+//	}
+//}
+
+//func (pw PodWorker) onUpdateEndpoint(ep *v1.Endpoints) {
+//	pw.EndpointCache[utils.GetEndpointKey(ep)] = *ep
+//	fmt.Printf("Endpoint Service: %s\n", ep.Name)
+
+//}

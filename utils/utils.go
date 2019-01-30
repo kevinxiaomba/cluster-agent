@@ -19,6 +19,14 @@ func GetPodKey(podObj *v1.Pod) string {
 	return fmt.Sprintf("%s_%s", podObj.Namespace, podObj.Name)
 }
 
+func GetServiceKey(svc *v1.Service) string {
+	return fmt.Sprintf("%s_%s", svc.Namespace, svc.Name)
+}
+
+func GetEndpointKey(ep *v1.Endpoints) string {
+	return fmt.Sprintf("%s_%s", ep.Namespace, ep.Name)
+}
+
 func StringInSlice(s string, list []string) bool {
 	return GetIndex(s, list) > -1
 }

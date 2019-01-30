@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"time"
+
+	"k8s.io/api/core/v1"
 )
 
 type PodSchemaDefWrapper struct {
@@ -131,6 +133,8 @@ type PodSchema struct {
 	AppID                         int                        `json:"-"`
 	TierID                        int                        `json:"-"`
 	NodeID                        int                        `json:"-"`
+	Services                      []v1.Service               `json:"-"`
+	Endpoints                     []v1.Endpoints             `json:"-"`
 }
 
 type PodObjList struct {
@@ -150,7 +154,7 @@ func NewPodObjList() PodObjList {
 }
 
 func NewPodObj() PodSchema {
-	return PodSchema{PendingTime: 0}
+	return PodSchema{PendingTime: 0, Services: []v1.Service{}, Endpoints: []v1.Endpoints{}}
 }
 
 func (p PodSchema) ToString() string {

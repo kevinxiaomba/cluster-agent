@@ -138,7 +138,7 @@ func (ew EventWorker) builAppDMetricsList() m.AppDMetricList {
 }
 
 func eventFromPod(podObj *v1.Pod, reason string, message string, eventType string) *v1.Event {
-	or := v1.ObjectReference{Kind: "Pods", Namespace: podObj.Namespace}
+	or := v1.ObjectReference{Kind: "Pods", Namespace: podObj.Namespace, Name: podObj.Name}
 	source := v1.EventSource{Component: "AppDClusterAgent", Host: podObj.Spec.NodeName}
 	t := metav1.Time{Time: time.Now()}
 	namespace := podObj.Namespace

@@ -49,32 +49,39 @@ func NewContainerSchemaDef() ContainerSchemaDef {
 	return pdsd
 }
 
+type ContainerPort struct {
+	Name       string
+	PortNumber int32
+	Available  bool
+}
+
 type ContainerSchema struct {
-	Name            string    `json:"name"`
-	Init            bool      `json:"init"`
-	Namespace       string    `json:"namespace"`
-	ClusterName     string    `json:"clusterName"`
-	NodeName        string    `json:"nodeName"`
-	PodName         string    `json:"podName"`
-	PodInitTime     time.Time `json:"podInitTime"`
-	StartTime       time.Time `json:"startTime"`
-	LiveProbes      int       `json:"liveProbes"`
-	ReadyProbes     int       `json:"readyProbes"`
-	Restarts        int32     `json:"restarts"`
-	Privileged      int       `json:"privileged"`
-	Ports           string    `json:"ports"`
-	MemRequest      int64     `json:"memRequest"`
-	CpuRequest      int64     `json:"cpuRequest"`
-	CpuLimit        int64     `json:"cpuLimit"`
-	MemLimit        int64     `json:"memLimit"`
-	CpuUse          int64     `json:"cpuUse"`
-	MemUse          int64     `json:"memUse"`
-	Image           string    `json:"image"`
-	WaitReason      string    `json:"waitReason"`
-	TermReason      string    `json:"termReason"`
-	TerminationTime time.Time `json:"terminationTime"`
-	Mounts          string    `json:"mounts"`
-	Index           int8      `json:"-"`
+	Name            string          `json:"name"`
+	Init            bool            `json:"init"`
+	Namespace       string          `json:"namespace"`
+	ClusterName     string          `json:"clusterName"`
+	NodeName        string          `json:"nodeName"`
+	PodName         string          `json:"podName"`
+	PodInitTime     time.Time       `json:"podInitTime"`
+	StartTime       time.Time       `json:"startTime"`
+	LiveProbes      int             `json:"liveProbes"`
+	ReadyProbes     int             `json:"readyProbes"`
+	Restarts        int32           `json:"restarts"`
+	Privileged      int             `json:"privileged"`
+	Ports           string          `json:"ports"`
+	MemRequest      int64           `json:"memRequest"`
+	CpuRequest      int64           `json:"cpuRequest"`
+	CpuLimit        int64           `json:"cpuLimit"`
+	MemLimit        int64           `json:"memLimit"`
+	CpuUse          int64           `json:"cpuUse"`
+	MemUse          int64           `json:"memUse"`
+	Image           string          `json:"image"`
+	WaitReason      string          `json:"waitReason"`
+	TermReason      string          `json:"termReason"`
+	TerminationTime time.Time       `json:"terminationTime"`
+	Mounts          string          `json:"mounts"`
+	Index           int8            `json:"-"`
+	ContainerPorts  []ContainerPort `json:"-"`
 }
 
 type ContainerObjList struct {
@@ -86,7 +93,7 @@ func NewContainerObjList() ContainerObjList {
 }
 
 func NewContainerObj() ContainerSchema {
-	return ContainerSchema{}
+	return ContainerSchema{ContainerPorts: []ContainerPort{}}
 }
 
 func (p ContainerSchema) ToString() string {
