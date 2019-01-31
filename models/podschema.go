@@ -133,7 +133,7 @@ type PodSchema struct {
 	AppID                         int                        `json:"-"`
 	TierID                        int                        `json:"-"`
 	NodeID                        int                        `json:"-"`
-	Services                      []v1.Service               `json:"-"`
+	Services                      []ServiceSchema            `json:"-"`
 	Endpoints                     []v1.Endpoints             `json:"-"`
 }
 
@@ -154,7 +154,7 @@ func NewPodObjList() PodObjList {
 }
 
 func NewPodObj() PodSchema {
-	return PodSchema{PendingTime: 0, Services: []v1.Service{}, Endpoints: []v1.Endpoints{}}
+	return PodSchema{PendingTime: 0, Services: []ServiceSchema{}, Endpoints: []v1.Endpoints{}}
 }
 
 func (p PodSchema) ToString() string {

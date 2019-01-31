@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 
+	m "github.com/sjeltuhin/clusterAgent/models"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/api/core/v1"
 )
@@ -19,7 +20,11 @@ func GetPodKey(podObj *v1.Pod) string {
 	return fmt.Sprintf("%s_%s", podObj.Namespace, podObj.Name)
 }
 
-func GetServiceKey(svc *v1.Service) string {
+func GetK8sServiceKey(svc *v1.Service) string {
+	return fmt.Sprintf("%s_%s", svc.Namespace, svc.Name)
+}
+
+func GetServiceKey(svc *m.ServiceSchema) string {
 	return fmt.Sprintf("%s_%s", svc.Namespace, svc.Name)
 }
 

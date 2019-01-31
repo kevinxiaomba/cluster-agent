@@ -332,16 +332,21 @@ func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tier
 		podObj.Annotations[ATTACHED_ANNOTATION] = time.Now().String()
 
 		//determine the AppD node name
-		findCmd := fmt.Sprintf("find %s/%s/logs/ -maxdepth 1 -type d -name '*%s*' -printf %%f -quit", jarPath, ai.Bag.JavaAgentVersion, tierName)
-		c, folderName, errFolder := exec.RunCommandInPod(podObj.Name, podObj.Namespace, containerName, "", findCmd)
-		fmt.Printf("AppD agent version probe. Output: %s. Error: %v\n", folderName, errFolder)
-		if c == 0 {
-			nodeName := strings.TrimSpace(folderName)
-			appID, tierID, nodeID, errAppd := ai.AppdController.DetermineNodeID(appName, nodeName)
-			if errAppd == nil {
-				podObj.Annotations[APPD_APPID] = strconv.Itoa(appID)
-				podObj.Annotations[APPD_TIERID] = strconv.Itoa(tierID)
-				podObj.Annotations[APPD_NODEID] = strconv.Itoa(nodeID)
+		findVerCmd := fmt.Sprintf("find %s/ -maxdepth 1 -type d -name '*ver*' -printf %%f -quit", jarPath)
+		cVer, verFolderName, errVer := exec.RunCommandInPod(podObj.Name, podObj.Namespace, containerName, "", findVerCmd)
+		fmt.Printf("AppD agent version probe. Output: %s. Error: %v\n", verFolderName, errVer)
+		if cVer == 0 && verFolderName != "" {
+			findCmd := fmt.Sprintf("find %s/%s/logs/ -maxdepth 1 -type d -name '*%s*' -printf %%f -quit", jarPath, verFolderName, tierName)
+			c, folderName, errFolder := exec.RunCommandInPod(podObj.Name, podObj.Namespace, containerName, "", findCmd)
+			fmt.Printf("AppD agent version probe. Output: %s. Error: %v\n", folderName, errFolder)
+			if c == 0 {
+				nodeName := strings.TrimSpace(folderName)
+				appID, tierID, nodeID, errAppd := ai.AppdController.DetermineNodeID(appName, nodeName)
+				if errAppd == nil {
+					podObj.Annotations[APPD_APPID] = strconv.Itoa(appID)
+					podObj.Annotations[APPD_TIERID] = strconv.Itoa(tierID)
+					podObj.Annotations[APPD_NODEID] = strconv.Itoa(nodeID)
+				}
 			}
 		}
 

@@ -52,7 +52,8 @@ func NewContainerSchemaDef() ContainerSchemaDef {
 type ContainerPort struct {
 	Name       string
 	PortNumber int32
-	Available  bool
+	Mapped     bool
+	Ready      bool
 }
 
 type ContainerSchema struct {

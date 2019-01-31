@@ -47,7 +47,8 @@ type PodWorker struct {
 	K8sConfig           *rest.Config
 	PendingCache        []string
 	FailedCache         map[string]m.AttachStatus
-	ServiceCache        map[string]v1.Service
+	SvcCache            map[string]v1.Service
+	ServiceCache        map[string]m.ServiceSchema
 	EndpointCache       map[string]v1.Endpoints
 }
 
@@ -56,7 +57,7 @@ func NewPodWorker(client *kubernetes.Clientset, bag *m.AppDBag, controller *app.
 	pw := PodWorker{Client: client, Bag: bag, SummaryMap: make(map[string]m.ClusterPodMetrics), AppSummaryMap: make(map[string]m.ClusterAppMetrics),
 		ContainerSummaryMap: make(map[string]m.ClusterContainerMetrics), InstanceSummaryMap: make(map[string]m.ClusterInstanceMetrics),
 		WQ: queue, AppdController: controller, K8sConfig: config, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus),
-		ServiceCache: make(map[string]v1.Service), EndpointCache: make(map[string]v1.Endpoints)}
+		SvcCache: make(map[string]v1.Service), ServiceCache: make(map[string]m.ServiceSchema), EndpointCache: make(map[string]v1.Endpoints)}
 	pw.initPodInformer(client)
 	return pw
 }
@@ -358,6 +359,8 @@ func (pw *PodWorker) buildAppDMetrics() {
 	pw.AppSummaryMap = make(map[string]m.ClusterAppMetrics)
 	pw.ContainerSummaryMap = make(map[string]m.ClusterContainerMetrics)
 	pw.InstanceSummaryMap = make(map[string]m.ClusterInstanceMetrics)
+	pw.updateServiceCache()
+
 	var count int = 0
 	for _, obj := range pw.informer.GetStore().List() {
 		podObject := obj.(*v1.Pod)
@@ -367,6 +370,7 @@ func (pw *PodWorker) buildAppDMetrics() {
 	}
 
 	fmt.Printf("Unique metrics: %d\n", count)
+	//update services
 
 	ml := pw.builAppDMetricsList()
 
@@ -374,6 +378,33 @@ func (pw *PodWorker) buildAppDMetrics() {
 
 	pw.AppdController.PostMetrics(ml)
 	pw.AppdController.StopBT(bth)
+}
+
+func (pw *PodWorker) updateServiceCache() {
+	pw.ServiceCache = make(map[string]m.ServiceSchema)
+	external := make(map[string]m.ServiceSchema)
+	for key, svc := range pw.SvcCache {
+		svcSchema := m.NewServiceSchema(&svc)
+		if svcSchema.HasExternalService {
+			external[key] = *svcSchema
+		}
+		pw.ServiceCache[key] = *svcSchema
+	}
+
+	//check validity of external services
+	for k, headless := range external {
+		for kk, svcObj := range pw.ServiceCache {
+			path := fmt.Sprintf("%s.%s", svcObj.Name, svcObj.Namespace)
+			if strings.Contains(headless.ExternalName, path) {
+				headless.ExternalSvcValid = true
+				pw.ServiceCache[k] = headless
+				svcObj.ExternallyReferenced(true)
+				pw.ServiceCache[kk] = svcObj
+				fmt.Printf("External reference found: %s - %s", headless.Name, svcObj.Name)
+				break
+			}
+		}
+	}
 }
 
 func (pw *PodWorker) summarize(podObject *m.PodSchema) {
@@ -401,7 +432,7 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 	//app/tier metrics
 	summaryApp, okApp := pw.AppSummaryMap[podObject.Owner]
 	if !okApp {
-		summaryApp = m.NewClusterAppMetrics(pw.Bag, podObject.Namespace, podObject.Owner)
+		summaryApp = m.NewClusterAppMetrics(pw.Bag, podObject)
 		pw.AppSummaryMap[podObject.Owner] = summaryApp
 		summaryApp.ContainerCount = int64(podObject.ContainerCount)
 		summaryApp.InitContainerCount = int64(podObject.InitContainerCount)
@@ -578,7 +609,7 @@ func (pw *PodWorker) nextContainerInstance(podObject *m.PodSchema, c m.Container
 	instanceKey = fmt.Sprintf("%s_%s_%s_%d", podObject.Namespace, podObject.Owner, c.Name, podObject.Name)
 	_, okInstance := pw.InstanceSummaryMap[instanceKey]
 	if !okInstance {
-		summaryInstance = m.NewClusterInstanceMetrics(pw.Bag, podObject.Namespace, podObject.Owner, c.Name, podObject.Name)
+		summaryInstance = m.NewClusterInstanceMetrics(pw.Bag, podObject, c.Name)
 		pw.InstanceSummaryMap[instanceKey] = summaryInstance
 	}
 
@@ -669,31 +700,17 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 	}
 	podObject.Annotations = sb.String()
 
+	podObject.HostIP = p.Status.HostIP
+	podObject.PodIP = p.Status.PodIP
+
 	if !podObject.IsEvicted {
 		//find service
 		podLabels := labels.Set(p.Labels)
 		//check if service exists and routes to the ports
-		for _, svc := range pw.ServiceCache {
-			svcSelector := labels.SelectorFromSet(svc.Spec.Selector)
-			if svc.Namespace == podObject.Namespace && svcSelector.Matches(podLabels) {
-				fmt.Printf("Service %s found for pod %s\n", svc.Name, podObject.Name)
-				nodePort := false
-				for _, sp := range svc.Spec.Ports {
-					if sp.NodePort > 0 {
-						fmt.Printf("Service exposes nodePort %d\n", sp)
-						nodePort = true
-						break
-					}
-				}
-				ingressExists := false
-				for _, ingress := range svc.Status.LoadBalancer.Ingress {
-					fmt.Printf("Ingress %s %s found for service %s \n", ingress.Hostname, ingress.IP, svc.Name)
-					ingressExists = true
-				}
-				if !ingressExists && !nodePort {
-					fmt.Printf("Service %s does not have external connectivity\n", svc.Name)
-				}
-				podObject.Services = append(podObject.Services, svc)
+		for _, svcSchema := range pw.ServiceCache {
+			if svcSchema.MatchesPod(p) {
+				fmt.Printf("Service %s found for pod %s\n", svcSchema.Name, podObject.Name)
+				podObject.Services = append(podObject.Services, svcSchema)
 			}
 		}
 
@@ -814,8 +831,6 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 		}
 	}
 
-	podObject.HostIP = p.Status.HostIP
-
 	if p.DeletionTimestamp != nil {
 		podObject.TerminationTime = p.DeletionTimestamp.Time
 	}
@@ -829,8 +844,6 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 	if old == nil || (old.Status.Phase == "Pending" && (podObject.Phase == "Running" || podObject.Phase == "Failed")) {
 		podObject.PendingTime = int64(time.Now().Sub(podObject.PodInitTime).Seconds() * 1000)
 	}
-
-	podObject.PodIP = p.Status.PodIP
 
 	if !podObject.IsEvicted {
 		if p.Status.Conditions != nil && len(p.Status.Conditions) > 0 {
@@ -1025,25 +1038,12 @@ func (pw PodWorker) CheckPort(port *v1.ContainerPort, podObj *v1.Pod, podSchema 
 
 	//check if service exists and routes to the ports
 	for _, svc := range podSchema.Services {
-		for _, sp := range svc.Spec.Ports {
-			if sp.TargetPort.IntVal == port.ContainerPort {
-				fmt.Printf("Port %d found. Name %s. Open for traffic\n", sp.TargetPort.IntVal, sp.Name)
-				//check if it is up
-				for _, ep := range podSchema.Endpoints {
-					for _, eps := range ep.Subsets {
-						for _, epsPort := range eps.Ports {
-							fmt.Printf("Endpoint Port %d found.\n", epsPort.Port)
-						}
-						for _, epsAddr := range eps.Addresses {
-							fmt.Printf("Healthy address  %s %s.\n", epsAddr.IP, epsAddr.Hostname)
-						}
-						for _, epsNRAdre := range eps.NotReadyAddresses {
-							fmt.Printf("Bad address  %s %s.\n", epsNRAdre.IP, epsNRAdre.Hostname)
-						}
-					}
-				}
-				cp.Available = true
-			}
+		mapped, ready := svc.IsPortAvailable(&cp, &podSchema)
+		if !cp.Mapped {
+			cp.Mapped = mapped
+		}
+		if !cp.Ready {
+			cp.Ready = ready
 		}
 	}
 	return &cp
@@ -1169,6 +1169,14 @@ func (pw PodWorker) builAppDMetricsList() m.AppDMetricList {
 	for _, metricApp := range pw.AppSummaryMap {
 		objMap := structs.Map(metricApp)
 		pw.addMetricToList(objMap, metricApp, &list)
+		for _, svcMetrics := range metricApp.Services {
+			objSvcMap := structs.Map(svcMetrics)
+			pw.addMetricToList(objSvcMap, svcMetrics, &list)
+			for _, epMetrics := range svcMetrics.Endpoints {
+				objEPMap := structs.Map(epMetrics)
+				pw.addMetricToList(objEPMap, epMetrics, &list)
+			}
+		}
 	}
 
 	for _, metricContainer := range pw.ContainerSummaryMap {
@@ -1179,6 +1187,10 @@ func (pw PodWorker) builAppDMetricsList() m.AppDMetricList {
 	for _, metricInstance := range pw.InstanceSummaryMap {
 		objMap := structs.Map(metricInstance)
 		pw.addMetricToList(objMap, metricInstance, &list)
+		for _, portMetric := range metricInstance.PortMetrics {
+			portObjMap := structs.Map(portMetric)
+			pw.addMetricToList(portObjMap, portMetric, &list)
+		}
 	}
 
 	ml.Items = list
@@ -1233,19 +1245,19 @@ func (pw PodWorker) watchServices() {
 
 func (pw PodWorker) onNewService(svc *v1.Service) {
 	fmt.Printf("Added Service: %s\n", svc.Name)
-	pw.ServiceCache[utils.GetServiceKey(svc)] = *svc
+	pw.SvcCache[utils.GetK8sServiceKey(svc)] = *svc
 }
 
 func (pw PodWorker) onDeleteService(svc *v1.Service) {
-	_, ok := pw.ServiceCache[utils.GetServiceKey(svc)]
+	_, ok := pw.SvcCache[utils.GetK8sServiceKey(svc)]
 	if ok {
-		delete(pw.ServiceCache, utils.GetServiceKey(svc))
+		delete(pw.SvcCache, utils.GetK8sServiceKey(svc))
 		fmt.Printf("Service %s deleted \n", svc.Name)
 	}
 }
 
 func (pw PodWorker) onUpdateService(svc *v1.Service) {
-	pw.ServiceCache[utils.GetServiceKey(svc)] = *svc
+	pw.SvcCache[utils.GetK8sServiceKey(svc)] = *svc
 	fmt.Printf("Updated Service: %s\n", svc.Name)
 
 }
@@ -1302,8 +1314,25 @@ func (pw PodWorker) onDeleteEndpoint(ep *v1.Endpoints) {
 
 func (pw PodWorker) onUpdateEndpoint(ep *v1.Endpoints) {
 	pw.EndpointCache[utils.GetEndpointKey(ep)] = *ep
-	fmt.Printf("Endpoint Service: %s\n", ep.Name)
+	fmt.Printf("Endpoint changed: %s\n", ep.Name)
 
+	fmt.Printf("Created at %s", ep.GetCreationTimestamp().String())
+
+	if ep.GetDeletionTimestamp() != nil {
+		fmt.Printf("Deleted on %s", ep.GetDeletionTimestamp().String())
+	}
+
+	for _, eps := range ep.Subsets {
+		for _, epsPort := range eps.Ports {
+			fmt.Printf("Endpoint Port %d %s %s .\n", epsPort.Port, epsPort.Name, epsPort.Protocol)
+		}
+		for _, epsAddr := range eps.Addresses {
+			fmt.Printf("Addresss IP %s  %s\n", epsAddr.IP, epsAddr.Hostname)
+		}
+		for _, epsNRAdrr := range eps.NotReadyAddresses {
+			fmt.Printf("NR Addresss IP %s  %s\n", epsNRAdrr.IP, epsNRAdrr.Hostname)
+		}
+	}
 }
 
 //PVs

@@ -20,6 +20,10 @@ type RestClient struct {
 	Bag    *m.AppDBag
 }
 
+const (
+	MAX_FIELD_LENGTH int = 4000
+)
+
 func NewRestClient(bag *m.AppDBag, logger *log.Logger) *RestClient {
 	return &RestClient{logger, bag}
 }

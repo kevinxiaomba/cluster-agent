@@ -25,6 +25,29 @@ type ClusterAppMetrics struct {
 	LimitMemory        int64
 	UseCpu             int64
 	UseMemory          int64
+	Services           []ClusterServiceMetrics
+}
+
+type ClusterServiceMetrics struct {
+	Path           string
+	Metadata       map[string]AppDMetricMetadata
+	Namespace      string
+	TierName       string
+	ServiceName    string
+	Accessible     int64 //0 or 1
+	EndpointsTotal int64
+	Endpoints      map[string]ClusterServiceEPMetrics
+}
+
+type ClusterServiceEPMetrics struct {
+	Path              string
+	Metadata          map[string]AppDMetricMetadata
+	Namespace         string
+	TierName          string
+	ServiceName       string
+	EndpointName      string
+	EndpointsReady    int64
+	EndpointsNotReady int64
 }
 
 func (cpm ClusterAppMetrics) GetPath() string {
@@ -32,25 +55,92 @@ func (cpm ClusterAppMetrics) GetPath() string {
 	return cpm.Path
 }
 
+func (cpm ClusterServiceMetrics) GetPath() string {
+
+	return cpm.Path
+}
+
+func (cpm ClusterServiceEPMetrics) GetPath() string {
+
+	return cpm.Path
+}
+
 func (cpm ClusterAppMetrics) ShouldExcludeField(fieldName string) bool {
-	if fieldName == "TierName" || fieldName == "Namespace" || fieldName == "Path" || fieldName == "Metadata" || fieldName == "ContainerName" ||
-		fieldName == "InstanceIndex" || fieldName == "PodName" {
+	if fieldName == "TierName" || fieldName == "Namespace" || fieldName == "Path" || fieldName == "Metadata" || fieldName == "Services" {
 		return true
 	}
 	return false
 }
 
-func NewClusterAppMetrics(bag *AppDBag, ns string, tierName string) ClusterAppMetrics {
-	p := RootPath
-	p = fmt.Sprintf("%s%s%s%s%s%s%s%s%s", p, METRIC_PATH_NAMESPACES, METRIC_SEPARATOR, ns, METRIC_SEPARATOR, METRIC_PATH_APPS, METRIC_SEPARATOR, tierName, METRIC_SEPARATOR)
-
-	return ClusterAppMetrics{Namespace: ns, TierName: tierName, Privileged: 0, PodCount: 0, Evictions: 0,
-		PodRestarts: 0, PodRunning: 0, PodFailed: 0, PodPending: 0, PendingTime: 0, ContainerCount: 0, InitContainerCount: 0,
-		RequestCpu: 0, RequestMemory: 0, LimitCpu: 0, LimitMemory: 0, UseCpu: 0, UseMemory: 0, Path: p}
+func (cpm ClusterServiceMetrics) ShouldExcludeField(fieldName string) bool {
+	if fieldName == "TierName" || fieldName == "Namespace" || fieldName == "Path" || fieldName == "Metadata" || fieldName == "ServiceName" || fieldName == "Endpoints" {
+		return true
+	}
+	return false
 }
 
-func NewClusterAppMetricsMetadata(bag *AppDBag, ns string, tierName string) ClusterAppMetrics {
-	metrics := NewClusterAppMetrics(bag, ns, tierName)
+func (cpm ClusterServiceEPMetrics) ShouldExcludeField(fieldName string) bool {
+	if fieldName == "TierName" || fieldName == "Namespace" || fieldName == "Path" || fieldName == "Metadata" || fieldName == "ServiceName" || fieldName == "EndpointName" {
+		return true
+	}
+	return false
+}
+
+func NewClusterAppMetrics(bag *AppDBag, podObject *PodSchema) ClusterAppMetrics {
+	p := RootPath
+	p = fmt.Sprintf("%s%s%s%s%s%s%s%s%s", p, METRIC_PATH_NAMESPACES, METRIC_SEPARATOR, podObject.Namespace, METRIC_SEPARATOR, METRIC_PATH_APPS, METRIC_SEPARATOR, podObject.Owner, METRIC_SEPARATOR)
+
+	appMetrics := ClusterAppMetrics{Namespace: podObject.Namespace, TierName: podObject.Owner, Privileged: 0, PodCount: 0, Evictions: 0,
+		PodRestarts: 0, PodRunning: 0, PodFailed: 0, PodPending: 0, PendingTime: 0, ContainerCount: 0, InitContainerCount: 0,
+		RequestCpu: 0, RequestMemory: 0, LimitCpu: 0, LimitMemory: 0, UseCpu: 0, UseMemory: 0, Path: p}
+
+	for _, svc := range podObject.Services {
+		svcMetrics := NewClusterServiceMetrics(bag, podObject.Namespace, podObject.Owner, &svc)
+		appMetrics.Services = append(appMetrics.Services, svcMetrics)
+	}
+
+	return appMetrics
+}
+
+func NewClusterServiceMetrics(bag *AppDBag, ns string, tierName string, svcSchema *ServiceSchema) ClusterServiceMetrics {
+	p := RootPath
+	p = fmt.Sprintf("%s%s%s%s%s%s%s%s%s%s%s%s%s", p, METRIC_PATH_NAMESPACES, METRIC_SEPARATOR, ns, METRIC_SEPARATOR, METRIC_PATH_APPS, METRIC_SEPARATOR, tierName, METRIC_SEPARATOR, METRIC_PATH_SERVICES, METRIC_SEPARATOR, svcSchema.Name, METRIC_SEPARATOR)
+
+	metrics := ClusterServiceMetrics{Namespace: ns, TierName: tierName, ServiceName: svcSchema.Name, Path: p, Accessible: 0, EndpointsTotal: 0, Endpoints: make(map[string]ClusterServiceEPMetrics)}
+	if svcSchema.IsAccessible {
+		metrics.Accessible = 1
+	}
+	total, ready, notready := svcSchema.GetEndPointsStats()
+	metrics.EndpointsTotal = int64(total)
+
+	for epName, val := range ready {
+		epm := NewClusterServiceEPMetrics(bag, ns, tierName, svcSchema, epName)
+		epm.EndpointsReady = int64(val)
+		metrics.Endpoints[epName] = epm
+	}
+	for epName, val := range notready {
+		epm, ok := metrics.Endpoints[epName]
+		if !ok {
+			epm = NewClusterServiceEPMetrics(bag, ns, tierName, svcSchema, epName)
+		}
+		epm.EndpointsNotReady = int64(val)
+		metrics.Endpoints[epName] = epm
+	}
+
+	return metrics
+}
+
+func NewClusterServiceEPMetrics(bag *AppDBag, ns string, tierName string, svcSchema *ServiceSchema, endpointName string) ClusterServiceEPMetrics {
+	p := RootPath
+	p = fmt.Sprintf("%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", p, METRIC_PATH_NAMESPACES, METRIC_SEPARATOR, ns, METRIC_SEPARATOR, METRIC_PATH_APPS, METRIC_SEPARATOR, tierName, METRIC_SEPARATOR, METRIC_PATH_SERVICES, METRIC_SEPARATOR, svcSchema.Name, METRIC_SEPARATOR, METRIC_PATH_SERVICES_EP, METRIC_SEPARATOR, endpointName, METRIC_SEPARATOR)
+
+	metrics := ClusterServiceEPMetrics{Namespace: ns, TierName: tierName, ServiceName: svcSchema.Name, EndpointName: endpointName, Path: p, EndpointsReady: 0, EndpointsNotReady: 0}
+
+	return metrics
+}
+
+func NewClusterAppMetricsMetadata(bag *AppDBag, podObject *PodSchema) ClusterAppMetrics {
+	metrics := NewClusterAppMetrics(bag, podObject)
 	metrics.Metadata = buildMetadata(bag)
 	return metrics
 }

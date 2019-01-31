@@ -18,6 +18,9 @@ const METRIC_PATH_NAMESPACES string = "Namespaces"
 const METRIC_PATH_APPS string = "Deployments"
 const METRIC_PATH_CONT string = "Containers"
 const METRIC_PATH_INSTANCES string = "Instances"
+const METRIC_PATH_PORTS string = "Ports"
+const METRIC_PATH_SERVICES string = "Services"
+const METRIC_PATH_SERVICES_EP string = "Endpoints"
 
 type AppDMetric struct {
 	MetricName              string
