@@ -20,6 +20,7 @@ const METRIC_PATH_CONT string = "Containers"
 const METRIC_PATH_INSTANCES string = "Instances"
 const METRIC_PATH_PORTS string = "Ports"
 const METRIC_PATH_SERVICES string = "Services"
+const METRIC_PATH_EVENTS string = "Events"
 const METRIC_PATH_SERVICES_EP string = "Endpoints"
 
 type AppDMetric struct {

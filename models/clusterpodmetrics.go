@@ -16,6 +16,7 @@ type ClusterPodMetrics struct {
 	PodFailed          int64
 	PodPending         int64
 	PendingTime        int64
+	UpTime             int64
 	ContainerCount     int64
 	InitContainerCount int64
 	NoLimits           int64
@@ -54,7 +55,7 @@ func NewClusterPodMetrics(bag *AppDBag, ns string, node string) ClusterPodMetric
 		p = fmt.Sprintf("%s%s%s%s%s", p, METRIC_PATH_NAMESPACES, METRIC_SEPARATOR, ns, METRIC_SEPARATOR)
 	}
 	return ClusterPodMetrics{Namespace: ns, Nodename: node, PodCount: 0, Evictions: 0,
-		PodRestarts: 0, PodRunning: 0, PodFailed: 0, PodPending: 0, PendingTime: 0, ContainerCount: 0, InitContainerCount: 0,
+		PodRestarts: 0, PodRunning: 0, PodFailed: 0, PodPending: 0, PendingTime: 0, UpTime: 0, ContainerCount: 0, InitContainerCount: 0,
 		NoLimits: 0, NoReadinessProbe: 0, NoLivenessProbe: 0, Privileged: 0, HasTolerations: 0,
 		HasNodeAffinity: 0, HasPodAffinity: 0, HasPodAntiAffinity: 0, RequestCpu: 0, RequestMemory: 0, LimitCpu: 0, LimitMemory: 0,
 		UseCpu: 0, UseMemory: 0, Path: p}
@@ -62,16 +63,6 @@ func NewClusterPodMetrics(bag *AppDBag, ns string, node string) ClusterPodMetric
 
 func NewClusterPodMetricsMetadata(bag *AppDBag, ns string, node string) ClusterPodMetrics {
 	metrics := NewClusterPodMetrics(bag, ns, node)
-	metrics.Metadata = buildAppMetadata(bag)
+	//	metrics.Metadata = buildAppMetadata(bag)
 	return metrics
-}
-
-func buildAppMetadata(bag *AppDBag) map[string]AppDMetricMetadata {
-	pathBase := "Application Infrastructure Performance|%s|Custom Metrics|Cluster Stats|"
-
-	meta := make(map[string]AppDMetricMetadata, 22)
-	path := pathBase + "PodCount"
-	meta[path] = NewAppDMetricMetadata("PodCount", bag.PodSchemaName, path, "select * from "+bag.PodSchemaName)
-
-	return meta
 }

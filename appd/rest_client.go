@@ -98,9 +98,9 @@ func (rc *RestClient) CreateSchema(schemaName string, data []byte) ([]byte, erro
 		}
 		defer resp.Body.Close()
 
-		//		fmt.Println("response Status:", resp.Status)
+		fmt.Println("response Status:", resp.Status)
 		body, _ := ioutil.ReadAll(resp.Body)
-		//		fmt.Println("response Body:", string(body))
+		fmt.Println("response Body:", string(body))
 
 		return body, nil
 	}
@@ -120,9 +120,9 @@ func (rc *RestClient) PostAppDEvents(schemaName string, data []byte) []byte {
 	}
 	defer resp.Body.Close()
 
-	//	fmt.Println("response Status:", resp.Status)
+	fmt.Println("PostAppDEvents Status:", resp.Status)
 	body, _ := ioutil.ReadAll(resp.Body)
-	//	fmt.Println("response Body:", string(body))
+	fmt.Println("PostAppDEvents Body:", string(body))
 	return body
 }
 

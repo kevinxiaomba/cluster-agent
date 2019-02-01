@@ -1,7 +1,7 @@
 package models
 
 import (
-	"fmt"
+	//	"fmt"
 	"strconv"
 
 	"k8s.io/api/core/v1"
@@ -105,7 +105,7 @@ func NewServiceSchema(svc *v1.Service) *ServiceSchema {
 			portNumber = sp.NodePort
 			port.IsNodePort = true
 			schema.HasNodePort = true
-			fmt.Printf("Service exposes nodePort %d\n", portNumber)
+			//			fmt.Printf("Service exposes nodePort %d\n", portNumber)
 		}
 		port.Port = portNumber
 		port.Protocol = string(sp.Protocol)
@@ -116,12 +116,12 @@ func NewServiceSchema(svc *v1.Service) *ServiceSchema {
 		ingress := Ingress{Hostname: route.Hostname, IP: route.IP}
 		schema.HasIngress = true
 		schema.Routes = append(schema.Routes, ingress)
-		fmt.Printf("Ingress %s %s found for service %s \n", ingress.Hostname, ingress.IP, schema.Name)
+		//		fmt.Printf("Ingress %s %s found for service %s \n", ingress.Hostname, ingress.IP, schema.Name)
 	}
 
 	schema.IsAccessible = schema.HasIngress || schema.HasNodePort || schema.HasExternalService || schema.ReferencedExternally
 	if !schema.IsAccessible {
-		fmt.Printf("Service %s does not have external connectivity\n", schema.Name)
+		//		fmt.Printf("Service %s does not have external connectivity\n", schema.Name)
 	}
 	return &schema
 }
@@ -147,7 +147,7 @@ func (svcSchema *ServiceSchema) IsPortAvailable(cp *ContainerPort, podSchema *Po
 	var mapped, ready bool = false, false
 	for _, sp := range svcSchema.Ports {
 		if sp.TargetPort == cp.PortNumber {
-			fmt.Printf("Port %d found. Name %s. Port Mapped\n", sp.TargetPort, sp.Name)
+			//			fmt.Printf("Port %d found. Name %s. Port Mapped\n", sp.TargetPort, sp.Name)
 			mapped = true
 			//check readiness
 			for _, ep := range podSchema.Endpoints {
@@ -161,7 +161,7 @@ func (svcSchema *ServiceSchema) IsPortAvailable(cp *ContainerPort, podSchema *Po
 					portFound := false
 					for _, epsPort := range eps.Ports {
 						if epsPort.Port == cp.PortNumber {
-							fmt.Printf("Endpoint Port %d found.\n", epsPort.Port)
+							//							fmt.Printf("Endpoint Port %d found.\n", epsPort.Port)
 							portFound = true
 							endpointObj, ok = svcSchema.Endpoints[epsPort.Port]
 							if !ok {
@@ -176,23 +176,23 @@ func (svcSchema *ServiceSchema) IsPortAvailable(cp *ContainerPort, podSchema *Po
 					if portFound {
 						//checking health
 						for _, epsAddr := range eps.Addresses {
-							fmt.Printf("Checking IP %s against %s\n", epsAddr.IP, podSchema.PodIP)
+							//							fmt.Printf("Checking IP %s against %s\n", epsAddr.IP, podSchema.PodIP)
 							if epsAddr.IP == podSchema.PodIP {
 								addr := NewServiceEndpointAddress(epsAddr.IP, epsAddr.Hostname, epsAddr.NodeName)
 								addr.Ready = true
 								endpointObj.EPAddresses = append(endpointObj.EPAddresses, addr)
-								fmt.Printf("Healthy address  %s. Port %d ready\n", epsAddr.IP, cp.PortNumber)
+								//								fmt.Printf("Healthy address  %s. Port %d ready\n", epsAddr.IP, cp.PortNumber)
 								ready = true
 								break
 							}
 						}
 						for _, epsNRAdrr := range eps.NotReadyAddresses {
-							fmt.Printf("Checking notready IP %s against %s\n", epsNRAdrr.IP, podSchema.PodIP)
+							//							fmt.Printf("Checking notready IP %s against %s\n", epsNRAdrr.IP, podSchema.PodIP)
 							if epsNRAdrr.IP == podSchema.PodIP {
 								addr := NewServiceEndpointAddress(epsNRAdrr.IP, epsNRAdrr.Hostname, epsNRAdrr.NodeName)
 								addr.Ready = false
 								endpointObj.EPAddresses = append(endpointObj.EPAddresses, addr)
-								fmt.Printf("NotReady address  %s. Port %d not available\n", epsNRAdrr.IP, cp.PortNumber)
+								//								fmt.Printf("NotReady address  %s. Port %d not available\n", epsNRAdrr.IP, cp.PortNumber)
 								ready = false
 								break
 							}

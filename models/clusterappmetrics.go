@@ -17,6 +17,7 @@ type ClusterAppMetrics struct {
 	PodFailed          int64
 	PodPending         int64
 	PendingTime        int64
+	UpTime             int64
 	ContainerCount     int64
 	InitContainerCount int64
 	RequestCpu         int64
@@ -91,7 +92,7 @@ func NewClusterAppMetrics(bag *AppDBag, podObject *PodSchema) ClusterAppMetrics 
 	p = fmt.Sprintf("%s%s%s%s%s%s%s%s%s", p, METRIC_PATH_NAMESPACES, METRIC_SEPARATOR, podObject.Namespace, METRIC_SEPARATOR, METRIC_PATH_APPS, METRIC_SEPARATOR, podObject.Owner, METRIC_SEPARATOR)
 
 	appMetrics := ClusterAppMetrics{Namespace: podObject.Namespace, TierName: podObject.Owner, Privileged: 0, PodCount: 0, Evictions: 0,
-		PodRestarts: 0, PodRunning: 0, PodFailed: 0, PodPending: 0, PendingTime: 0, ContainerCount: 0, InitContainerCount: 0,
+		PodRestarts: 0, PodRunning: 0, PodFailed: 0, PodPending: 0, PendingTime: 0, UpTime: 0, ContainerCount: 0, InitContainerCount: 0,
 		RequestCpu: 0, RequestMemory: 0, LimitCpu: 0, LimitMemory: 0, UseCpu: 0, UseMemory: 0, Path: p}
 
 	for _, svc := range podObject.Services {

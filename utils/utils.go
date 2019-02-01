@@ -20,6 +20,10 @@ func GetPodKey(podObj *v1.Pod) string {
 	return fmt.Sprintf("%s_%s", podObj.Namespace, podObj.Name)
 }
 
+func GetPodSchemaKey(podObj *m.PodSchema) string {
+	return fmt.Sprintf("%s_%s", podObj.Namespace, podObj.Name)
+}
+
 func GetK8sServiceKey(svc *v1.Service) string {
 	return fmt.Sprintf("%s_%s", svc.Namespace, svc.Name)
 }

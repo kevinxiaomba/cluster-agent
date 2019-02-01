@@ -8,6 +8,7 @@ type ClusterEventMetrics struct {
 	Path            string
 	Metadata        map[string]AppDMetricMetadata
 	Namespace       string
+	TierName        string
 	EventCount      int64
 	EventError      int64
 	EventInfo       int64
@@ -22,17 +23,34 @@ type ClusterEventMetrics struct {
 	StorageIssues   int64
 }
 
-func NewClusterEventMetrics(bag *AppDBag, ns string, node string) ClusterEventMetrics {
-	p := RootPath
-	if ns != "" && ns != ALL {
-		p = fmt.Sprintf("%s%s%s%s%s", p, METRIC_PATH_NAMESPACES, METRIC_SEPARATOR, ns, METRIC_SEPARATOR)
-	}
-	return ClusterEventMetrics{Namespace: ns, Path: p, EventCount: 0, EventError: 0, EventInfo: 0, ScaleDowns: 0, CrashLoops: 0, QuotaViolations: 0, PodIssues: 0,
-		PodKills: 0, EvictionThreats: 0, ImagePullErrors: 0, ImagePulls: 0, StorageIssues: 0}
+func (cpm ClusterEventMetrics) GetPath() string {
+
+	return cpm.Path
 }
 
-func NewClusterEventMetricsMetadata(bag *AppDBag, ns string, node string) ClusterEventMetrics {
-	metrics := NewClusterEventMetrics(bag, ns, node)
+func (cpm ClusterEventMetrics) ShouldExcludeField(fieldName string) bool {
+	if fieldName == "Namespace" || fieldName == "Path" || fieldName == "Metadata" || fieldName == "TierName" || fieldName == "PodName" {
+		return true
+	}
+	return false
+}
+
+func NewClusterEventMetrics(bag *AppDBag, ns string, tierName string) ClusterEventMetrics {
+	p := RootPath
+	if ns != "" && ns != ALL {
+		if tierName == "" || tierName == ALL {
+			p = fmt.Sprintf("%s%s%s%s%s", p, METRIC_PATH_NAMESPACES, METRIC_SEPARATOR, ns, METRIC_SEPARATOR)
+		} else {
+			//pod metrics
+			p = fmt.Sprintf("%s%s%s%s%s%s%s%s%s%s%s", p, METRIC_PATH_NAMESPACES, METRIC_SEPARATOR, ns, METRIC_SEPARATOR, METRIC_PATH_APPS, METRIC_SEPARATOR, tierName, METRIC_SEPARATOR, METRIC_PATH_EVENTS, METRIC_SEPARATOR)
+		}
+	}
+	return ClusterEventMetrics{Namespace: ns, Path: p, EventCount: 0, EventError: 0, EventInfo: 0, ScaleDowns: 0, CrashLoops: 0, QuotaViolations: 0, PodIssues: 0,
+		PodKills: 0, EvictionThreats: 0, ImagePullErrors: 0, ImagePulls: 0, StorageIssues: 0, TierName: tierName}
+}
+
+func NewClusterEventMetricsMetadata(bag *AppDBag, ns string, tierName string) ClusterEventMetrics {
+	metrics := NewClusterEventMetrics(bag, ns, tierName)
 	metrics.Metadata = buildJobMetadata(bag)
 	return metrics
 }

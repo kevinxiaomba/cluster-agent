@@ -19,8 +19,6 @@ type EventSchemaDef struct {
 	ObjectUid             string `json:"object_uid"`
 	LastTimestamp         string `json:"lastTimestamp"`
 	Message               string `json:"message"`
-	Annotations           string `json:"annotations"`
-	Labels                string `json:"labels"`
 	CreationTimestamp     string `json:"creationTimestamp"`
 	DeletionTimestamp     string `json:"deletionTimestamp"`
 	GenerateName          string `json:"generateName"`
@@ -47,7 +45,7 @@ func NewEventSchemaDef() EventSchemaDef {
 	pdsd := EventSchemaDef{ObjectKind: "string", ObjectName: "string", ClusterName: "string", ObjectNamespace: "string", ObjectResourceVersion: "string",
 		ObjectUid: "string", LastTimestamp: "date", Message: "string", CreationTimestamp: "date", DeletionTimestamp: "date", GenerateName: "string", Generation: "integer",
 		Name: "string", Namespace: "string", OwnerReferences: "string", ResourceVersion: "string",
-		SelfLink: "string", Count: "integer", SourceComponent: "string", SourceHost: "string", Reason: "string"}
+		SelfLink: "string", Type: "string", Count: "integer", SourceComponent: "string", SourceHost: "string", Reason: "string"}
 	return pdsd
 }
 

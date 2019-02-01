@@ -17,6 +17,8 @@ type AppDBag struct {
 	RestAPICred                 string
 	EventAPILimit               int
 	PodSchemaName               string
+	NodeSchemaName              string
+	EventSchemaName             string
 	ContainerSchemaName         string
 	JobSchemaName               string
 	DashboardTemplatePath       string
@@ -45,4 +47,7 @@ type AppDBag struct {
 	ProxyPass                   string
 	InstrumentationMethod       InstrumentationMethod
 	InitContainerDir            string
+	MetricsSyncInterval         int // Frequency of metrics pushes to the controller, sec
+	SnapshotSyncInterval        int // Frequency of snapshot pushes to events api, sec
+	AgentServerPort             int
 }

@@ -137,6 +137,28 @@ func (m PodMetricsObjList) PrintPodList() map[string]UsageStats {
 	return objMap
 }
 
+func (mobj NodeMetricsObj) GetNodeUsage() UsageStats {
+	stats := UsageStats{}
+	stats.Name = mobj.Metadata.Name
+	stats.CPU = 0
+	stats.Memory = 0
+
+	cpuQ, err := res.ParseQuantity(mobj.Usage.Cpu)
+	if err != nil {
+		fmt.Printf("Cannot parse cpu %s to quantity\n", mobj.Usage.Cpu)
+	}
+
+	stats.CPU += cpuQ.MilliValue()
+
+	memQ, err := res.ParseQuantity(mobj.Usage.Memory)
+	if err != nil {
+		fmt.Printf("Cannot parse mem %s to quantity\n", mobj.Usage.Memory)
+	}
+	stats.Memory += memQ.MilliValue() / 1000
+
+	return stats
+}
+
 func (mobj PodMetricsObj) GetPodUsage() UsageStats {
 	stats := UsageStats{}
 	stats.Name = mobj.Metadata.Name

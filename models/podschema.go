@@ -125,7 +125,6 @@ type PodSchema struct {
 	RunningStartTime              time.Time                  `json:"runningStartTime"`
 	TerminationTime               time.Time                  `json:"terminationTime"`
 	PendingTime                   int64                      `json:"-"`
-	PodInitTime                   time.Time                  `json:"-"`
 	Containers                    map[string]ContainerSchema `json:"-"`
 	InitContainers                map[string]ContainerSchema `json:"-"`
 	Owner                         string                     `json:"-"`
@@ -135,6 +134,10 @@ type PodSchema struct {
 	NodeID                        int                        `json:"-"`
 	Services                      []ServiceSchema            `json:"-"`
 	Endpoints                     []v1.Endpoints             `json:"-"`
+	StartTimeMillis               int64                      `json:"-"`
+	RunningStartTimeMillis        int64                      `json:"-"`
+	TerminationTimeMillis         int64                      `json:"-"`
+	UpTimeMillis                  int64                      `json:"-"`
 }
 
 type PodObjList struct {
@@ -154,7 +157,7 @@ func NewPodObjList() PodObjList {
 }
 
 func NewPodObj() PodSchema {
-	return PodSchema{PendingTime: 0, Services: []ServiceSchema{}, Endpoints: []v1.Endpoints{}}
+	return PodSchema{PendingTime: 0, UpTimeMillis: 0, TerminationTimeMillis: 0, Services: []ServiceSchema{}, Endpoints: []v1.Endpoints{}}
 }
 
 func (p PodSchema) ToString() string {
@@ -170,7 +173,7 @@ func (p PodSchema) ToString() string {
 		p.NodeAffinityRequired, p.PodAffinityPreferred, p.PodAffinityRequired, p.PodAntiAffinityPreferred, p.PodAntiAffinityRequired, p.HostIP, p.Phase, p.PodIP, p.Reason, p.StartTime.String(),
 		p.LastTransitionTimeCondition, p.ReasonCondition, p.StatusCondition, p.TypeCondition, p.LimitsDefined, p.LiveProbes, p.ReadyProbes,
 		p.PodRestarts, p.NumPrivileged, p.Ports, p.MemRequest, p.CpuRequest, p.CpuLimit, p.MemLimit, p.CpuUse, p.MemUse,
-		p.Images, p.WaitReasons, p.TermReasons, p.RunningStartTime.String(), p.TerminationTime.String(), p.PendingTime, p.PodInitTime)
+		p.Images, p.WaitReasons, p.TermReasons, p.RunningStartTime.String(), p.TerminationTime.String(), p.PendingTime)
 }
 
 func (l PodObjList) AddItem(obj PodSchema) []PodSchema {
