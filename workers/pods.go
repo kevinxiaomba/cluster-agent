@@ -50,6 +50,8 @@ type PodWorker struct {
 	SvcCache            map[string]v1.Service
 	ServiceCache        map[string]m.ServiceSchema
 	EndpointCache       map[string]v1.Endpoints
+	OwnerMap            map[string]string
+	NamespaceMap        map[string]string
 }
 
 func NewPodWorker(client *kubernetes.Clientset, bag *m.AppDBag, controller *app.ControllerClient, config *rest.Config) PodWorker {
@@ -57,7 +59,8 @@ func NewPodWorker(client *kubernetes.Clientset, bag *m.AppDBag, controller *app.
 	pw := PodWorker{Client: client, Bag: bag, SummaryMap: make(map[string]m.ClusterPodMetrics), AppSummaryMap: make(map[string]m.ClusterAppMetrics),
 		ContainerSummaryMap: make(map[string]m.ClusterContainerMetrics), InstanceSummaryMap: make(map[string]m.ClusterInstanceMetrics),
 		WQ: queue, AppdController: controller, K8sConfig: config, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus),
-		SvcCache: make(map[string]v1.Service), ServiceCache: make(map[string]m.ServiceSchema), EndpointCache: make(map[string]v1.Endpoints)}
+		SvcCache: make(map[string]v1.Service), ServiceCache: make(map[string]m.ServiceSchema), EndpointCache: make(map[string]v1.Endpoints),
+		OwnerMap: make(map[string]string), NamespaceMap: make(map[string]string)}
 	pw.initPodInformer(client)
 	return pw
 }
@@ -102,7 +105,7 @@ func (pw *PodWorker) instrument(statusChannel chan m.AttachStatus, podObj *v1.Po
 }
 
 func (pw *PodWorker) GetCachedPod(namespace string, podName string) (*v1.Pod, string, error) {
-	key := fmt.Sprintf("%s/%s", namespace, podName)
+	key := utils.GetKeyForPod(namespace, podName)
 	owner := ""
 	if namespace == "" {
 		key = podName
@@ -113,14 +116,23 @@ func (pw *PodWorker) GetCachedPod(namespace string, podName string) (*v1.Pod, st
 		podObj = interf.(*v1.Pod)
 		owner = pw.getPodOwner(podObj)
 	} else {
+		//pod must be gone, get from cache
+		owner, _ = pw.OwnerMap[key]
 		return nil, owner, fmt.Errorf("Unable to find podschema for key %s", key)
 	}
 
 	return podObj, owner, err
 }
 
+func (pw *PodWorker) GetKnownNamespaces() map[string]string {
+	return pw.NamespaceMap
+}
+
+func (pw *PodWorker) GetKnownDeployments() map[string]string {
+	return pw.OwnerMap
+}
+
 func (pw *PodWorker) startEventQueueWorker(stopCh <-chan struct{}) {
-	//wait.Until(pw.flushQueue, 30*time.Second, stopCh)
 	pw.eventQueueTicker(stopCh, time.NewTicker(time.Duration(pw.Bag.SnapshotSyncInterval)*time.Second))
 }
 
@@ -385,7 +397,6 @@ func (pw *PodWorker) buildAppDMetrics() {
 	}
 
 	fmt.Printf("Unique metrics: %d\n", count)
-	//update services
 
 	ml := pw.builAppDMetricsList()
 
@@ -466,6 +477,7 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 		summary.NoLimits++
 		summaryNS.NoLimits++
 		summaryNode.NoLimits++
+		summaryApp.NoLimits++
 	}
 
 	summary.Privileged += int64(podObject.NumPrivileged)
@@ -476,10 +488,12 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 	summary.NoLivenessProbe += int64(podObject.LiveProbes)
 	summaryNS.NoLivenessProbe += int64(podObject.LiveProbes)
 	summaryNode.NoLivenessProbe += int64(podObject.LiveProbes)
+	summaryApp.NoLivenessProbe += int64(podObject.LiveProbes)
 
 	summary.NoReadinessProbe += int64(podObject.ReadyProbes)
 	summaryNS.NoReadinessProbe += int64(podObject.ReadyProbes)
 	summaryNode.NoReadinessProbe += int64(podObject.ReadyProbes)
+	summaryApp.NoReadinessProbe += int64(podObject.ReadyProbes)
 
 	summary.LimitCpu += int64(podObject.CpuLimit)
 	summaryNS.LimitCpu += int64(podObject.CpuLimit)
@@ -505,29 +519,29 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 	summaryNS.InitContainerCount += int64(podObject.InitContainerCount)
 	summaryNode.InitContainerCount += int64(podObject.InitContainerCount)
 
-	if podObject.Tolerations != "" {
-		summary.HasTolerations++
-		summaryNS.HasTolerations++
-		summaryNode.HasTolerations++
-	}
+	//	if podObject.Tolerations != "" {
+	//		summary.HasTolerations++
+	//		summaryNS.HasTolerations++
+	//		summaryNode.HasTolerations++
+	//	}
 
-	if podObject.NodeAffinityRequired != "" || podObject.NodeAffinityPreferred != "" {
-		summary.HasNodeAffinity++
-		summaryNS.HasNodeAffinity++
-		summaryNode.HasNodeAffinity++
-	}
+	//	if podObject.NodeAffinityRequired != "" || podObject.NodeAffinityPreferred != "" {
+	//		summary.HasNodeAffinity++
+	//		summaryNS.HasNodeAffinity++
+	//		summaryNode.HasNodeAffinity++
+	//	}
 
-	if podObject.PodAffinityPreferred != "" || podObject.PodAffinityRequired != "" {
-		summary.HasPodAffinity++
-		summaryNS.HasPodAffinity++
-		summaryNode.HasPodAffinity++
-	}
+	//	if podObject.PodAffinityPreferred != "" || podObject.PodAffinityRequired != "" {
+	//		summary.HasPodAffinity++
+	//		summaryNS.HasPodAffinity++
+	//		summaryNode.HasPodAffinity++
+	//	}
 
-	if podObject.PodAntiAffinityPreferred != "" || podObject.PodAntiAffinityRequired != "" {
-		summary.HasPodAntiAffinity++
-		summaryNS.HasPodAntiAffinity++
-		summaryNode.HasPodAntiAffinity++
-	}
+	//	if podObject.PodAntiAffinityPreferred != "" || podObject.PodAntiAffinityRequired != "" {
+	//		summary.HasPodAntiAffinity++
+	//		summaryNS.HasPodAntiAffinity++
+	//		summaryNode.HasPodAntiAffinity++
+	//	}
 
 	switch podObject.Phase {
 	case "Pending":
@@ -601,21 +615,20 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 				summaryContainer.LimitMemory = c.MemLimit
 				summaryContainer.RequestCpu = c.CpuRequest
 				summaryContainer.RequestMemory = c.MemRequest
-				summaryContainer.APMAppID = int64(podObject.AppID)
-				summaryContainer.APMTierID = int64(podObject.TierID)
-				summaryContainer.Restarts = int64(c.Restarts)
-				pw.ContainerSummaryMap[key] = summaryContainer
-			} else {
-				summaryContainer.Restarts += int64(c.Restarts)
-				pw.ContainerSummaryMap[key] = summaryContainer
+				summaryContainer.NoLivenessProbe = int64(c.LiveProbes)
+				summaryContainer.NoReadinessProbe = int64(c.ReadyProbes)
+				if !c.LimitsDefined {
+					summaryContainer.NoLimits = int64(1)
+				}
 			}
+			summaryContainer.Restarts += int64(c.Restarts)
+			pw.ContainerSummaryMap[key] = summaryContainer
 
 			summaryInstance, instanceKey := pw.nextContainerInstance(podObject, c)
 			if summaryInstance != nil {
 				summaryInstance.UseCpu = c.CpuUse
 				summaryInstance.UseMemory = c.MemUse
 				summaryInstance.Restarts = int64(c.Restarts)
-				summaryInstance.APMNodeID = int64(podObject.NodeID)
 				pw.InstanceSummaryMap[instanceKey] = *summaryInstance
 			}
 		}
@@ -627,7 +640,7 @@ func (pw *PodWorker) nextContainerInstance(podObject *m.PodSchema, c m.Container
 	var summaryInstance m.ClusterInstanceMetrics
 	var instanceKey string
 
-	instanceKey = fmt.Sprintf("%s_%s_%s_%d", podObject.Namespace, podObject.Owner, c.Name, podObject.Name)
+	instanceKey = fmt.Sprintf("%s_%s_%s_%s", podObject.Namespace, podObject.Owner, c.Name, podObject.Name)
 	_, okInstance := pw.InstanceSummaryMap[instanceKey]
 	if !okInstance {
 		summaryInstance = m.NewClusterInstanceMetrics(pw.Bag, podObject, c.Name)
@@ -672,6 +685,9 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 	if podObject.Owner == "" && len(p.OwnerReferences) > 0 {
 		podObject.Owner = p.OwnerReferences[0].Name
 	}
+
+	pw.OwnerMap[utils.GetPodKey(p)] = podObject.Owner
+
 	podObject.Reason = p.Status.Reason
 	if podObject.Reason != "" && podObject.Reason == "Evicted" {
 		podObject.IsEvicted = true
@@ -682,6 +698,7 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 
 	podObject.Name = p.Name
 	podObject.Namespace = p.Namespace
+	pw.NamespaceMap[p.Namespace] = p.Namespace
 	podObject.NodeName = p.Spec.NodeName
 
 	//	if old != nil {
@@ -703,13 +720,10 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 	if p.Status.StartTime != nil {
 		podObject.StartTime = p.Status.StartTime.Time
 		podObject.StartTimeMillis = podObject.StartTime.UnixNano() / 1000000
-		//		fmt.Printf("Start time: %s %d\n", podObject.Name, podObject.StartTimeMillis)
-	} else {
-		//		fmt.Printf("Start time: %s note defined: %s\n", podObject.Name)
 	}
 
 	if p.DeletionTimestamp != nil {
-		podObject.TerminationTime = p.DeletionTimestamp.Time
+		podObject.TerminationTime = &p.DeletionTimestamp.Time
 		podObject.TerminationTimeMillis = podObject.TerminationTime.UnixNano() / 1000000
 	}
 
@@ -753,7 +767,6 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 		//check if service exists and routes to the ports
 		for _, svcSchema := range pw.ServiceCache {
 			if svcSchema.MatchesPod(p) {
-				//				fmt.Printf("Service %s found for pod %s\n", svcSchema.Name, podObject.Name)
 				podObject.Services = append(podObject.Services, svcSchema)
 			}
 		}
@@ -761,7 +774,6 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 		for _, ep := range pw.EndpointCache {
 			epSelector := labels.SelectorFromSet(ep.Labels)
 			if ep.Namespace == podObject.Namespace && epSelector.Matches(podLabels) {
-				//				fmt.Printf("Endpoint %s found for pod %s\n", ep.Name, podObject.Name)
 				podObject.Endpoints = append(podObject.Endpoints, ep)
 			}
 		}
@@ -876,7 +888,7 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 	}
 
 	if p.DeletionTimestamp != nil {
-		podObject.TerminationTime = p.DeletionTimestamp.Time
+		podObject.TerminationTime = &p.DeletionTimestamp.Time
 	}
 
 	podObject.Phase = string(p.Status.Phase)
@@ -901,11 +913,7 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 
 				case v1.PodReady:
 					//					fmt.Printf("Pod %s Ready %s. Time: %s Probe: %s\n", podObject.Name, string(cn.Status), cn.LastTransitionTime.Time, cn.LastProbeTime.Time)
-					if string(cn.Status) == "True" {
-						podObject.RunningStartTime = cn.LastTransitionTime.Time
-						podObject.RunningStartTimeMillis = podObject.RunningStartTime.UnixNano() / 1000000
-						//						fmt.Printf("Set pod running time to %d\n", podObject.RunningStartTimeMillis)
-					}
+
 					break
 
 				case v1.PodReasonUnschedulable:
@@ -929,7 +937,7 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 				podObject.ReasonCondition = fmt.Sprintf("%s. %s", lastCondition.Reason, lastCondition.Message)
 				podObject.StatusCondition = string(lastCondition.Status)
 				podObject.TypeCondition = string(lastCondition.Type)
-				podObject.LastTransitionTimeCondition = lastCondition.LastTransitionTime.Time
+				podObject.LastTransitionTimeCondition = &lastCondition.LastTransitionTime.Time
 			}
 		}
 
@@ -938,7 +946,25 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 			for _, st := range p.Status.ContainerStatuses {
 				containerObj := findContainer(&podObject, st.Name)
 				updateConatinerStatus(&podObject, containerObj, st)
+				fmt.Printf("Container %s start time: %s\n", containerObj.Name, containerObj.StartTime)
 			}
+
+			//determine start time
+			for _, c := range podObject.Containers {
+				fmt.Printf("Container %s start time: %s\n", c.Name, c.StartTime)
+				if c.StartTime != nil {
+					podObject.RunningStartTime = c.StartTime
+					podObject.RunningStartTimeMillis = podObject.RunningStartTime.UnixNano() / 1000000
+
+					if c.LastTerminationTime != nil {
+						podObject.BreakPointMillis = c.LastTerminationTime.UnixNano() / 1000000
+					} else {
+						podObject.BreakPointMillis = podObject.StartTimeMillis
+					}
+					break
+				}
+			}
+
 		}
 
 		if p.Status.InitContainerStatuses != nil {
@@ -950,20 +976,21 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 		}
 
 		//check PendingTime
-		if podObject.StartTimeMillis > int64(0) {
-			if podObject.RunningStartTimeMillis > int64(0) {
-				podObject.PendingTime = podObject.RunningStartTimeMillis - podObject.StartTimeMillis
+		fmt.Printf("Pod %s. Start time: %s. Running time: %s\n", podObject.Name, podObject.StartTime, podObject.RunningStartTime)
+		if podObject.Phase != "Failed" && podObject.StartTimeMillis > 0 {
+			if podObject.RunningStartTimeMillis > 0 {
+				podObject.PendingTime = podObject.RunningStartTimeMillis - podObject.BreakPointMillis
 				if podObject.TerminationTimeMillis > 0 {
-					podObject.UpTimeMillis = podObject.TerminationTimeMillis - podObject.StartTimeMillis
+					podObject.UpTimeMillis = podObject.TerminationTimeMillis - podObject.BreakPointMillis
 				} else {
 					now := time.Now().UnixNano() / 1000000
-					podObject.UpTimeMillis = now - podObject.StartTimeMillis
+					podObject.UpTimeMillis = now - podObject.BreakPointMillis
 				}
 			} else {
 				now := time.Now().UnixNano() / 1000000
-				podObject.PendingTime = now - podObject.StartTimeMillis
+				podObject.PendingTime = now - podObject.BreakPointMillis
 			}
-			//			fmt.Printf("%s. Pending time set to %d", podObject.Name, podObject.PendingTime)
+			fmt.Printf("Pending time: %d.\n", podObject.PendingTime)
 		}
 
 		//metrics
@@ -1021,15 +1048,22 @@ func updateConatinerStatus(podObject *m.PodSchema, containerObj *m.ContainerSche
 		if containerObj != nil {
 			containerObj.TermReason = st.State.Terminated.Reason
 			containerObj.TerminationTime = st.State.Terminated.FinishedAt.Time
-			podObject.TerminationTime = containerObj.TerminationTime
+			podObject.TerminationTime = &containerObj.TerminationTime
 		}
 	}
 
 	if st.State.Running != nil {
 		if containerObj != nil {
-			containerObj.StartTime = st.State.Running.StartedAt.Time
+			containerObj.StartTime = &st.State.Running.StartedAt.Time
+			fmt.Printf("Container %s start time: %s\n", containerObj.Name, containerObj.StartTime)
+			if st.LastTerminationState.Terminated != nil {
+				containerObj.LastTerminationTime = &st.LastTerminationState.Terminated.FinishedAt.Time
+				containerObj.ExitCode = st.LastTerminationState.Terminated.ExitCode
+			}
 		}
 	}
+
+	podObject.Containers[containerObj.Name] = *containerObj
 }
 
 func findContainer(podObject *m.PodSchema, containerName string) *m.ContainerSchema {
@@ -1114,6 +1148,7 @@ func (pw PodWorker) processContainer(podObj *v1.Pod, podSchema m.PodSchema, c v1
 		}
 		containerObj.Mounts = sb.String()
 	}
+	containerObj.LimitsDefined = limitsDefined
 	return containerObj, limitsDefined
 }
 

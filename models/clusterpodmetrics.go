@@ -23,16 +23,16 @@ type ClusterPodMetrics struct {
 	NoReadinessProbe   int64
 	NoLivenessProbe    int64
 	Privileged         int64
-	HasTolerations     int64
-	HasNodeAffinity    int64
-	HasPodAffinity     int64
-	HasPodAntiAffinity int64
-	RequestCpu         int64
-	RequestMemory      int64
-	LimitCpu           int64
-	LimitMemory        int64
-	UseCpu             int64
-	UseMemory          int64
+	//	HasTolerations     int64
+	//	HasNodeAffinity    int64
+	//	HasPodAffinity     int64
+	//	HasPodAntiAffinity int64
+	RequestCpu    int64
+	RequestMemory int64
+	LimitCpu      int64
+	LimitMemory   int64
+	UseCpu        int64
+	UseMemory     int64
 }
 
 func (cpm ClusterPodMetrics) GetPath() string {
@@ -56,8 +56,7 @@ func NewClusterPodMetrics(bag *AppDBag, ns string, node string) ClusterPodMetric
 	}
 	return ClusterPodMetrics{Namespace: ns, Nodename: node, PodCount: 0, Evictions: 0,
 		PodRestarts: 0, PodRunning: 0, PodFailed: 0, PodPending: 0, PendingTime: 0, UpTime: 0, ContainerCount: 0, InitContainerCount: 0,
-		NoLimits: 0, NoReadinessProbe: 0, NoLivenessProbe: 0, Privileged: 0, HasTolerations: 0,
-		HasNodeAffinity: 0, HasPodAffinity: 0, HasPodAntiAffinity: 0, RequestCpu: 0, RequestMemory: 0, LimitCpu: 0, LimitMemory: 0,
+		NoLimits: 0, NoReadinessProbe: 0, NoLivenessProbe: 0, Privileged: 0, RequestCpu: 0, RequestMemory: 0, LimitCpu: 0, LimitMemory: 0,
 		UseCpu: 0, UseMemory: 0, Path: p}
 }
 

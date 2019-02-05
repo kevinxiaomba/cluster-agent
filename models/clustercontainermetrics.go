@@ -5,19 +5,20 @@ import (
 )
 
 type ClusterContainerMetrics struct {
-	Path           string
-	Metadata       map[string]AppDMetricMetadata
-	Namespace      string
-	TierName       string
-	ContainerName  string
-	APMAppID       int64
-	APMTierID      int64
-	Restarts       int64
-	ContainerCount int64
-	RequestCpu     int64
-	RequestMemory  int64
-	LimitCpu       int64
-	LimitMemory    int64
+	Path             string
+	Metadata         map[string]AppDMetricMetadata
+	Namespace        string
+	TierName         string
+	ContainerName    string
+	Restarts         int64
+	ContainerCount   int64
+	RequestCpu       int64
+	RequestMemory    int64
+	LimitCpu         int64
+	LimitMemory      int64
+	NoLimits         int64
+	NoReadinessProbe int64
+	NoLivenessProbe  int64
 }
 
 func (cpm ClusterContainerMetrics) GetPath() string {
@@ -36,8 +37,8 @@ func (cpm ClusterContainerMetrics) ShouldExcludeField(fieldName string) bool {
 func NewClusterContainerMetrics(bag *AppDBag, ns string, tierName string, containerName string) ClusterContainerMetrics {
 	p := RootPath
 	p = fmt.Sprintf("%s%s%s%s%s%s%s%s%s%s%s%s%s", p, METRIC_PATH_NAMESPACES, METRIC_SEPARATOR, ns, METRIC_SEPARATOR, METRIC_PATH_APPS, METRIC_SEPARATOR, tierName, METRIC_SEPARATOR, METRIC_PATH_CONT, METRIC_SEPARATOR, containerName, METRIC_SEPARATOR)
-	return ClusterContainerMetrics{Namespace: ns, TierName: tierName, ContainerName: containerName, APMAppID: 0, APMTierID: 0, Restarts: 0,
-		RequestCpu: 0, RequestMemory: 0, LimitCpu: 0, LimitMemory: 0, Path: p}
+	return ClusterContainerMetrics{Namespace: ns, TierName: tierName, ContainerName: containerName, Restarts: 0,
+		RequestCpu: 0, RequestMemory: 0, LimitCpu: 0, LimitMemory: 0, NoLimits: 0, NoReadinessProbe: 0, NoLivenessProbe: 0, Path: p}
 }
 
 func NewClusterContainerMetricsMetadata(bag *AppDBag, ns string, tierName string, containerName string) ClusterContainerMetrics {

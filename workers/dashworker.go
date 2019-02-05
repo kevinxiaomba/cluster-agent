@@ -158,3 +158,8 @@ func (dw *DashboardWorker) getMatchingMetrics(node map[string]interface{}, metri
 	}
 	return nil
 }
+
+//dynamic dashboard
+func (dw *DashboardWorker) updateDeploymentDashboard() {
+
+}

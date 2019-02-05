@@ -50,7 +50,7 @@ func buildParams() Flags {
 	flag.StringVar(&params.Bag.DashboardTemplatePath, "template-path", getTemplatePath(), "Dashboard template path")
 	flag.StringVar(&params.Bag.DashboardSuffix, "dash-name", getDashboardSuffix(), "Dashboard name")
 	flag.IntVar(&params.Bag.EventAPILimit, "event-batch-size", 100, "Max number of AppD events record to send in a batch")
-	flag.IntVar(&params.Bag.MetricsSyncInterval, "metrics-sync-interval", 45, "Frequency of metrics pushes to the controller, sec")
+	flag.IntVar(&params.Bag.MetricsSyncInterval, "metrics-sync-interval", 60, "Frequency of metrics pushes to the controller, sec")
 	flag.IntVar(&params.Bag.SnapshotSyncInterval, "snapshot-sync-interval", 15, "Frequency of snapshot pushes to events api, sec")
 	flag.StringVar(&params.Bag.JavaAgentVersion, "java-agent-version", getJavaAgentVersion(), "AppD Java Agent Version")
 	flag.StringVar(&params.Bag.AppDJavaAttachImage, "java-attach-image", getJavaAttachImage(), "Java Attach Image")

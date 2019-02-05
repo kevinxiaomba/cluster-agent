@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"strings"
 
 	m "github.com/sjeltuhin/clusterAgent/models"
 	appsv1 "k8s.io/api/apps/v1"
@@ -12,28 +13,41 @@ func IsPodRunnnig(podObj *v1.Pod) bool {
 	return podObj != nil && podObj.Status.Phase == "Running" && podObj.DeletionTimestamp == nil
 }
 
+func SplitPodKey(podKey string) (string, string) {
+	ar := strings.Split(podKey, "/")
+	if len(ar) > 1 {
+		return ar[0], ar[1]
+	}
+
+	return "", ""
+}
+
 func GetDeployKey(deployObj *appsv1.Deployment) string {
-	return fmt.Sprintf("%s_%s", deployObj.Namespace, deployObj.Name)
+	return fmt.Sprintf("%s/%s", deployObj.Namespace, deployObj.Name)
 }
 
 func GetPodKey(podObj *v1.Pod) string {
-	return fmt.Sprintf("%s_%s", podObj.Namespace, podObj.Name)
+	return GetKeyForPod(podObj.Namespace, podObj.Name)
+}
+
+func GetKeyForPod(namespace, podName string) string {
+	return fmt.Sprintf("%s/%s", namespace, podName)
 }
 
 func GetPodSchemaKey(podObj *m.PodSchema) string {
-	return fmt.Sprintf("%s_%s", podObj.Namespace, podObj.Name)
+	return GetKeyForPod(podObj.Namespace, podObj.Name)
 }
 
 func GetK8sServiceKey(svc *v1.Service) string {
-	return fmt.Sprintf("%s_%s", svc.Namespace, svc.Name)
+	return fmt.Sprintf("%s/%s", svc.Namespace, svc.Name)
 }
 
 func GetServiceKey(svc *m.ServiceSchema) string {
-	return fmt.Sprintf("%s_%s", svc.Namespace, svc.Name)
+	return fmt.Sprintf("%s/%s", svc.Namespace, svc.Name)
 }
 
 func GetEndpointKey(ep *v1.Endpoints) string {
-	return fmt.Sprintf("%s_%s", ep.Namespace, ep.Name)
+	return fmt.Sprintf("%s/%s", ep.Namespace, ep.Name)
 }
 
 func StringInSlice(s string, list []string) bool {

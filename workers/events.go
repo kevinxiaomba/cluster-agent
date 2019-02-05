@@ -215,6 +215,31 @@ func (ew *EventWorker) buildAppDMetrics() {
 
 	fmt.Printf("Unique event metrics: %d\n", count)
 
+	//add 0 values for missing entities
+	if len(ew.SummaryMap) == 0 {
+		//cluster
+		summary := m.NewClusterEventMetrics(ew.Bag, m.ALL, m.ALL)
+		ew.SummaryMap[m.ALL] = summary
+	}
+	//check for missing namespaces
+	nsMap := ew.PodsWorker.GetKnownNamespaces()
+	for ns, _ := range nsMap {
+		if _, ok := ew.SummaryMap[ns]; !ok {
+			summaryNS := m.NewClusterEventMetrics(ew.Bag, ns, m.ALL)
+			ew.SummaryMap[ns] = summaryNS
+		}
+	}
+
+	//check for missing deployments
+	tierMap := ew.PodsWorker.GetKnownDeployments()
+	for key, tierName := range tierMap {
+		if _, ok := ew.SummaryMap[key]; !ok {
+			ns, _ := utils.SplitPodKey(key)
+			emptyMetrics := m.NewClusterEventMetrics(ew.Bag, ns, tierName)
+			ew.SummaryMap[tierName] = emptyMetrics
+		}
+	}
+
 	ml := ew.builAppDMetricsList()
 
 	//clear cache
@@ -270,12 +295,17 @@ func (ew *EventWorker) processObject(e *v1.Event) m.EventSchema {
 	return eventObject
 }
 
+func buildTierKeyForEvent(namespace, tierName string) string {
+	return fmt.Sprintf("%s/%s", namespace, tierName)
+}
+
 func (ew *EventWorker) summarize(eventObject *m.EventSchema) {
-	var podObjRef *v1.Pod = nil
+
 	var err error = nil
 	var tierName string = ""
+	var tierKey string = ""
 	if ew.PodsWorker != nil && eventObject.ObjectKind == "Pod" {
-		podObjRef, tierName, err = ew.PodsWorker.GetCachedPod(eventObject.ObjectNamespace, eventObject.ObjectName)
+		_, tierName, err = ew.PodsWorker.GetCachedPod(eventObject.ObjectNamespace, eventObject.ObjectName)
 		if err != nil {
 			fmt.Printf("Unable to lookup Pod %s for event. %v\n", eventObject.ObjectName, err)
 		} else {
@@ -300,12 +330,13 @@ func (ew *EventWorker) summarize(eventObject *m.EventSchema) {
 
 	var okTier bool = false
 	//node metrics
-	if podObjRef != nil {
+	if tierName != "" {
+		tierKey = buildTierKeyForEvent(eventObject.ObjectNamespace, tierName)
 		var tierObj m.ClusterEventMetrics
-		tierObj, okTier = ew.SummaryMap[utils.GetPodKey(podObjRef)]
+		tierObj, okTier = ew.SummaryMap[tierKey]
 		if !okTier {
 			tierObj = m.NewClusterEventMetrics(ew.Bag, eventObject.Namespace, tierName)
-			ew.SummaryMap[utils.GetPodKey(podObjRef)] = tierObj
+			ew.SummaryMap[tierKey] = tierObj
 		}
 		summaryTier = &tierObj
 	}
@@ -379,7 +410,7 @@ func (ew *EventWorker) summarize(eventObject *m.EventSchema) {
 	ew.SummaryMap[m.ALL] = summary
 	ew.SummaryMap[eventObject.Namespace] = summaryNS
 	if summaryTier != nil {
-		ew.SummaryMap[utils.GetPodKey(podObjRef)] = *summaryTier
+		ew.SummaryMap[tierKey] = *summaryTier
 	}
 }
 

@@ -103,7 +103,7 @@ type PodSchema struct {
 	PodIP                         string                     `json:"podIP"`
 	Reason                        string                     `json:"reason"`
 	StartTime                     time.Time                  `json:"startTime"`
-	LastTransitionTimeCondition   time.Time                  `json:"lastTransitionTimeCondition"`
+	LastTransitionTimeCondition   *time.Time                 `json:"lastTransitionTimeCondition"`
 	ReasonCondition               string                     `json:"reasonCondition"`
 	StatusCondition               string                     `json:"statusCondition"`
 	TypeCondition                 string                     `json:"typeCondition"`
@@ -122,8 +122,8 @@ type PodSchema struct {
 	Images                        string                     `json:"images"`
 	WaitReasons                   string                     `json:"waitReasons"`
 	TermReasons                   string                     `json:"termReasons"`
-	RunningStartTime              time.Time                  `json:"runningStartTime"`
-	TerminationTime               time.Time                  `json:"terminationTime"`
+	RunningStartTime              *time.Time                 `json:"runningStartTime"`
+	TerminationTime               *time.Time                 `json:"terminationTime"`
 	PendingTime                   int64                      `json:"-"`
 	Containers                    map[string]ContainerSchema `json:"-"`
 	InitContainers                map[string]ContainerSchema `json:"-"`
@@ -138,6 +138,7 @@ type PodSchema struct {
 	RunningStartTimeMillis        int64                      `json:"-"`
 	TerminationTimeMillis         int64                      `json:"-"`
 	UpTimeMillis                  int64                      `json:"-"`
+	BreakPointMillis              int64                      `json:"-"` //time when a container exited
 }
 
 type PodObjList struct {
@@ -148,16 +149,16 @@ func (ps *PodSchema) Equals(obj *PodSchema) bool {
 	return reflect.DeepEqual(*ps, *obj)
 }
 
-func (ps *PodSchema) GetPodKey() string {
-	return fmt.Sprintf("%s_%s", ps.Namespace, ps.Name)
-}
+//func (ps *PodSchema) GetPodKey() string {
+//	return fmt.Sprintf("%s/%s", ps.Namespace, ps.Name)
+//}
 
 func NewPodObjList() PodObjList {
 	return PodObjList{}
 }
 
 func NewPodObj() PodSchema {
-	return PodSchema{PendingTime: 0, UpTimeMillis: 0, TerminationTimeMillis: 0, Services: []ServiceSchema{}, Endpoints: []v1.Endpoints{}}
+	return PodSchema{PendingTime: 0, UpTimeMillis: 0, RunningStartTimeMillis: 0, TerminationTimeMillis: 0, Services: []ServiceSchema{}, Endpoints: []v1.Endpoints{}}
 }
 
 func (p PodSchema) ToString() string {

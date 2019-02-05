@@ -12,7 +12,6 @@ type ClusterInstanceMetrics struct {
 	TierName      string
 	ContainerName string
 	PodName       string
-	APMNodeID     int64
 	Restarts      int64
 	UseCpu        int64
 	UseMemory     int64
@@ -59,7 +58,7 @@ func (cpm ClusterInstancePortMetrics) ShouldExcludeField(fieldName string) bool 
 func NewClusterInstanceMetrics(bag *AppDBag, podObject *PodSchema, containerName string) ClusterInstanceMetrics {
 	p := RootPath
 	p = fmt.Sprintf("%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", p, METRIC_PATH_NAMESPACES, METRIC_SEPARATOR, podObject.Namespace, METRIC_SEPARATOR, METRIC_PATH_APPS, METRIC_SEPARATOR, podObject.Owner, METRIC_SEPARATOR, METRIC_PATH_CONT, METRIC_SEPARATOR, containerName, METRIC_SEPARATOR, METRIC_PATH_INSTANCES, METRIC_SEPARATOR, podObject.Name, METRIC_SEPARATOR)
-	im := ClusterInstanceMetrics{Namespace: podObject.Namespace, TierName: podObject.Owner, ContainerName: containerName, PodName: podObject.Name, APMNodeID: 0, Restarts: 0, UseCpu: 0, UseMemory: 0, Path: p, PortMetrics: []ClusterInstancePortMetrics{}}
+	im := ClusterInstanceMetrics{Namespace: podObject.Namespace, TierName: podObject.Owner, ContainerName: containerName, PodName: podObject.Name, Restarts: 0, UseCpu: 0, UseMemory: 0, Path: p, PortMetrics: []ClusterInstancePortMetrics{}}
 	for _, c := range podObject.Containers {
 		for _, cp := range c.ContainerPorts {
 			name := strconv.Itoa(int(cp.PortNumber))
