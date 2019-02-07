@@ -2,6 +2,8 @@ package models
 
 import (
 	"fmt"
+
+	"github.com/fatih/structs"
 )
 
 type ClusterAppMetrics struct {
@@ -30,6 +32,8 @@ type ClusterAppMetrics struct {
 	NoReadinessProbe   int64
 	NoLivenessProbe    int64
 	Services           []ClusterServiceMetrics
+	QuotasSpec         RQFields
+	QuotasUsed         RQFields
 }
 
 type ClusterServiceMetrics struct {
@@ -69,8 +73,44 @@ func (cpm ClusterServiceEPMetrics) GetPath() string {
 	return cpm.Path
 }
 
+func (cpm ClusterAppMetrics) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(cpm)
+	return &objMap
+}
+
+func (cpm ClusterAppMetrics) GetQuotaSpecMetrics() RQFields {
+
+	path := fmt.Sprintf("%s%s%s", cpm.GetPath(), METRIC_PATH_RQSPEC, METRIC_SEPARATOR)
+	cpm.QuotasSpec.Path = path
+	return cpm.QuotasSpec
+}
+
+func (cpm ClusterAppMetrics) GetQuotaUsedMetrics() RQFields {
+
+	path := fmt.Sprintf("%s%s%s", cpm.GetPath(), METRIC_PATH_RQUSED, METRIC_SEPARATOR)
+	cpm.QuotasUsed.Path = path
+	return cpm.QuotasUsed
+}
+
+func (cpm ClusterServiceEPMetrics) GetQuotaUsedMetrics() string {
+
+	return cpm.Path
+}
+
+func (cpm ClusterServiceMetrics) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(cpm)
+
+	return &objMap
+}
+
+func (cpm ClusterServiceEPMetrics) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(cpm)
+
+	return &objMap
+}
+
 func (cpm ClusterAppMetrics) ShouldExcludeField(fieldName string) bool {
-	if fieldName == "TierName" || fieldName == "Namespace" || fieldName == "Path" || fieldName == "Metadata" || fieldName == "Services" {
+	if fieldName == "TierName" || fieldName == "Namespace" || fieldName == "Path" || fieldName == "Metadata" || fieldName == "Services" || fieldName == "QuotasSpec" || fieldName == "QuotasUsed" {
 		return true
 	}
 	return false
@@ -96,7 +136,8 @@ func NewClusterAppMetrics(bag *AppDBag, podObject *PodSchema) ClusterAppMetrics 
 
 	appMetrics := ClusterAppMetrics{Namespace: podObject.Namespace, TierName: podObject.Owner, Privileged: 0, PodCount: 0, Evictions: 0,
 		PodRestarts: 0, PodRunning: 0, PodFailed: 0, PodPending: 0, PendingTime: 0, UpTime: 0, ContainerCount: 0, InitContainerCount: 0,
-		RequestCpu: 0, RequestMemory: 0, LimitCpu: 0, LimitMemory: 0, UseCpu: 0, UseMemory: 0, NoLimits: 0, NoReadinessProbe: 0, NoLivenessProbe: 0, Path: p}
+		RequestCpu: 0, RequestMemory: 0, LimitCpu: 0, LimitMemory: 0, UseCpu: 0, UseMemory: 0, NoLimits: 0, NoReadinessProbe: 0, NoLivenessProbe: 0,
+		QuotasSpec: RQFields{}, QuotasUsed: RQFields{}, Path: p}
 
 	for _, svc := range podObject.Services {
 		svcMetrics := NewClusterServiceMetrics(bag, podObject.Namespace, podObject.Owner, &svc)

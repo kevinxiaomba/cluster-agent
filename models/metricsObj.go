@@ -191,7 +191,7 @@ func (mobj PodMetricsObj) GetContainerUsage(containerName string) UsageStats {
 	stats.Memory = 0
 	for _, c := range mobj.Containers {
 		if c.Name == containerName {
-			fmt.Printf("Getting container stats %s\n", c.Name)
+			//			fmt.Printf("Getting container stats %s\n", c.Name)
 			cpuQ, err := res.ParseQuantity(c.Usage.Cpu)
 			if err != nil {
 				fmt.Printf("Cannot parse cpu %s to quantity\n", c.Usage.Cpu)

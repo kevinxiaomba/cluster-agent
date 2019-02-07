@@ -3,6 +3,8 @@ package models
 import (
 	"fmt"
 	"strconv"
+
+	"github.com/fatih/structs"
 )
 
 type ClusterInstanceMetrics struct {
@@ -53,6 +55,18 @@ func (cpm ClusterInstancePortMetrics) ShouldExcludeField(fieldName string) bool 
 		return true
 	}
 	return false
+}
+
+func (cpm ClusterInstanceMetrics) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(cpm)
+
+	return &objMap
+}
+
+func (cpm ClusterInstancePortMetrics) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(cpm)
+
+	return &objMap
 }
 
 func NewClusterInstanceMetrics(bag *AppDBag, podObject *PodSchema, containerName string) ClusterInstanceMetrics {

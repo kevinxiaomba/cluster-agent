@@ -51,6 +51,10 @@ type PodSchemaDef struct {
 	CpuRequest                    string `json:"cpuRequest"`
 	CpuLimit                      string `json:"cpuLimit"`
 	MemLimit                      string `json:"memLimit"`
+	PodStorageRequest             string `json:"podStorageRequest"`
+	PodStorageLimit               string `json:"podStorageLimit"`
+	StorageRequest                string `json:"storageRequest"`
+	StorageCapacity               string `json:"storageCapacity"`
 	CpuUse                        string `json:"cpuUse"`
 	MemUse                        string `json:"memUse"`
 	Images                        string `json:"images"`
@@ -73,7 +77,8 @@ func NewPodSchemaDef() PodSchemaDef {
 		PodAntiAffinityPreferred: "string", PodAntiAffinityRequired: "string",
 		HostIP: "string", Phase: "string", PodIP: "string", Reason: "string", StartTime: "date", LastTransitionTimeCondition: "date", ReasonCondition: "string",
 		StatusCondition: "string", TypeCondition: "string", LimitsDefined: "boolean", LiveProbes: "integer", ReadyProbes: "integer", PodRestarts: "integer",
-		NumPrivileged: "integer", Ports: "string", MemRequest: "float", CpuRequest: "float", CpuLimit: "float", MemLimit: "float", CpuUse: "float", MemUse: "float",
+		NumPrivileged: "integer", Ports: "string", MemRequest: "float", CpuRequest: "float", CpuLimit: "float", MemLimit: "float",
+		PodStorageRequest: "float", PodStorageLimit: "float", StorageRequest: "float", StorageCapacity: "float", CpuUse: "float", MemUse: "float",
 		Images: "string", WaitReasons: "string", TermReasons: "string", RunningStartTime: "date", TerminationTime: "date"}
 	return pdsd
 }
@@ -117,6 +122,10 @@ type PodSchema struct {
 	CpuRequest                    int64                      `json:"cpuRequest"`
 	CpuLimit                      int64                      `json:"cpuLimit"`
 	MemLimit                      int64                      `json:"memLimit"`
+	PodStorageRequest             int64                      `json:"podStorageRequest"`
+	PodStorageLimit               int64                      `json:"podStorageLimit"`
+	StorageRequest                int64                      `json:"storageRequest"`
+	StorageCapacity               int64                      `json:"storageCapacity"`
 	CpuUse                        int64                      `json:"cpuUse"`
 	MemUse                        int64                      `json:"memUse"`
 	Images                        string                     `json:"images"`

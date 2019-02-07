@@ -2,6 +2,8 @@ package models
 
 import (
 	"fmt"
+
+	"github.com/fatih/structs"
 )
 
 type ClusterPodMetrics struct {
@@ -23,16 +25,16 @@ type ClusterPodMetrics struct {
 	NoReadinessProbe   int64
 	NoLivenessProbe    int64
 	Privileged         int64
-	//	HasTolerations     int64
-	//	HasNodeAffinity    int64
-	//	HasPodAffinity     int64
-	//	HasPodAntiAffinity int64
-	RequestCpu    int64
-	RequestMemory int64
-	LimitCpu      int64
-	LimitMemory   int64
-	UseCpu        int64
-	UseMemory     int64
+	PodStorageRequest  int64
+	PodStorageLimit    int64
+	StorageRequest     int64
+	StorageCapacity    int64
+	RequestCpu         int64
+	RequestMemory      int64
+	LimitCpu           int64
+	LimitMemory        int64
+	UseCpu             int64
+	UseMemory          int64
 }
 
 func (cpm ClusterPodMetrics) GetPath() string {
@@ -47,6 +49,12 @@ func (cpm ClusterPodMetrics) ShouldExcludeField(fieldName string) bool {
 	return false
 }
 
+func (cpm ClusterPodMetrics) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(cpm)
+
+	return &objMap
+}
+
 func NewClusterPodMetrics(bag *AppDBag, ns string, node string) ClusterPodMetrics {
 	p := RootPath
 	if node != "" && node != ALL {
@@ -57,7 +65,7 @@ func NewClusterPodMetrics(bag *AppDBag, ns string, node string) ClusterPodMetric
 	return ClusterPodMetrics{Namespace: ns, Nodename: node, PodCount: 0, Evictions: 0,
 		PodRestarts: 0, PodRunning: 0, PodFailed: 0, PodPending: 0, PendingTime: 0, UpTime: 0, ContainerCount: 0, InitContainerCount: 0,
 		NoLimits: 0, NoReadinessProbe: 0, NoLivenessProbe: 0, Privileged: 0, RequestCpu: 0, RequestMemory: 0, LimitCpu: 0, LimitMemory: 0,
-		UseCpu: 0, UseMemory: 0, Path: p}
+		UseCpu: 0, UseMemory: 0, PodStorageRequest: 0, PodStorageLimit: 0, StorageRequest: 0, StorageCapacity: 0, Path: p}
 }
 
 func NewClusterPodMetricsMetadata(bag *AppDBag, ns string, node string) ClusterPodMetrics {

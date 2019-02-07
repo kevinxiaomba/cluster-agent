@@ -27,15 +27,15 @@ func GetDeployKey(deployObj *appsv1.Deployment) string {
 }
 
 func GetPodKey(podObj *v1.Pod) string {
-	return GetKeyForPod(podObj.Namespace, podObj.Name)
+	return GetKey(podObj.Namespace, podObj.Name)
 }
 
-func GetKeyForPod(namespace, podName string) string {
+func GetKey(namespace, podName string) string {
 	return fmt.Sprintf("%s/%s", namespace, podName)
 }
 
 func GetPodSchemaKey(podObj *m.PodSchema) string {
-	return GetKeyForPod(podObj.Namespace, podObj.Name)
+	return GetKey(podObj.Namespace, podObj.Name)
 }
 
 func GetK8sServiceKey(svc *v1.Service) string {

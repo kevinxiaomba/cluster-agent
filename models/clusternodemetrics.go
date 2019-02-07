@@ -2,6 +2,8 @@ package models
 
 import (
 	"fmt"
+
+	"github.com/fatih/structs"
 )
 
 type ClusterNodeMetrics struct {
@@ -34,6 +36,12 @@ func (cpm ClusterNodeMetrics) ShouldExcludeField(fieldName string) bool {
 		return true
 	}
 	return false
+}
+
+func (cpm ClusterNodeMetrics) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(cpm)
+
+	return &objMap
 }
 
 func NewClusterNodeMetrics(bag *AppDBag, node string) ClusterNodeMetrics {

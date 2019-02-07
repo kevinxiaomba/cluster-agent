@@ -16,7 +16,6 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/fatih/structs"
 	m "github.com/sjeltuhin/clusterAgent/models"
 
 	"github.com/sjeltuhin/clusterAgent/utils"
@@ -418,8 +417,8 @@ func (ew *EventWorker) builAppDMetricsList() m.AppDMetricList {
 	ml := m.NewAppDMetricList()
 	var list []m.AppDMetric
 	for _, metricEvent := range ew.SummaryMap {
-		objMap := structs.Map(metricEvent)
-		ew.addMetricToList(objMap, metricEvent, &list)
+		objMap := metricEvent.Unwrap()
+		ew.addMetricToList(*objMap, metricEvent, &list)
 	}
 
 	ml.Items = list
@@ -658,81 +657,3 @@ func (ew *EventWorker) GetEventCategory(eventSchema *m.EventSchema) (string, str
 	}
 	return cat, sub
 }
-
-//	// Container event reason list
-//	CreatedContainer = "Created"
-//	StartedContainer = "Started"
-//	FailedToCreateContainer = "Failed"
-//	FailedToStartContainer = "Failed"
-//	KillingContainer = "Killing"
-//	PreemptContainer = "Preempting"
-//	BackOffStartContainer = "BackOff"
-//	ExceededGracePeriod = "ExceededGracePeriod"
-
-//	// Pod event reason list
-//	FailedToKillPod = "FailedKillPod"
-//	FailedToCreatePodContainer = "FailedCreatePodContainer"
-//	FailedToMakePodDataDirectories = "Failed"
-//	NetworkNotReady = "NetworkNotReady"
-
-//	// Image event reason list
-//	PullingImage = "Pulling"
-//	PulledImage = "Pulled"
-//	FailedToPullImage = "Failed"
-//	FailedToInspectImage = "InspectFailed"
-//	ErrImageNeverPullPolicy = "ErrImageNeverPull"
-//	BackOffPullImage = "BackOff"
-
-//	// kubelet event reason list
-//	NodeReady = "NodeReady"
-//	NodeNotReady = "NodeNotReady"
-//	NodeSchedulable = "NodeSchedulable"
-//	NodeNotSchedulable = "NodeNotSchedulable"
-//	StartingKubelet = "Starting"
-//	KubeletSetupFailed = "KubeletSetupFailed"
-//	FailedAttachVolume = "FailedAttachVolume"
-//	FailedDetachVolume = "FailedDetachVolume"
-//	FailedMountVolume = "FailedMount"
-//	VolumeResizeFailed = "VolumeResizeFailed"
-//	VolumeResizeSuccess = "VolumeResizeSuccessful"
-//	FileSystemResizeFailed = "FileSystemResizeFailed"
-//	FileSystemResizeSuccess = "FileSystemResizeSuccessful"
-//	FailedUnMountVolume = "FailedUnMount"
-//	FailedMapVolume = "FailedMapVolume"
-//	FailedUnmapDevice = "FailedUnmapDevice"
-//	WarnAlreadyMountedVolume = "AlreadyMountedVolume"
-//	SuccessfulDetachVolume = "SuccessfulDetachVolume"
-//	SuccessfulAttachVolume = "SuccessfulAttachVolume"
-//	SuccessfulMountVolume = "SuccessfulMountVolume"
-//	SuccessfulUnMountVolume = "SuccessfulUnMountVolume"
-//	HostPortConflict = "HostPortConflict"
-//	NodeSelectorMismatching = "NodeSelectorMismatching"
-//	InsufficientFreeCPU = "InsufficientFreeCPU"
-//	InsufficientFreeMemory = "InsufficientFreeMemory"
-//	NodeRebooted = "Rebooted"
-//	ContainerGCFailed = "ContainerGCFailed"
-//	ImageGCFailed = "ImageGCFailed"
-//	FailedNodeAllocatableEnforcement = "FailedNodeAllocatableEnforcement"
-//	SuccessfulNodeAllocatableEnforcement = "NodeAllocatableEnforced"
-//	UnsupportedMountOption = "UnsupportedMountOption"
-//	SandboxChanged = "SandboxChanged"
-//	FailedCreatePodSandBox = "FailedCreatePodSandBox"
-//	FailedStatusPodSandBox = "FailedPodSandBoxStatus"
-
-//	// Image manager event reason list
-//	InvalidDiskCapacity = "InvalidDiskCapacity"
-//	FreeDiskSpaceFailed = "FreeDiskSpaceFailed"
-
-//	// Probe event reason list
-//	ContainerUnhealthy = "Unhealthy"
-
-//	// Pod worker event reason list
-//	FailedSync = "FailedSync"
-
-//	// Config event reason list
-//	FailedValidation = "FailedValidation"
-
-//	// Lifecycle hooks
-//	FailedPostStartHook = "FailedPostStartHook"
-//	FailedPreStopHook = "FailedPreStopHook"
-//	UnfinishedPreStopHook = "UnfinishedPreStopHook"

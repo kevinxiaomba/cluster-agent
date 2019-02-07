@@ -2,6 +2,8 @@ package models
 
 import (
 	"fmt"
+
+	"github.com/fatih/structs"
 )
 
 type ClusterEventMetrics struct {
@@ -33,6 +35,12 @@ func (cpm ClusterEventMetrics) ShouldExcludeField(fieldName string) bool {
 		return true
 	}
 	return false
+}
+
+func (cpm ClusterEventMetrics) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(cpm)
+
+	return &objMap
 }
 
 func NewClusterEventMetrics(bag *AppDBag, ns string, tierName string) ClusterEventMetrics {

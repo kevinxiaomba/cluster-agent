@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fatih/structs"
 	m "github.com/sjeltuhin/clusterAgent/models"
 
 	app "github.com/sjeltuhin/clusterAgent/appd"
@@ -338,6 +337,7 @@ func (pw *NodesWorker) processObject(n *v1.Node, old *v1.Node) (m.NodeSchema, bo
 	}
 
 	for key, c := range n.Status.Capacity {
+		fmt.Printf("Capacity key: %s\n", key)
 		if key == "memory" {
 			//MB
 			nodeObject.MemCapacity = c.Value()
@@ -351,6 +351,7 @@ func (pw *NodesWorker) processObject(n *v1.Node, old *v1.Node) (m.NodeSchema, bo
 	}
 
 	for k, a := range n.Status.Allocatable {
+		fmt.Printf("Allocated key: %s\n", k)
 		if k == "memory" {
 			//MB
 			nodeObject.MemAllocations = a.Value()
@@ -444,8 +445,8 @@ func (pw NodesWorker) builAppDMetricsList() m.AppDMetricList {
 	ml := m.NewAppDMetricList()
 	var list []m.AppDMetric
 	for _, metricNode := range pw.SummaryMap {
-		objMap := structs.Map(metricNode)
-		pw.addMetricToList(objMap, metricNode, &list)
+		objMap := metricNode.Unwrap()
+		pw.addMetricToList(*objMap, metricNode, &list)
 	}
 
 	ml.Items = list

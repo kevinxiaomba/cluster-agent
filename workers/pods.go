@@ -1,9 +1,12 @@
 package workers
 
 import (
+	//	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
+
+	//	"io"
 	"log"
 	"os"
 	"strconv"
@@ -50,6 +53,8 @@ type PodWorker struct {
 	SvcCache            map[string]v1.Service
 	ServiceCache        map[string]m.ServiceSchema
 	EndpointCache       map[string]v1.Endpoints
+	RQCache             map[string]v1.ResourceQuota
+	PVCCache            map[string]v1.PersistentVolumeClaim
 	OwnerMap            map[string]string
 	NamespaceMap        map[string]string
 }
@@ -60,7 +65,8 @@ func NewPodWorker(client *kubernetes.Clientset, bag *m.AppDBag, controller *app.
 		ContainerSummaryMap: make(map[string]m.ClusterContainerMetrics), InstanceSummaryMap: make(map[string]m.ClusterInstanceMetrics),
 		WQ: queue, AppdController: controller, K8sConfig: config, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus),
 		SvcCache: make(map[string]v1.Service), ServiceCache: make(map[string]m.ServiceSchema), EndpointCache: make(map[string]v1.Endpoints),
-		OwnerMap: make(map[string]string), NamespaceMap: make(map[string]string)}
+		OwnerMap: make(map[string]string), NamespaceMap: make(map[string]string),
+		RQCache: make(map[string]v1.ResourceQuota), PVCCache: make(map[string]v1.PersistentVolumeClaim)}
 	pw.initPodInformer(client)
 	return pw
 }
@@ -105,7 +111,7 @@ func (pw *PodWorker) instrument(statusChannel chan m.AttachStatus, podObj *v1.Po
 }
 
 func (pw *PodWorker) GetCachedPod(namespace string, podName string) (*v1.Pod, string, error) {
-	key := utils.GetKeyForPod(namespace, podName)
+	key := utils.GetKey(namespace, podName)
 	owner := ""
 	if namespace == "" {
 		key = podName
@@ -202,7 +208,7 @@ func (pw *PodWorker) postContainerBatchRecords(objList *[]m.ContainerSchema) {
 	if err == nil && e == nil {
 		if rc.SchemaExists(pw.Bag.ContainerSchemaName) == false {
 			fmt.Printf("Creating Container schema. %s\n", pw.Bag.ContainerSchemaName)
-			schemaObj, err := rc.CreateSchema(pw.Bag.JobSchemaName, schemaDef)
+			schemaObj, err := rc.CreateSchema(pw.Bag.ContainerSchemaName, schemaDef)
 			if err != nil {
 				return
 			} else if schemaObj != nil {
@@ -343,6 +349,9 @@ func (pw PodWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 
 	go pw.watchServices()
 	go pw.watchEndpoints()
+	go pw.watchResourceQuotas()
+
+	go pw.watchPVC()
 
 	<-stopCh
 }
@@ -462,6 +471,18 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 		pw.AppSummaryMap[podObject.Owner] = summaryApp
 		summaryApp.ContainerCount = int64(podObject.ContainerCount)
 		summaryApp.InitContainerCount = int64(podObject.InitContainerCount)
+
+		//get quotas that apply to the Tier/Deployment
+		var theQuota *m.RQSchema = nil
+		for _, rq := range pw.RQCache {
+			rqSchema := m.NewRQ(&rq)
+			if rqSchema.AppliesToPod(podObject) {
+				theQuota = &rqSchema
+			}
+		}
+		if theQuota != nil {
+			theQuota.AddQuotaStatsToAppMetrics(&summaryApp)
+		}
 	}
 
 	summary.PodCount++
@@ -519,30 +540,6 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 	summaryNS.InitContainerCount += int64(podObject.InitContainerCount)
 	summaryNode.InitContainerCount += int64(podObject.InitContainerCount)
 
-	//	if podObject.Tolerations != "" {
-	//		summary.HasTolerations++
-	//		summaryNS.HasTolerations++
-	//		summaryNode.HasTolerations++
-	//	}
-
-	//	if podObject.NodeAffinityRequired != "" || podObject.NodeAffinityPreferred != "" {
-	//		summary.HasNodeAffinity++
-	//		summaryNS.HasNodeAffinity++
-	//		summaryNode.HasNodeAffinity++
-	//	}
-
-	//	if podObject.PodAffinityPreferred != "" || podObject.PodAffinityRequired != "" {
-	//		summary.HasPodAffinity++
-	//		summaryNS.HasPodAffinity++
-	//		summaryNode.HasPodAffinity++
-	//	}
-
-	//	if podObject.PodAntiAffinityPreferred != "" || podObject.PodAntiAffinityRequired != "" {
-	//		summary.HasPodAntiAffinity++
-	//		summaryNS.HasPodAntiAffinity++
-	//		summaryNode.HasPodAntiAffinity++
-	//	}
-
 	switch podObject.Phase {
 	case "Pending":
 		summary.PodPending++
@@ -593,10 +590,6 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 	summaryNS.UseCpu += podObject.CpuUse
 	summaryNS.UseMemory += podObject.MemUse
 
-	//   use node data
-	//	summaryNode.UseCpu += podObject.CpuUse
-	//	summaryNode.UseMemory += podObject.MemUse
-
 	summaryApp.UseCpu += podObject.CpuUse
 	summaryApp.UseMemory += podObject.MemUse
 
@@ -617,6 +610,12 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 				summaryContainer.RequestMemory = c.MemRequest
 				summaryContainer.NoLivenessProbe = int64(c.LiveProbes)
 				summaryContainer.NoReadinessProbe = int64(c.ReadyProbes)
+
+				summaryContainer.PodStorageRequest = c.PodStorageRequest
+				summaryContainer.PodStorageLimit = c.PodStorageLimit
+				summaryContainer.StorageRequest = c.StorageRequest
+				summaryContainer.StorageCapacity = c.StorageCapacity
+
 				if !c.LimitsDefined {
 					summaryContainer.NoLimits = int64(1)
 				}
@@ -700,16 +699,6 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 	podObject.Namespace = p.Namespace
 	pw.NamespaceMap[p.Namespace] = p.Namespace
 	podObject.NodeName = p.Spec.NodeName
-
-	//	if old != nil {
-	//		cached, exists := pw.PodCache[podObject.GetPodKey()]
-	//		if exists {
-	//			oldObject = &cached
-	//			podObject.AppID = oldObject.AppID
-	//			podObject.TierID = oldObject.TierID
-	//			podObject.NodeID = oldObject.NodeID
-	//		}
-	//	}
 
 	if p.ClusterName != "" {
 		podObject.ClusterName = p.ClusterName
@@ -945,13 +934,11 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 
 			for _, st := range p.Status.ContainerStatuses {
 				containerObj := findContainer(&podObject, st.Name)
-				updateConatinerStatus(&podObject, containerObj, st)
-				fmt.Printf("Container %s start time: %s\n", containerObj.Name, containerObj.StartTime)
+				pw.updateConatinerStatus(&podObject, containerObj, st)
 			}
 
 			//determine start time
 			for _, c := range podObject.Containers {
-				fmt.Printf("Container %s start time: %s\n", c.Name, c.StartTime)
 				if c.StartTime != nil {
 					podObject.RunningStartTime = c.StartTime
 					podObject.RunningStartTimeMillis = podObject.RunningStartTime.UnixNano() / 1000000
@@ -971,12 +958,11 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 
 			for _, st := range p.Status.InitContainerStatuses {
 				containerObj := findInitContainer(&podObject, st.Name)
-				updateConatinerStatus(&podObject, containerObj, st)
+				pw.updateConatinerStatus(&podObject, containerObj, st)
 			}
 		}
 
 		//check PendingTime
-		fmt.Printf("Pod %s. Start time: %s. Running time: %s\n", podObject.Name, podObject.StartTime, podObject.RunningStartTime)
 		if podObject.Phase != "Failed" && podObject.StartTimeMillis > 0 {
 			if podObject.RunningStartTimeMillis > 0 {
 				podObject.PendingTime = podObject.RunningStartTimeMillis - podObject.BreakPointMillis
@@ -990,7 +976,7 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 				now := time.Now().UnixNano() / 1000000
 				podObject.PendingTime = now - podObject.BreakPointMillis
 			}
-			fmt.Printf("Pending time: %d.\n", podObject.PendingTime)
+			//			fmt.Printf("Pending time: %d.\n", podObject.PendingTime)
 		}
 
 		//metrics
@@ -1029,7 +1015,7 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 	return podObject, changed
 }
 
-func updateConatinerStatus(podObject *m.PodSchema, containerObj *m.ContainerSchema, st v1.ContainerStatus) {
+func (pw PodWorker) updateConatinerStatus(podObject *m.PodSchema, containerObj *m.ContainerSchema, st v1.ContainerStatus) {
 
 	if containerObj != nil {
 		containerObj.Restarts = st.RestartCount
@@ -1055,7 +1041,6 @@ func updateConatinerStatus(podObject *m.PodSchema, containerObj *m.ContainerSche
 	if st.State.Running != nil {
 		if containerObj != nil {
 			containerObj.StartTime = &st.State.Running.StartedAt.Time
-			fmt.Printf("Container %s start time: %s\n", containerObj.Name, containerObj.StartTime)
 			if st.LastTerminationState.Terminated != nil {
 				containerObj.LastTerminationTime = &st.LastTerminationState.Terminated.FinishedAt.Time
 				containerObj.ExitCode = st.LastTerminationState.Terminated.ExitCode
@@ -1064,6 +1049,19 @@ func updateConatinerStatus(podObject *m.PodSchema, containerObj *m.ContainerSche
 	}
 
 	podObject.Containers[containerObj.Name] = *containerObj
+
+	if containerObj.Restarts > 10 {
+		po := v1.PodLogOptions{}
+		var since int64 = int64(pw.Bag.SnapshotSyncInterval)
+		var lines int64 = int64(pw.Bag.EventAPILimit)
+		po.SinceSeconds = &since
+		po.Container = containerObj.Name
+		po.Follow = false
+		po.Previous = false
+		po.Timestamps = true
+		po.TailLines = &lines
+		pw.saveLogs(podObject.ClusterName, podObject.Namespace, podObject.Owner, podObject.Name, &po)
+	}
 }
 
 func findContainer(podObject *m.PodSchema, containerName string) *m.ContainerSchema {
@@ -1112,32 +1110,46 @@ func (pw PodWorker) processContainer(podObj *v1.Pod, podSchema m.PodSchema, c v1
 	}
 
 	if c.Resources.Requests != nil {
-		cpuReq, ok := c.Resources.Requests.Cpu().AsInt64()
-		if ok {
-			podSchema.CpuRequest += cpuReq
-			containerObj.CpuRequest = cpuReq
-		}
+		cpuReq := c.Resources.Requests.Cpu().MilliValue()
 
-		memReq, ok := c.Resources.Requests.Memory().AsInt64()
-		if ok {
-			podSchema.MemRequest += memReq
-			containerObj.MemRequest = memReq
-		}
+		podSchema.CpuRequest += cpuReq
+		containerObj.CpuRequest = cpuReq
+
+		memReq := c.Resources.Requests.Memory().MilliValue() / 1000
+
+		podSchema.MemRequest += memReq
+		containerObj.MemRequest = memReq
+
 		limitsDefined = true
 	}
 
 	if c.Resources.Limits != nil {
-		cpuLim, ok := c.Resources.Limits.Cpu().AsInt64()
-		if ok {
-			podSchema.CpuLimit += cpuLim
-			containerObj.CpuLimit = cpuLim
+		cpuLim := c.Resources.Limits.Cpu().MilliValue()
+
+		podSchema.CpuLimit += cpuLim
+		containerObj.CpuLimit = cpuLim
+
+		memLim := c.Resources.Limits.Memory().MilliValue() / 1000
+
+		podSchema.MemLimit += memLim
+		containerObj.MemLimit = memLim
+
+		//check storage needs
+		//ephemeral
+		for key, val := range c.Resources.Requests {
+			if key == v1.ResourceRequestsEphemeralStorage {
+				containerObj.PodStorageRequest = val.MilliValue()
+				podSchema.PodStorageRequest += containerObj.PodStorageRequest
+			}
 		}
 
-		memLim, ok := c.Resources.Limits.Memory().AsInt64()
-		if ok {
-			podSchema.MemLimit += memLim
-			containerObj.MemLimit = memLim
+		for key, val := range c.Resources.Limits {
+			if key == v1.ResourceLimitsEphemeralStorage {
+				containerObj.PodStorageLimit = val.MilliValue()
+				podSchema.PodStorageLimit += containerObj.PodStorageLimit
+			}
 		}
+
 		limitsDefined = true
 	}
 
@@ -1145,10 +1157,33 @@ func (pw PodWorker) processContainer(podObj *v1.Pod, podSchema m.PodSchema, c v1
 		sb.Reset()
 		for _, vol := range c.VolumeMounts {
 			fmt.Fprintf(&sb, "%s;", vol.MountPath)
+			//check PVC limits
+			for _, vm := range podObj.Spec.Volumes {
+				if vm.Name == vol.Name && vm.PersistentVolumeClaim != nil {
+					claim := vm.PersistentVolumeClaim
+					//lookup claim by name in the cache of known claims
+					key := utils.GetKey(podSchema.Namespace, claim.ClaimName)
+					pvc, ok := pw.PVCCache[key]
+					if ok {
+						pvcReq, exists := pvc.Spec.Resources.Requests[v1.ResourceStorage]
+						if exists {
+							containerObj.StorageRequest += pvcReq.MilliValue()
+							podSchema.StorageRequest += pvcReq.MilliValue()
+						}
+
+						pvcCapacity, exists := pvc.Status.Capacity[v1.ResourceStorage]
+						if exists {
+							containerObj.StorageCapacity += pvcCapacity.MilliValue()
+							podSchema.StorageCapacity += pvcCapacity.MilliValue()
+						}
+					}
+				}
+			}
 		}
 		containerObj.Mounts = sb.String()
 	}
 	containerObj.LimitsDefined = limitsDefined
+
 	return containerObj, limitsDefined
 }
 
@@ -1184,8 +1219,8 @@ func compareInt64(val1, val2 int64, differ bool) bool {
 	return val1 != val2
 }
 
-func (pw PodWorker) getLogs(namespace, podName string, logOptions *v1.PodLogOptions, out io.Writer) error {
-	req := pw.Client.RESTClient().Get().
+func (pw PodWorker) saveLogs(clusterName string, namespace string, podOwner string, podName string, logOptions *v1.PodLogOptions) error {
+	req := pw.Client.Core().RESTClient().Get().
 		Namespace(namespace).
 		Name(podName).
 		Resource("pods").
@@ -1209,14 +1244,76 @@ func (pw PodWorker) getLogs(namespace, podName string, logOptions *v1.PodLogOpti
 	}
 	readCloser, err := req.Stream()
 	if err != nil {
+		fmt.Printf("Issues when reading logs for pod %s %s:. %v\n", namespace, podName, err)
 		return err
 	}
 
 	defer readCloser.Close()
-	_, err = io.Copy(out, readCloser)
-	fmt.Printf("Pod %s logs: %s. %v\n", podName, out, err)
-	return err
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(readCloser)
+	s := buf.String()
+	logs := strings.Split(s, "\n")
+	batchTS := time.Now().Unix()
+	objList := []m.LogSchema{}
+	for _, l := range logs {
+		if l != "" {
+			//			fmt.Printf("Pod %s logs:\n %s.\n", podName, l)
+			logSchema := m.NewLogObj()
+			logSchema.ClusterName = clusterName
+			logSchema.Namespace = namespace
+			logSchema.PodOwner = podOwner
+			logSchema.PodName = podName
+			logSchema.ContainerName = logOptions.Container
+			//get the timestamp
+			line := strings.Split(l, " ")
+			m := l
+			if len(line) > 0 {
+				t, errTime := time.Parse(time.RFC3339Nano, line[0])
+				if errTime == nil {
+					logSchema.Timestamp = &t
+				}
+				if len(line) > 1 {
+					m = strings.TrimLeft(l, line[0]+" ")
+				}
+			}
+			if len(m) >= app.MAX_FIELD_LENGTH {
+				m = m[len(m)-app.MAX_FIELD_LENGTH:]
+			}
+			logSchema.Message = m
+			logSchema.BatchTimestamp = batchTS
+			objList = append(objList, logSchema)
+		}
+	}
+	if len(objList) > 0 {
+		pw.postLogRecords(&objList)
+	}
 
+	return err
+}
+
+func (pw *PodWorker) postLogRecords(objList *[]m.LogSchema) {
+	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
+	rc := app.NewRestClient(pw.Bag, logger)
+	data, err := json.Marshal(objList)
+	schemaDefObj := m.NewLogSchemaDefWrapper()
+	schemaDef, e := json.Marshal(schemaDefObj)
+	if err == nil && e == nil {
+		if rc.SchemaExists(pw.Bag.LogSchemaName) == false {
+			fmt.Printf("Creating Log schema. %s\n", pw.Bag.LogSchemaName)
+			schemaObj, err := rc.CreateSchema(pw.Bag.LogSchemaName, schemaDef)
+			if err != nil {
+				return
+			} else if schemaObj != nil {
+				fmt.Printf("Schema %s created\n", pw.Bag.LogSchemaName)
+			} else {
+				fmt.Printf("Schema %s exists\n", pw.Bag.LogSchemaName)
+			}
+		}
+
+		rc.PostAppDEvents(pw.Bag.LogSchemaName, data)
+	} else {
+		fmt.Printf("Problems when serializing array of logs . %v", err)
+	}
 }
 
 func (pw PodWorker) GetPodMetrics() *map[string]m.UsageStats {
@@ -1286,18 +1383,29 @@ func (pw PodWorker) builAppDMetricsList() m.AppDMetricList {
 	ml := m.NewAppDMetricList()
 	var list []m.AppDMetric
 	for _, metricPod := range pw.SummaryMap {
-		objMap := structs.Map(metricPod)
-		pw.addMetricToList(objMap, metricPod, &list)
+		objMap := metricPod.Unwrap()
+		pw.addMetricToList(*objMap, metricPod, &list)
 	}
 	for _, metricApp := range pw.AppSummaryMap {
-		objMap := structs.Map(metricApp)
-		pw.addMetricToList(objMap, metricApp, &list)
+		objMap := metricApp.Unwrap()
+		pw.addMetricToList(*objMap, metricApp, &list)
+		//quotas
+		quotaSpecs := metricApp.GetQuotaSpecMetrics()
+		qsMap := quotaSpecs.Unwrap()
+		pw.addMetricToList(*qsMap, quotaSpecs, &list)
+
+		quotaUsed := metricApp.GetQuotaUsedMetrics()
+		quMap := quotaUsed.Unwrap()
+		pw.addMetricToList(*quMap, quotaUsed, &list)
+
+		//services
 		for _, svcMetrics := range metricApp.Services {
-			objSvcMap := structs.Map(svcMetrics)
-			pw.addMetricToList(objSvcMap, svcMetrics, &list)
+			objSvcMap := svcMetrics.Unwrap()
+			pw.addMetricToList(*objSvcMap, svcMetrics, &list)
+			//endpoints
 			for _, epMetrics := range svcMetrics.Endpoints {
-				objEPMap := structs.Map(epMetrics)
-				pw.addMetricToList(objEPMap, epMetrics, &list)
+				objEPMap := epMetrics.Unwrap()
+				pw.addMetricToList(*objEPMap, epMetrics, &list)
 			}
 		}
 	}
@@ -1329,6 +1437,61 @@ func (pw PodWorker) addMetricToList(objMap map[string]interface{}, metric m.AppD
 		}
 	}
 }
+
+//quotas
+func (pw PodWorker) watchResourceQuotas() {
+	api := pw.Client.CoreV1()
+	listOptions := metav1.ListOptions{}
+	fmt.Println("Starting Quota Watcher...")
+
+	watcher, err := api.ResourceQuotas(metav1.NamespaceAll).Watch(listOptions)
+	if err != nil {
+		fmt.Printf("Issues when setting up resource quota watcher. %v", err)
+	}
+
+	ch := watcher.ResultChan()
+
+	for ev := range ch {
+		rq, ok := ev.Object.(*v1.ResourceQuota)
+		if !ok {
+			fmt.Printf("Expected ResourceQuota, but received an object of an unknown type. ")
+			continue
+		}
+		switch ev.Type {
+		case watch.Added:
+			pw.onNewResourceQuota(rq)
+			break
+
+		case watch.Deleted:
+			pw.onDeleteResourceQuota(rq)
+			break
+
+		case watch.Modified:
+			pw.onUpdateResourceQuota(rq)
+			break
+		}
+
+	}
+	fmt.Println("Exiting quota watcher.")
+}
+
+func (pw PodWorker) onNewResourceQuota(rq *v1.ResourceQuota) {
+	pw.RQCache[utils.GetKey(rq.Namespace, rq.Name)] = *rq
+}
+
+func (pw PodWorker) onDeleteResourceQuota(rq *v1.ResourceQuota) {
+	key := utils.GetKey(rq.Namespace, rq.Name)
+	_, ok := pw.RQCache[key]
+	if ok {
+		delete(pw.RQCache, key)
+	}
+}
+
+func (pw PodWorker) onUpdateResourceQuota(rq *v1.ResourceQuota) {
+	pw.RQCache[utils.GetKey(rq.Namespace, rq.Name)] = *rq
+}
+
+//services
 
 func (pw PodWorker) watchServices() {
 	api := pw.Client.CoreV1()
@@ -1435,74 +1598,61 @@ func (pw PodWorker) onDeleteEndpoint(ep *v1.Endpoints) {
 
 func (pw PodWorker) onUpdateEndpoint(ep *v1.Endpoints) {
 	pw.EndpointCache[utils.GetEndpointKey(ep)] = *ep
-
-	//	for _, eps := range ep.Subsets {
-	//		for _, epsPort := range eps.Ports {
-	//			fmt.Printf("Endpoint Port %d %s %s .\n", epsPort.Port, epsPort.Name, epsPort.Protocol)
-	//		}
-	//		for _, epsAddr := range eps.Addresses {
-	//			fmt.Printf("Addresss IP %s  %s\n", epsAddr.IP, epsAddr.Hostname)
-	//		}
-	//		for _, epsNRAdrr := range eps.NotReadyAddresses {
-	//			fmt.Printf("NR Addresss IP %s  %s\n", epsNRAdrr.IP, epsNRAdrr.Hostname)
-	//		}
-	//	}
 }
 
-//PVs
-//func (pw PodWorker) watchEndPoints() {
-//	api := pw.Client.CoreV1()
-//	listOptions := metav1.ListOptions{}
-//	fmt.Println("Starting Persistent Volume Watcher...")
+//PVCs
+func (pw PodWorker) watchPVC() {
+	api := pw.Client.CoreV1()
+	listOptions := metav1.ListOptions{}
+	fmt.Println("Starting Persistent Volume Claim Watcher...")
 
-//	watcher, err := api.PersistentVolumes(metav1.NamespaceAll).Watch(listOptions)
-//	if err != nil {
-//		fmt.Printf("Issues when setting up PV watcher. %v", err)
-//	}
+	watcher, err := api.PersistentVolumeClaims(metav1.NamespaceAll).Watch(listOptions)
+	if err != nil {
+		fmt.Printf("Issues when setting up PVC watcher. %v", err)
+	}
 
-//	ch := watcher.ResultChan()
+	ch := watcher.ResultChan()
 
-//	for ev := range ch {
-//		pv, ok := ev.Object.(*v1.PersistentVolume)
-//		pv.Spec.
-////		quant := pvc.Spec.Resources.Requests[v1.ResourceStorage]
-//		if !ok {
-//			fmt.Printf("Expected Endpoints, but received an object of an unknown type. ")
-//			continue
-//		}
-//		switch ev.Type {
-//		case watch.Added:
-//			pw.onNewEndpoint(ep)
-//			break
+	for ev := range ch {
+		pvc, ok := ev.Object.(*v1.PersistentVolumeClaim)
+		//		quant := pvc.Spec.Resources.Requests[v1.ResourceStorage]
+		if !ok {
+			fmt.Printf("Expected PVC, but received an object of an unknown type. ")
+			continue
+		}
+		switch ev.Type {
+		case watch.Added:
+			pw.onNewPVC(pvc)
+			break
 
-//		case watch.Deleted:
-//			pw.onDeleteEndpoint(ep)
-//			break
+		case watch.Deleted:
+			pw.onDeletePVC(pvc)
+			break
 
-//		case watch.Modified:
-//			pw.onUpdateEndpoint(ep)
-//			break
-//		}
+		case watch.Modified:
+			pw.onUpdatePVC(pvc)
+			break
+		}
 
-//	}
-//	fmt.Println("Exiting svc watcher.")
-//}
+	}
+	fmt.Println("Exiting PVC watcher.")
+}
 
-//func (pw PodWorker) onNewEndpoint(ep *v1.Endpoints) {
-//	fmt.Printf("Added Endpoint: %s\n", ep.Name)
-//	pw.EndpointCache[utils.GetEndpointKey(ep)] = *ep
-//}
+func (pw PodWorker) onNewPVC(pvc *v1.PersistentVolumeClaim) {
+	fmt.Printf("Added PVC: %s\n", pvc.Name)
+	pw.PVCCache[utils.GetKey(pvc.Namespace, pvc.Name)] = *pvc
+}
 
-//func (pw PodWorker) onDeleteEndpoint(ep *v1.Endpoints) {
-//	_, ok := pw.EndpointCache[utils.GetEndpointKey(ep)]
-//	if ok {
-//		delete(pw.EndpointCache, utils.GetEndpointKey(ep))
-//		fmt.Printf("Endpoint %s deleted \n", ep.Name)
-//	}
-//}
+func (pw PodWorker) onDeletePVC(pvc *v1.PersistentVolumeClaim) {
+	_, ok := pw.PVCCache[utils.GetKey(pvc.Namespace, pvc.Name)]
+	if ok {
+		delete(pw.PVCCache, utils.GetKey(pvc.Namespace, pvc.Name))
+		fmt.Printf("PVC %s deleted \n", pvc.Name)
+	}
+}
 
-//func (pw PodWorker) onUpdateEndpoint(ep *v1.Endpoints) {
-//	pw.EndpointCache[utils.GetEndpointKey(ep)] = *ep
-//	fmt.Printf("Endpoint Service: %s\n", ep.Name)
+func (pw PodWorker) onUpdatePVC(pvc *v1.PersistentVolumeClaim) {
+	pw.PVCCache[utils.GetKey(pvc.Namespace, pvc.Name)] = *pvc
+	fmt.Printf("PVC updated: %s\n", pvc.Name)
 
-//}
+}

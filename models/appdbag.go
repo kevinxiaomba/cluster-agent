@@ -21,6 +21,7 @@ type AppDBag struct {
 	EventSchemaName             string
 	ContainerSchemaName         string
 	JobSchemaName               string
+	LogSchemaName               string
 	DashboardTemplatePath       string
 	DashboardSuffix             string
 	JavaAgentVersion            string

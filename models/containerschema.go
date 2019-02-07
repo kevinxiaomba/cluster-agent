@@ -10,30 +10,34 @@ type ContainerSchemaDefWrapper struct {
 }
 
 type ContainerSchemaDef struct {
-	Name            string `json:"name"`
-	Init            string `json:"init"`
-	Namespace       string `json:"namespace"`
-	ClusterName     string `json:"clusterName"`
-	NodeName        string `json:"nodeName"`
-	PodName         string `json:"podName"`
-	PodInitTime     string `json:"podInitTime"`
-	StartTime       string `json:"startTime"`
-	LiveProbes      string `json:"liveProbes"`
-	ReadyProbes     string `json:"readyProbes"`
-	Restarts        string `json:"restarts"`
-	Privileged      string `json:"privileged"`
-	Ports           string `json:"ports"`
-	MemRequest      string `json:"memRequest"`
-	CpuRequest      string `json:"cpuRequest"`
-	CpuLimit        string `json:"cpuLimit"`
-	MemLimit        string `json:"memLimit"`
-	CpuUse          string `json:"cpuUse"`
-	MemUse          string `json:"memUse"`
-	Image           string `json:"image"`
-	WaitReason      string `json:"waitReason"`
-	TermReason      string `json:"termReason"`
-	TerminationTime string `json:"terminationTime"`
-	Mounts          string `json:"mounts"`
+	Name              string `json:"name"`
+	Init              string `json:"init"`
+	Namespace         string `json:"namespace"`
+	ClusterName       string `json:"clusterName"`
+	NodeName          string `json:"nodeName"`
+	PodName           string `json:"podName"`
+	PodInitTime       string `json:"podInitTime"`
+	StartTime         string `json:"startTime"`
+	LiveProbes        string `json:"liveProbes"`
+	ReadyProbes       string `json:"readyProbes"`
+	Restarts          string `json:"restarts"`
+	Privileged        string `json:"privileged"`
+	Ports             string `json:"ports"`
+	MemRequest        string `json:"memRequest"`
+	CpuRequest        string `json:"cpuRequest"`
+	CpuLimit          string `json:"cpuLimit"`
+	MemLimit          string `json:"memLimit"`
+	PodStorageRequest string `json:"podStorageRequest"`
+	PodStorageLimit   string `json:"podStorageLimit"`
+	StorageRequest    string `json:"storageRequest"`
+	StorageCapacity   string `json:"storageCapacity"`
+	CpuUse            string `json:"cpuUse"`
+	MemUse            string `json:"memUse"`
+	Image             string `json:"image"`
+	WaitReason        string `json:"waitReason"`
+	TermReason        string `json:"termReason"`
+	TerminationTime   string `json:"terminationTime"`
+	Mounts            string `json:"mounts"`
 }
 
 func NewContainerSchemaDefWrapper() ContainerSchemaDefWrapper {
@@ -44,7 +48,7 @@ func NewContainerSchemaDefWrapper() ContainerSchemaDefWrapper {
 
 func NewContainerSchemaDef() ContainerSchemaDef {
 	pdsd := ContainerSchemaDef{Name: "string", Init: "boolean", Namespace: "string", ClusterName: "string", NodeName: "string", PodName: "string", PodInitTime: "date", StartTime: "date", LiveProbes: "integer", ReadyProbes: "integer", Restarts: "integer",
-		Privileged: "integer", Ports: "string", MemRequest: "float", CpuRequest: "float", CpuLimit: "float", MemLimit: "float", CpuUse: "float", MemUse: "float",
+		Privileged: "integer", Ports: "string", MemRequest: "float", CpuRequest: "float", CpuLimit: "float", MemLimit: "float", PodStorageRequest: "float", PodStorageLimit: "float", StorageRequest: "float", StorageCapacity: "float", CpuUse: "float", MemUse: "float",
 		Image: "string", WaitReason: "string", TermReason: "string", TerminationTime: "date", Mounts: "string"}
 	return pdsd
 }
@@ -74,6 +78,10 @@ type ContainerSchema struct {
 	CpuRequest          int64           `json:"cpuRequest"`
 	CpuLimit            int64           `json:"cpuLimit"`
 	MemLimit            int64           `json:"memLimit"`
+	PodStorageRequest   int64           `json:"podStorageRequest"`
+	PodStorageLimit     int64           `json:"podStorageLimit"`
+	StorageRequest      int64           `json:"storageRequest"`
+	StorageCapacity     int64           `json:"storageCapacity"`
 	CpuUse              int64           `json:"cpuUse"`
 	MemUse              int64           `json:"memUse"`
 	Image               string          `json:"image"`

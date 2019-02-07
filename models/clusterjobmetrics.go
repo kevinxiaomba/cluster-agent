@@ -2,6 +2,8 @@ package models
 
 import (
 	"fmt"
+
+	"github.com/fatih/structs"
 )
 
 type ClusterJobMetrics struct {
@@ -13,6 +15,12 @@ type ClusterJobMetrics struct {
 	SuccessCount int64
 	FailedCount  int64
 	Duration     int64
+}
+
+func (cpm ClusterJobMetrics) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(cpm)
+
+	return &objMap
 }
 
 func NewClusterJobMetrics(bag *AppDBag, ns string, node string) ClusterJobMetrics {

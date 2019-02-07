@@ -8,6 +8,7 @@ import (
 type AppDMetricInterface interface {
 	ShouldExcludeField(fieldName string) bool
 	GetPath() string
+	Unwrap() *map[string]interface{}
 }
 
 const RootPath string = "Server|Component:%s|Custom Metrics|Cluster Stats|"
@@ -22,6 +23,8 @@ const METRIC_PATH_PORTS string = "Ports"
 const METRIC_PATH_SERVICES string = "Services"
 const METRIC_PATH_EVENTS string = "Events"
 const METRIC_PATH_SERVICES_EP string = "Endpoints"
+const METRIC_PATH_RQSPEC string = "QuotaSpecs"
+const METRIC_PATH_RQUSED string = "QuotaUsed"
 
 type AppDMetric struct {
 	MetricName              string
