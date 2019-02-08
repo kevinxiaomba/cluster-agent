@@ -141,6 +141,9 @@ type PodSchema struct {
 	AppID                         int                        `json:"-"`
 	TierID                        int                        `json:"-"`
 	NodeID                        int                        `json:"-"`
+	AppName                       string                     `json:"-"`
+	TierName                      string                     `json:"-"`
+	APMNodeName                   string                     `json:"-"`
 	Services                      []ServiceSchema            `json:"-"`
 	Endpoints                     []v1.Endpoints             `json:"-"`
 	StartTimeMillis               int64                      `json:"-"`

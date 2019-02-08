@@ -90,9 +90,11 @@ type WidgetTemplate struct {
 	LegendColumnCount           *int                 `json:"legendColumnCount"`
 	ShowLegend                  bool                 `json:"showLegend"`
 	Description                 *string              `json:"description"`
-	BackgroundAlpha             int                  `json:"backgroundAlpha"`
+	BackgroundAlpha             float32              `json:"backgroundAlpha"`
 	FormatNumber                bool                 `json:"formatNumber"`
 	Title                       *string              `json:"title"`
+	ApplicationReference        *ScopeEntity         `json:"applicationReference"`
+	EntityReferences            *[]ScopeEntity       `json:"entityReferences"`
 	DataSeriesTemplates         []DataSeriesTemplate `json:"dataSeriesTemplates"`
 	MinHeight                   int                  `json:"minHeight"`
 	BorderThickness             int                  `json:"borderThickness"`
@@ -117,7 +119,7 @@ type WidgetTemplate struct {
 	BorderEnabled               bool                 `json:"borderEnabled"`
 	Width                       int                  `json:"width"`
 	X                           int                  `json:"x"`
-	BackgroundColors            *string              `json:"backgroundColors"`
+	BackgroundColors            *[]interface{}       `json:"backgroundColors"`
 	IsGlobal                    bool                 `json:"isGlobal"`
 	Y                           int                  `json:"y"`
 	FontSize                    int                  `json:"fontSize"`
@@ -136,12 +138,15 @@ type WidgetTemplate struct {
 	StackMode                   bool                 `json:"stackMode"`
 	InterpolateDataGaps         bool                 `json:"interpolateDataGaps"`
 	EventFilterTemplate         *string              `json:"eventFilterTemplate"`
+	EntityType                  *string              `json:"entityType"`
+	EntitySelectionType         *string              `json:"entitySelectionType"`
 }
 
 type StaticThreshold struct {
 }
 
 type Dashboard struct {
+	ID                        float64          `json:"id"`
 	Name                      string           `json:"name"`
 	Template                  bool             `json:"template"`
 	TemplateEntityType        string           `json:"templateEntityType"`
@@ -159,7 +164,7 @@ type Dashboard struct {
 	AssociatedEntityTemplates *string          `json:"associatedEntityTemplates"`
 	LayoutType                string           `json:"layoutType"`
 	WarRoom                   bool             `json:"warRoom"`
-	Properties                *string          `json:"properties"`
+	Properties                *[]interface{}   `json:"properties"`
 	StartDate                 *int             `json:"startDate"`
 	Height                    int              `json:"height"`
 }

@@ -337,7 +337,6 @@ func (pw *NodesWorker) processObject(n *v1.Node, old *v1.Node) (m.NodeSchema, bo
 	}
 
 	for key, c := range n.Status.Capacity {
-		fmt.Printf("Capacity key: %s\n", key)
 		if key == "memory" {
 			//MB
 			nodeObject.MemCapacity = c.Value()
@@ -351,7 +350,6 @@ func (pw *NodesWorker) processObject(n *v1.Node, old *v1.Node) (m.NodeSchema, bo
 	}
 
 	for k, a := range n.Status.Allocatable {
-		fmt.Printf("Allocated key: %s\n", k)
 		if k == "memory" {
 			//MB
 			nodeObject.MemAllocations = a.Value()

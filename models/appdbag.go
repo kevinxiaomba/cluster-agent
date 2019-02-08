@@ -51,4 +51,7 @@ type AppDBag struct {
 	MetricsSyncInterval         int // Frequency of metrics pushes to the controller, sec
 	SnapshotSyncInterval        int // Frequency of snapshot pushes to events api, sec
 	AgentServerPort             int
+	IncludeNsToInstrument       []string
+	ExcludeNsToInstrument       []string
+	DeploysToDashboard          []string
 }

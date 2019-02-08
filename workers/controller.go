@@ -49,11 +49,11 @@ func (c *MainController) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	//	<-stopCh
 }
 
-func (c *MainController) startDashboardWorker(stopCh <-chan struct{}) {
-	dw := NewDashboardWorker(c.Bag, c.Logger)
-	dw.Run(stopCh)
-	<-stopCh
-}
+//func (c *MainController) startDashboardWorker(stopCh <-chan struct{}) {
+//	dw := NewDashboardWorker(c.Bag, c.Logger)
+//	dw.Run(stopCh)
+//	<-stopCh
+//}
 
 func nsWorker(finished chan *v1.NamespaceList, client *kubernetes.Clientset, wg *sync.WaitGroup) {
 	defer wg.Done()
@@ -70,7 +70,7 @@ func nsWorker(finished chan *v1.NamespaceList, client *kubernetes.Clientset, wg 
 func (c *MainController) startPodsWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
 	fmt.Println("Starting Pods worker")
 	defer wg.Done()
-	pw := NewPodWorker(client, c.Bag, appdController, c.K8sConfig)
+	pw := NewPodWorker(client, c.Bag, appdController, c.K8sConfig, c.Logger)
 	c.PodsWorker = &pw
 	go c.startEventsWorker(stopCh, c.K8sClient, wg, appdController)
 	c.PodsWorker.Observe(stopCh, wg)

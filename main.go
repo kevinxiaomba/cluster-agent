@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"path/filepath"
@@ -75,7 +76,9 @@ func buildParams() Flags {
 	flag.StringVar(&method, "appd-instrument-method", getAgentInstrumentationMethod(), "AppD Agent Instrumentation Method (copy, mount)")
 	params.Bag.InstrumentationMethod = m.InstrumentationMethod(method)
 	flag.StringVar(&params.Bag.InitContainerDir, "init-container-dir", "/opt/temp/.", "Directory with artifacts in the init container")
-
+	var dash string
+	flag.StringVar(&dash, "deploys-to-dash", getDeploysToDashboard(), "List of deployments to dashboard")
+	params.Bag.DeploysToDashboard = strings.Split(dash, ",")
 	var tempPort uint
 	flag.UintVar(&tempPort, "controller-port", getControllerPort(), "Controller Port")
 	params.Bag.ControllerPort = uint16(tempPort)
@@ -242,6 +245,10 @@ func getAgentInstrumentationMethod() string {
 
 func getJavaAttachImage() string {
 	return os.Getenv("JAVA_ATTACH_IMAGE")
+}
+
+func getDeploysToDashboard() string {
+	return os.Getenv("DEPLOYS_TO_DASH")
 }
 
 func getTemplatePath() string {

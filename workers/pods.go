@@ -41,6 +41,7 @@ type PodWorker struct {
 	informer            cache.SharedIndexInformer
 	Client              *kubernetes.Clientset
 	Bag                 *m.AppDBag
+	Logger              *log.Logger
 	SummaryMap          map[string]m.ClusterPodMetrics
 	AppSummaryMap       map[string]m.ClusterAppMetrics
 	ContainerSummaryMap map[string]m.ClusterContainerMetrics
@@ -59,9 +60,9 @@ type PodWorker struct {
 	NamespaceMap        map[string]string
 }
 
-func NewPodWorker(client *kubernetes.Clientset, bag *m.AppDBag, controller *app.ControllerClient, config *rest.Config) PodWorker {
+func NewPodWorker(client *kubernetes.Clientset, bag *m.AppDBag, controller *app.ControllerClient, config *rest.Config, l *log.Logger) PodWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
-	pw := PodWorker{Client: client, Bag: bag, SummaryMap: make(map[string]m.ClusterPodMetrics), AppSummaryMap: make(map[string]m.ClusterAppMetrics),
+	pw := PodWorker{Client: client, Bag: bag, Logger: l, SummaryMap: make(map[string]m.ClusterPodMetrics), AppSummaryMap: make(map[string]m.ClusterAppMetrics),
 		ContainerSummaryMap: make(map[string]m.ClusterContainerMetrics), InstanceSummaryMap: make(map[string]m.ClusterInstanceMetrics),
 		WQ: queue, AppdController: controller, K8sConfig: config, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus),
 		SvcCache: make(map[string]v1.Service), ServiceCache: make(map[string]m.ServiceSchema), EndpointCache: make(map[string]v1.Endpoints),
@@ -397,14 +398,28 @@ func (pw *PodWorker) buildAppDMetrics() {
 	pw.InstanceSummaryMap = make(map[string]m.ClusterInstanceMetrics)
 	pw.updateServiceCache()
 
+	dash := make(map[string]m.DashboardBag)
+
+	fmt.Printf("Deployments configured for dashboarding: %s \n", pw.Bag.DeploysToDashboard)
+
 	var count int = 0
 	for _, obj := range pw.informer.GetStore().List() {
 		podObject := obj.(*v1.Pod)
 		podSchema, _ := pw.processObject(podObject, nil)
 		pw.summarize(&podSchema)
 		count++
+		//should build the dashboard
+		if utils.StringInSlice(podSchema.Owner, pw.Bag.DeploysToDashboard) {
+			bag, ok := dash[podSchema.Owner]
+			if !ok {
+				bag = m.NewDashboardBag(podSchema.Namespace, podSchema.Owner, []m.PodSchema{})
+				bag.AppName = podSchema.AppName
+				bag.ClusterName = podSchema.ClusterName
+			}
+			bag.Pods = append(bag.Pods, podSchema)
+			dash[podSchema.Owner] = bag
+		}
 	}
-
 	fmt.Printf("Unique metrics: %d\n", count)
 
 	ml := pw.builAppDMetricsList()
@@ -413,6 +428,9 @@ func (pw *PodWorker) buildAppDMetrics() {
 
 	pw.AppdController.PostMetrics(ml)
 	pw.AppdController.StopBT(bth)
+	if len(dash) > 0 {
+		go pw.buildDashboards(dash)
+	}
 }
 
 func (pw *PodWorker) updateServiceCache() {
@@ -435,7 +453,6 @@ func (pw *PodWorker) updateServiceCache() {
 				pw.ServiceCache[k] = headless
 				svcObj.ExternallyReferenced(true)
 				pw.ServiceCache[kk] = svcObj
-				fmt.Printf("External reference found: %s - %s", headless.Name, svcObj.Name)
 				break
 			}
 		}
@@ -716,6 +733,16 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 		podObject.TerminationTimeMillis = podObject.TerminationTime.UnixNano() / 1000000
 	}
 
+	for kl, vl := range p.Labels {
+		if kl == pw.Bag.AppDAppLabel {
+			podObject.AppName = vl
+		}
+
+		if kl == pw.Bag.AppDTierLabel {
+			podObject.TierName = vl
+		}
+	}
+
 	for k, v := range p.GetAnnotations() {
 		fmt.Fprintf(&sb, "%s:%s;", k, v)
 		if k == instr.APPD_APPID {
@@ -743,6 +770,10 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 			} else {
 				fmt.Printf("Unable to parse Node ID value %s from the annotations", v)
 			}
+		}
+
+		if k == instr.APPD_NODENAME {
+			podObject.APMNodeName = v
 		}
 	}
 	podObject.Annotations = sb.String()
@@ -1655,4 +1686,16 @@ func (pw PodWorker) onUpdatePVC(pvc *v1.PersistentVolumeClaim) {
 	pw.PVCCache[utils.GetKey(pvc.Namespace, pvc.Name)] = *pvc
 	fmt.Printf("PVC updated: %s\n", pvc.Name)
 
+}
+
+//dashboards
+func (pw *PodWorker) buildDashboards(dashData map[string]m.DashboardBag) {
+	bth := pw.AppdController.StartBT("BuildDashboard")
+	dw := NewDashboardWorker(pw.Bag, pw.Logger)
+	for _, bag := range dashData {
+		if len(bag.Pods) > 0 {
+			dw.updateTierDashboard(&bag)
+		}
+	}
+	pw.AppdController.StopBT(bth)
 }

@@ -27,6 +27,7 @@ const (
 	APPD_APPID                   string = "appd-appid"
 	APPD_TIERID                  string = "appd-tierid"
 	APPD_NODEID                  string = "appd-nodeid"
+	APPD_NODENAME                string = "appd-nodename"
 	MAX_INSTRUMENTATION_ATTEMPTS int    = 1
 	ANNOTATION_UPDATE_ERROR      string = "ANNOTATION-UPDATE-FAILURE"
 )
@@ -341,6 +342,7 @@ func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tier
 			fmt.Printf("AppD agent version probe. Output: %s. Error: %v\n", folderName, errFolder)
 			if c == 0 {
 				nodeName := strings.TrimSpace(folderName)
+				podObj.Annotations[APPD_NODENAME] = nodeName
 				appID, tierID, nodeID, errAppd := ai.AppdController.DetermineNodeID(appName, nodeName)
 				if errAppd == nil {
 					podObj.Annotations[APPD_APPID] = strconv.Itoa(appID)
@@ -349,7 +351,6 @@ func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tier
 				}
 			}
 		}
-
 		_, updateErr := ai.ClientSet.Core().Pods(podObj.Namespace).Update(podObj)
 		if updateErr != nil {
 			return fmt.Errorf("%s, Error: %v\n", ANNOTATION_UPDATE_ERROR, err)
