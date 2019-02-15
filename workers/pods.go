@@ -415,6 +415,11 @@ func (pw *PodWorker) buildAppDMetrics() {
 				bag = m.NewDashboardBag(podSchema.Namespace, podSchema.Owner, []m.PodSchema{})
 				bag.AppName = podSchema.AppName
 				bag.ClusterName = podSchema.ClusterName
+				bag.ClusterAppID = pw.Bag.AppID
+				bag.ClusterTierID = pw.Bag.TierID
+				bag.AppID = podSchema.AppID
+				bag.TierID = podSchema.TierID
+				bag.NodeID = podSchema.NodeID
 			}
 			bag.Pods = append(bag.Pods, podSchema)
 			dash[podSchema.Owner] = bag
@@ -429,6 +434,7 @@ func (pw *PodWorker) buildAppDMetrics() {
 	pw.AppdController.PostMetrics(ml)
 	pw.AppdController.StopBT(bth)
 	if len(dash) > 0 {
+		fmt.Printf("Number of dashboards to be updated %d\n", len(dash))
 		go pw.buildDashboards(dash)
 	}
 }
@@ -1691,7 +1697,7 @@ func (pw PodWorker) onUpdatePVC(pvc *v1.PersistentVolumeClaim) {
 //dashboards
 func (pw *PodWorker) buildDashboards(dashData map[string]m.DashboardBag) {
 	bth := pw.AppdController.StartBT("BuildDashboard")
-	dw := NewDashboardWorker(pw.Bag, pw.Logger)
+	dw := NewDashboardWorker(pw.Bag, pw.Logger, pw.AppdController)
 	for _, bag := range dashData {
 		if len(bag.Pods) > 0 {
 			dw.updateTierDashboard(&bag)

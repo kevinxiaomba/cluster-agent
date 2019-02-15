@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 
 	m "github.com/sjeltuhin/clusterAgent/models"
 
@@ -51,7 +52,18 @@ func NewControllerClient(bag *m.AppDBag, logger *log.Logger) *ControllerClient {
 	}
 	logger.Println(&cfg.Controller)
 
-	return &ControllerClient{Bag: bag, logger: logger, regMetrics: make(map[string]bool)}
+	controller := ControllerClient{Bag: bag, logger: logger, regMetrics: make(map[string]bool)}
+
+	appID, tierID, nodeID, errAppd := controller.DetermineNodeID(bag.AppName, bag.TierName, bag.NodeName)
+	if errAppd != nil {
+		logger.Printf("Enable to fetch component IDs. Error: %v\n", errAppd)
+	} else {
+		bag.AppID = appID
+		bag.TierID = tierID
+		bag.NodeID = nodeID
+	}
+
+	return &controller
 }
 
 func (c *ControllerClient) RegisterMetrics(metrics m.AppDMetricList) error {
@@ -151,13 +163,13 @@ func (c *ControllerClient) StopBT(bth appd.BtHandle) {
 	appd.EndBT(bth)
 }
 
-func (c *ControllerClient) DetermineNodeID(appName string, nodeName string) (int, int, int, error) {
+func (c *ControllerClient) DetermineNodeID(appName string, tierName string, nodeName string) (int, int, int, error) {
 	appID, err := c.FindAppID(appName)
 	if err != nil {
 		return appID, 0, 0, err
 	}
 
-	tierID, nodeID, e := c.FindNodeID(appID, nodeName)
+	tierID, nodeID, e := c.FindNodeID(appID, tierName, nodeName)
 
 	if e != nil {
 		return appID, tierID, nodeID, e
@@ -190,7 +202,7 @@ func (c *ControllerClient) FindAppID(appName string) (int, error) {
 	return appID, nil
 }
 
-func (c *ControllerClient) FindNodeID(appID int, nodeName string) (int, int, error) {
+func (c *ControllerClient) FindNodeID(appID int, tierName string, nodeName string) (int, int, error) {
 	var nodeID int = 0
 	var tierID int = 0
 	path := "restui/tiers/list/health"
@@ -213,6 +225,10 @@ func (c *ControllerClient) FindNodeID(appID int, nodeName string) (int, int, err
 			s := val.([]interface{})
 			for _, t := range s {
 				tier := t.(map[string]interface{})
+				name := tier["name"].(string)
+				if name != tierName {
+					continue
+				}
 				tierID = int(tier["id"].(float64))
 				for k, prop := range tier {
 					if k == "children" {
@@ -232,4 +248,39 @@ func (c *ControllerClient) FindNodeID(appID int, nodeName string) (int, int, err
 		}
 	}
 	return tierID, nodeID, nil
+}
+
+func (c *ControllerClient) GetMetricID(metricPath string) (float64, error) {
+	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
+	path := "restui/metricBrowser/88"
+	arr := strings.Split(metricPath, "|")
+	metricName := arr[len(arr)-1]
+	arr = arr[:len(arr)-1]
+	logger.Printf("Asking for metrics with payload: %s", strings.Join(arr, ","))
+
+	body, eM := json.Marshal(arr)
+	if eM != nil {
+		fmt.Printf("Unable to serialize metrics path. %v ", eM)
+	}
+
+	rc := NewRestClient(c.Bag, logger)
+	data, err := rc.CallAppDController(path, "POST", body)
+	if err != nil {
+		return 0, fmt.Errorf("Unable to find metric ID")
+	}
+	var list []map[string]interface{}
+	errJson := json.Unmarshal(data, &list)
+	if errJson != nil {
+		return 0, fmt.Errorf("Unable to deserialize metrics list")
+	}
+
+	for _, metricObj := range list {
+		id, ok := metricObj["metricId"]
+		if ok && metricObj["name"] == metricName {
+			fmt.Printf("Metrics ID = %d ", id.(float64))
+			return id.(float64), nil
+		}
+	}
+
+	return 0, nil
 }

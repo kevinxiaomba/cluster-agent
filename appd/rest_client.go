@@ -118,12 +118,14 @@ func (rc *RestClient) PostAppDEvents(schemaName string, data []byte) []byte {
 	if err != nil {
 		fmt.Printf("Unable to post events. %v", err)
 	}
-	defer resp.Body.Close()
-
-	fmt.Println("PostAppDEvents Status:", resp.Status)
-	body, _ := ioutil.ReadAll(resp.Body)
-	fmt.Println("PostAppDEvents Body:", string(body))
-	return body
+	if resp != nil && resp.Body != nil {
+		defer resp.Body.Close()
+		fmt.Println("PostAppDEvents Status:", resp.Status)
+		body, _ := ioutil.ReadAll(resp.Body)
+		//	fmt.Println("PostAppDEvents Body:", string(body))
+		return body
+	}
+	return nil
 }
 
 func (rc *RestClient) GetRestAuth() (AppDRestAuth, error) {
@@ -181,7 +183,7 @@ func (rc *RestClient) CallAppDController(path, method string, data []byte) ([]by
 		body = bytes.NewBuffer(data)
 	}
 	req, err := http.NewRequest(method, url, body)
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", "application/json, text/plain, */*")
 	if method == "POST" {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -191,14 +193,17 @@ func (rc *RestClient) CallAppDController(path, method string, data []byte) ([]by
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("Unable to post events. %v", err)
+		fmt.Printf("Failed to call AppD controller. %v", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	//	fmt.Println("response Status:", resp.Status)
+	fmt.Println("response Status:", resp.Status)
 	b, _ := ioutil.ReadAll(resp.Body)
 	//	fmt.Println("response Body:", string(b))
+	if resp.StatusCode < 200 || resp.StatusCode > 202 {
+		return b, fmt.Errorf("Controller request failed with status %s.", resp.Status)
+	}
 	return b, nil
 }
 

@@ -1,12 +1,12 @@
 package models
 
 type ScopeEntity struct {
-	Subtype           *string `json: "subtype"`
-	EntityType        string  `json: "entityType"`
-	EntityName        string  `json: "entityName"`
-	ScopingEntityType *string `json: "scopingEntityType"`
-	ScopingEntityName *string `json: "scopingEntityName"`
-	ApplicationName   string  `json: "applicationName"`
+	Subtype           *string `json:"subtype"`
+	EntityType        string  `json:"entityType"`
+	EntityName        string  `json:"entityName"`
+	ScopingEntityType *string `json:"scopingEntityType"`
+	ScopingEntityName *string `json:"scopingEntityName"`
+	ApplicationName   string  `json:"applicationName"`
 }
 
 type MetricExpressionTemplate struct {
@@ -93,14 +93,15 @@ type WidgetTemplate struct {
 	BackgroundAlpha             float32              `json:"backgroundAlpha"`
 	FormatNumber                bool                 `json:"formatNumber"`
 	Title                       *string              `json:"title"`
-	ApplicationReference        *ScopeEntity         `json:"applicationReference"`
-	EntityReferences            *[]ScopeEntity       `json:"entityReferences"`
+	ApplicationReference        *ScopeEntity         `json:"applicationReference,omitempty"`
+	EntityReferences            *[]ScopeEntity       `json:"entityReferences,omitempty"`
 	DataSeriesTemplates         []DataSeriesTemplate `json:"dataSeriesTemplates"`
 	MinHeight                   int                  `json:"minHeight"`
 	BorderThickness             int                  `json:"borderThickness"`
 	UseAutomaticFontSize        bool                 `json:"useAutomaticFontSize"`
 	RemoveZeros                 bool                 `json:"removeZeros"`
 	DrillDownUrl                *string              `json:"drillDownUrl"`
+	ImageURL                    *string              `json:"imageURL"`
 	StartTime                   *int                 `json:"startTime"`
 	Text                        string               `json:"text"`
 	DrillDownActionType         *string              `json:"drillDownActionType"`
@@ -146,25 +147,36 @@ type StaticThreshold struct {
 }
 
 type Dashboard struct {
-	ID                        float64          `json:"id"`
-	Name                      string           `json:"name"`
-	Template                  bool             `json:"template"`
-	TemplateEntityType        string           `json:"templateEntityType"`
-	BackgroundColor           int              `json:"backgroundColor"`
-	SchemaVersion             *string          `json:"schemaVersion"`
-	Color                     int              `json:"color"`
-	EndDate                   *int             `json:"endDate"`
-	RefreshInterval           int              `json:"refreshInterval"`
-	WidgetTemplates           []WidgetTemplate `json:"widgetTemplates"`
-	Description               *string          `json:"description"`
-	CanvasType                string           `json:"canvasType"`
-	MinutesBeforeAnchorTime   int              `json:"minutesBeforeAnchorTime"`
-	DashboardFormatVersion    string           `json:"dashboardFormatVersion"`
-	Width                     int              `json:"width"`
-	AssociatedEntityTemplates *string          `json:"associatedEntityTemplates"`
-	LayoutType                string           `json:"layoutType"`
-	WarRoom                   bool             `json:"warRoom"`
-	Properties                *[]interface{}   `json:"properties"`
-	StartDate                 *int             `json:"startDate"`
-	Height                    int              `json:"height"`
+	ID                      float64                  `json:"id"`
+	Version                 float64                  `json:"version"`
+	BuiltIn                 bool                     `json:"builtIn"`
+	NameUnique              bool                     `json:"nameUnique"`
+	SecurityToken           *string                  `json:"securityToken"`
+	SharingRevoked          bool                     `json:"sharingRevoked"`
+	Disabled                bool                     `json:"disabled"`
+	Name                    string                   `json:"name"`
+	CreatedBy               string                   `json:"createdBy"`
+	CreatedOn               float64                  `json:"createdOn"`
+	ModifiedBy              string                   `json:"modifiedBy"`
+	ModifiedOn              float64                  `json:"modifiedOn"`
+	Template                bool                     `json:"template"`
+	TemplateEntityType      string                   `json:"templateEntityType"`
+	BackgroundColor         int                      `json:"backgroundColor"`
+	Color                   int                      `json:"color"`
+	RefreshInterval         int                      `json:"refreshInterval"`
+	Widgets                 []map[string]interface{} `json:"widgets"`
+	Description             *string                  `json:"description"`
+	CanvasType              string                   `json:"canvasType"`
+	MinutesBeforeAnchorTime int                      `json:"minutesBeforeAnchorTime"`
+	Width                   float64                  `json:"width"`
+	LayoutType              string                   `json:"layoutType"`
+	WarRoom                 bool                     `json:"warRoom"`
+	Properties              *[]interface{}           `json:"properties"`
+	StartTime               *int                     `json:"startTime"`
+	EndTime                 *int                     `json:"endTime"`
+	Height                  float64                  `json:"height"`
+	//	DashboardFormatVersion    string                   `json:"dashboardFormatVersion"`
+	//AssociatedEntityTemplates *string                  `json:"associatedEntityTemplates"`
 }
+
+//"missingAssociatedEntities" : null,

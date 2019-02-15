@@ -4,6 +4,9 @@ type AppDBag struct {
 	AppName                     string
 	TierName                    string
 	NodeName                    string
+	AppID                       int
+	TierID                      int
+	NodeID                      int
 	Account                     string
 	GlobalAccount               string
 	AccessKey                   string

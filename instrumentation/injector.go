@@ -343,7 +343,7 @@ func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tier
 			if c == 0 {
 				nodeName := strings.TrimSpace(folderName)
 				podObj.Annotations[APPD_NODENAME] = nodeName
-				appID, tierID, nodeID, errAppd := ai.AppdController.DetermineNodeID(appName, nodeName)
+				appID, tierID, nodeID, errAppd := ai.AppdController.DetermineNodeID(appName, tierName, nodeName)
 				if errAppd == nil {
 					podObj.Annotations[APPD_APPID] = strconv.Itoa(appID)
 					podObj.Annotations[APPD_TIERID] = strconv.Itoa(tierID)

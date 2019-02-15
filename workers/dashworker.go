@@ -7,26 +7,28 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	app "github.com/sjeltuhin/clusterAgent/appd"
 	m "github.com/sjeltuhin/clusterAgent/models"
 )
 
 const (
-	WIDGET_GAP   int    = 10
-	FULL_CLUSTER string = "/k8s_dashboard_template.json"
-	DEPLOY_BASE  string = "/base_deploy_template.json"
-	TIER_SUMMARY string = "/tier_widget.json"
-	BACKGROUND   string = "/background.json"
+	WIDGET_GAP   float64 = 10
+	FULL_CLUSTER string  = "/k8s_dashboard_template.json"
+	DEPLOY_BASE  string  = "/base_deploy_template.json"
+	TIER_SUMMARY string  = "/tier_stats_widget.json"
+	BACKGROUND   string  = "/background.json"
 )
 
 type DashboardWorker struct {
-	Bag    *m.AppDBag
-	Logger *log.Logger
+	Bag            *m.AppDBag
+	Logger         *log.Logger
+	AppdController *app.ControllerClient
 }
 
-func NewDashboardWorker(bag *m.AppDBag, l *log.Logger) DashboardWorker {
-	return DashboardWorker{bag, l}
+func NewDashboardWorker(bag *m.AppDBag, l *log.Logger, appController *app.ControllerClient) DashboardWorker {
+	return DashboardWorker{bag, l, appController}
 }
 
 func (dw *DashboardWorker) ensureClusterDashboard() error {
@@ -42,6 +44,28 @@ func (dw *DashboardWorker) ensureClusterDashboard() error {
 	return nil
 }
 
+func (dw *DashboardWorker) createDashboard(dashboard *m.Dashboard) (*m.Dashboard, error) {
+	var dashObject *m.Dashboard = nil
+	data, err := json.Marshal(dashboard)
+	if err != nil {
+		return dashObject, fmt.Errorf("Unable to create dashboard %s. %v", dashboard.Name, err)
+	}
+	rc := app.NewRestClient(dw.Bag, dw.Logger)
+	saved, errSave := rc.CallAppDController("restui/dashboards/createDashboard", "POST", data)
+	if errSave != nil {
+
+		return dashObject, fmt.Errorf("Unable to create dashaboard %s. %v\n", dashboard.Name, errSave)
+	}
+
+	e := json.Unmarshal(saved, &dashObject)
+	if e != nil {
+		fmt.Printf("Unable to deserialize the new dashaboards %v\n", e)
+		return dashObject, e
+	}
+
+	return dashObject, nil
+}
+
 func (dw *DashboardWorker) saveDashboard(dashboard *m.Dashboard) error {
 
 	data, err := json.Marshal(dashboard)
@@ -49,10 +73,24 @@ func (dw *DashboardWorker) saveDashboard(dashboard *m.Dashboard) error {
 		return fmt.Errorf("Unable to save dashboard %s. %v", dashboard.Name, err)
 	}
 	rc := app.NewRestClient(dw.Bag, dw.Logger)
-	data, errSave := rc.CallAppDController("restui/dashboards/updateDashboard", "POST", data)
+	_, errSave := rc.CallAppDController("restui/dashboards/updateDashboard", "POST", data)
 	if errSave != nil {
 
 		return fmt.Errorf("Unable to save dashaboard %s. %v\n", dashboard.Name, errSave)
+	}
+
+	return nil
+}
+
+func (dw *DashboardWorker) updateWidget(widget *map[string]interface{}) error {
+	data, err := json.Marshal(widget)
+	if err != nil {
+		return fmt.Errorf("Unable to save widget %s. %v", (*widget)["type"], err)
+	}
+	rc := app.NewRestClient(dw.Bag, dw.Logger)
+	_, errSave := rc.CallAppDController("restui/dashboards/updateWidget", "POST", data)
+	if errSave != nil {
+		return fmt.Errorf("Unable to update widget %s. %v\n", (*widget)["type"], errSave)
 	}
 
 	return nil
@@ -127,8 +165,8 @@ func (dw *DashboardWorker) loadDashboardTemplate(templateFile string) (*m.Dashbo
 	return dashObject, nil, exists
 }
 
-func (dw *DashboardWorker) loadWidgetTemplate(templateFile string) (*[]m.WidgetTemplate, error, bool) {
-	var widget *[]m.WidgetTemplate = nil
+func (dw *DashboardWorker) loadWidgetTemplate(templateFile string) (*[]map[string]interface{}, error, bool) {
+	var widget *[]map[string]interface{} = nil
 
 	byteValue, err, exists := dw.readJsonTemplate(templateFile)
 	if err != nil || !exists {
@@ -155,12 +193,12 @@ func (dw *DashboardWorker) createClusterDashboard(dashName string) error {
 	metricsMetadata := m.NewClusterPodMetricsMetadata(dw.Bag, m.ALL, m.ALL).Metadata
 	dw.updateDashboard(dashObject, metricsMetadata)
 
-	_, errCreate := dw.createDashboard(dashObject, "/GENERATED.json")
+	_, errCreate := dw.createDashboardFromFile(dashObject, "/GENERATED.json")
 
 	return errCreate
 }
 
-func (dw *DashboardWorker) createDashboard(dashboard *m.Dashboard, genPath string) (*m.Dashboard, error) {
+func (dw *DashboardWorker) createDashboardFromFile(dashboard *m.Dashboard, genPath string) (*m.Dashboard, error) {
 
 	fileForUpload, err := dw.saveTemplate(dashboard, genPath)
 	if err != nil {
@@ -177,12 +215,17 @@ func (dw *DashboardWorker) createDashboard(dashboard *m.Dashboard, genPath strin
 	if e != nil {
 		return nil, fmt.Errorf("Unable to create dashaboard. Unable to deserialize the new dashaboards. %v\n", err)
 	}
-	dashObj, ok := raw["dashboard"]
-	obj := dashObj.(map[string]interface{})
-	if ok {
-		dashboard.ID = obj["id"].(float64)
+	bytes, errM := json.Marshal(raw)
+	if errM != nil {
+		return nil, fmt.Errorf("Unable to extract dashaboard node. %v\n", errM)
 	}
-	fmt.Printf("Dashboard saved %.0f %s\n", dashboard.ID, dashboard.Name)
+	var dashObj m.Dashboard
+	eD := json.Unmarshal(bytes, &dashObj)
+	if eD != nil {
+		return nil, fmt.Errorf("Unable to create dashaboard. Unable to deserialize the new dashaboards. %v\n", eD)
+	}
+
+	fmt.Printf("Dashboard saved %.0f %s\n", dashObj.ID, dashObj.Name)
 	return dashboard, nil
 }
 
@@ -193,24 +236,34 @@ func (dw *DashboardWorker) saveTemplate(dashboard *m.Dashboard, genPath string) 
 	}
 	dir := filepath.Dir(dw.Bag.DashboardTemplatePath)
 	fileForUpload := dir + genPath
-	fmt.Printf("About to upload file %s...\n", fileForUpload)
+	fmt.Printf("About to save template file %s...\n", fileForUpload)
 	errSave := ioutil.WriteFile(fileForUpload, generated, 0644)
 	if errSave != nil {
 		return nil, fmt.Errorf("Issues when writing generated template. %v", errMar)
 	}
+	fmt.Printf("File %s... saved\n", fileForUpload)
 	return &fileForUpload, nil
 }
 
 func (dw *DashboardWorker) updateDashboard(dashObject *m.Dashboard, metricsMetadata map[string]m.AppDMetricMetadata) {
-	for _, w := range dashObject.WidgetTemplates {
-		for _, t := range w.DataSeriesTemplates {
-			exp := t.MetricMatchCriteriaTemplate.MetricExpressionTemplate
-			dw.updateMetricNode(exp, metricsMetadata, &w)
+	for _, w := range dashObject.Widgets {
+		widget := w
+		dsTemplates, ok := widget["dataSeriesTemplates"]
+		if ok {
+			for _, t := range dsTemplates.(map[string]interface{}) {
+				mmTemplate, ok := t.(map[string]interface{})["metricMatchCriteriaTemplate"]
+				if ok {
+					exp, ok := mmTemplate.(map[string]interface{})["metricExpressionTemplate"]
+					if ok {
+						dw.updateMetricNode(exp.(map[string]interface{}), metricsMetadata, &widget)
+					}
+				}
+			}
 		}
 	}
 }
 
-func (dw *DashboardWorker) updateMetricNode(expTemplate map[string]interface{}, metricsMetadata map[string]m.AppDMetricMetadata, parentWidget *m.WidgetTemplate) {
+func (dw *DashboardWorker) updateMetricNode(expTemplate map[string]interface{}, metricsMetadata map[string]m.AppDMetricMetadata, parentWidget *map[string]interface{}) {
 	metricObj := dw.getMatchingMetrics(expTemplate, metricsMetadata)
 	if metricObj != nil {
 		//metrics path matches. update
@@ -220,16 +273,15 @@ func (dw *DashboardWorker) updateMetricNode(expTemplate map[string]interface{}, 
 	}
 }
 
-func (dw *DashboardWorker) updateMetricPath(expTemplate map[string]interface{}, metricObj *m.AppDMetricMetadata, parentWidget *m.WidgetTemplate) {
+func (dw *DashboardWorker) updateMetricPath(expTemplate map[string]interface{}, metricObj *m.AppDMetricMetadata, parentWidget *map[string]interface{}) {
 	expTemplate["metricPath"] = fmt.Sprintf(metricObj.Path, dw.Bag.TierName)
 	scopeBlock := expTemplate["scopeEntity"].(map[string]interface{})
 	scopeBlock["applicationName"] = dw.Bag.AppName
 	scopeBlock["entityName"] = dw.Bag.TierName
 
-	//drill-down
 }
 
-func (dw *DashboardWorker) updateMetricExpression(expTemplate map[string]interface{}, metricsMetadata map[string]m.AppDMetricMetadata, parentWidget *m.WidgetTemplate) {
+func (dw *DashboardWorker) updateMetricExpression(expTemplate map[string]interface{}, metricsMetadata map[string]m.AppDMetricMetadata, parentWidget *map[string]interface{}) {
 	for i := 0; i < 2; i++ {
 		expNodeName := fmt.Sprintf("expression%d", i+1)
 		if expNode, ok := expTemplate[expNodeName]; ok {
@@ -254,8 +306,34 @@ func (dw *DashboardWorker) getMatchingMetrics(node map[string]interface{}, metri
 	return nil
 }
 
+func (dw *DashboardWorker) validateTierDashboardBag(bag *m.DashboardBag) error {
+	msg := ""
+	if bag.ClusterAppID == 0 {
+		msg = "Missing Agent App ID."
+	}
+	if bag.AppID == 0 {
+		msg += " APM App ID is missing."
+	}
+	if bag.TierID == 0 {
+		msg += " APM Tier ID is missing."
+	}
+	if bag.NodeID == 0 {
+		msg += " APM Node ID is missing."
+	}
+	if msg != "" {
+		return fmt.Errorf("Dashboard validation failed. %s", msg)
+	}
+	return nil
+}
+
 //dynamic dashboard
 func (dw *DashboardWorker) updateTierDashboard(bag *m.DashboardBag) error {
+	valErr := dw.validateTierDashboardBag(bag)
+	if valErr != nil {
+		dw.Logger.Printf("Dashboard parameters are invalid. %v", valErr)
+		return valErr
+	}
+
 	fileName := fmt.Sprintf("/deploy/%s_%s.json", bag.Namespace, bag.TierName)
 	dashboard, err, exists := dw.loadDashboardTemplate(fileName)
 	if err != nil && exists {
@@ -276,7 +354,7 @@ func (dw *DashboardWorker) updateTierDashboard(bag *m.DashboardBag) error {
 				return fmt.Errorf("Deployment template exists, but cannot be loaded. %v", err)
 			}
 			dashboard.Name = dashName
-			dashboard, err = dw.createDashboard(dashboard, fmt.Sprintf("/scratch/GENERATED_%s_%s.json", bag.Namespace, bag.TierName))
+			dashboard, err = dw.createDashboard(dashboard)
 			fmt.Printf("Create dashboard result. Error: %v, \n", err)
 			if err != nil {
 				return err
@@ -288,7 +366,7 @@ func (dw *DashboardWorker) updateTierDashboard(bag *m.DashboardBag) error {
 	}
 	//by this time we should have dashboard object with id
 	//save base template with id, strip widgets
-	//	dashboard.WidgetTemplates = []m.WidgetTemplate{}
+	dashboard.Widgets = []map[string]interface{}{}
 	_, errSave := dw.saveTemplate(dashboard, fileName)
 	if errSave != nil {
 		fmt.Printf("Issues when saving template for dashboard %s/%s\n", bag.Namespace, bag.TierName)
@@ -298,7 +376,8 @@ func (dw *DashboardWorker) updateTierDashboard(bag *m.DashboardBag) error {
 	if errGen != nil {
 		return fmt.Errorf("Issues when generating template for deployment dashboard %s, %s. %v\n", bag.Namespace, bag.TierName, err)
 	}
-
+	dw.saveTemplate(updated, fileName)
+	fmt.Printf("Saving dashboard %.0f, %s\n", updated.ID, updated.Name)
 	errSaveDash := dw.saveDashboard(updated)
 	fmt.Printf("saveDashboard. %v\n", errSaveDash)
 
@@ -310,10 +389,15 @@ func (dw *DashboardWorker) generateDeploymentDashboard(dashboard *m.Dashboard, b
 	fmt.Printf("generateDeploymentDashboard %s/%s\n", bag.Namespace, bag.TierName)
 	d, err := dw.addBackground(dashboard, bag)
 	if err != nil {
+		fmt.Printf("Error when adding background to dash %s. %v\n", dashboard.Name, err)
 		return nil, err
 	}
 	d, err = dw.addDeploymentSummaryWidget(dashboard, bag)
-	fmt.Printf("Added %d widgets to dash %s\n", len(dashboard.WidgetTemplates), dashboard.Name)
+	if err != nil {
+		fmt.Printf("Error when adding tier summary to dash %s. %v\n", dashboard.Name, err)
+		return nil, err
+	}
+	fmt.Printf("Added %d widgets to dash %.0f, %s\n", len(d.Widgets), d.ID, d.Name)
 	return d, err
 }
 
@@ -326,53 +410,132 @@ func (dw *DashboardWorker) addBackground(dashboard *m.Dashboard, bag *m.Dashboar
 		return nil, fmt.Errorf("Background template does not exist, skipping dashboard for deployment %s/%s. %v\n", bag.Namespace, bag.TierName, err)
 	}
 	backgroundWidet := (*widgetList)[0]
-	backgroundWidet.Height = dashboard.Height - WIDGET_GAP
-	dashboard.WidgetTemplates = append(dashboard.WidgetTemplates, backgroundWidet)
+	backgroundWidet["height"] = dashboard.Height - WIDGET_GAP
+	backgroundWidet["dashboardId"] = dashboard.ID
+
+	dashboard.Widgets = append(dashboard.Widgets, backgroundWidet)
+	fmt.Printf("Added background %.0f x %.0f to dash %s\n", backgroundWidet["width"], backgroundWidet["weight"], dashboard.Name)
 	return dashboard, nil
 }
 
 func (dw *DashboardWorker) addDeploymentSummaryWidget(dashboard *m.Dashboard, bag *m.DashboardBag) (*m.Dashboard, error) {
 	widgetList, err, exists := dw.loadWidgetTemplate(TIER_SUMMARY)
+	fmt.Printf("Loaded tier summary  %v. %t. Num widgets: %d\n", err, exists, len(*widgetList))
 	if err != nil && exists {
 		return nil, fmt.Errorf("Tier summary template exists, but cannot be loaded. %v\n", err)
 	}
 	if !exists {
 		return nil, fmt.Errorf("Tier summary template does not exist, skipping dashboard for deployment %s/%s. %v\n", bag.Namespace, bag.TierName, err)
 	}
-
-	maxY := 0
+	fmt.Printf("Adding tier summary to dash %s\n", dashboard.Name)
+	var maxY float64 = 0
 	for _, widget := range *widgetList {
-		if widget.Y+widget.Height > maxY {
-			maxY = widget.Y + widget.Height
-		}
-		if widget.ApplicationReference != nil {
-			widget.ApplicationReference.ApplicationName = bag.AppName
-			widget.ApplicationReference.EntityName = bag.AppName
-		}
-		if widget.EntityReferences != nil {
-			refs := widget.EntityReferences
-			for _, er := range *refs {
-				er.ApplicationName = bag.AppName
-				er.EntityName = bag.TierName
-				break
-			}
+		widget["id"] = 0
+		appName, tierName := dw.GetEntityInfo(&widget, bag)
+		fmt.Printf("Widget info: %s %s\n", appName, tierName)
+		y := widget["y"].(float64)
+		height := widget["height"].(float64)
+
+		if y+height > maxY {
+			maxY = y + height
 		}
 
-		for _, t := range widget.DataSeriesTemplates {
-			exp := t.MetricMatchCriteriaTemplate.MetricExpressionTemplate
-			dw.updateDashNode(exp, bag, &widget)
+		widgetTitle, ok := widget["title"]
+		if ok && widgetTitle != nil && strings.Contains(widgetTitle.(string), "%APP_TIER_NAME%") {
+			widget["title"] = strings.Replace(widgetTitle.(string), "%APP_TIER_NAME%", bag.TierName, 1)
+		}
+		appID, okApp := widget["applicationId"]
+		if okApp && appID != nil && strings.Contains(appID.(string), "%APP_ID%") {
+			widget["applicationId"] = bag.AppID
+		}
+
+		entityIDs, hasEntityIDs := widget["entityIds"]
+		if hasEntityIDs && entityIDs != nil && strings.Contains(entityIDs.(string), "%APP_TIER_ID%") {
+			widget["entityIds"] = []int{bag.TierID}
+		}
+
+		dsTemplates, ok := widget["widgetsMetricMatchCriterias"]
+		if ok && dsTemplates != nil {
+			for _, t := range dsTemplates.([]interface{}) {
+				if t != nil {
+					mm, ok := t.(map[string]interface{})["metricMatchCriteria"]
+					if ok && mm != nil {
+						mmBlock := mm.(map[string]interface{})
+						mmBlock["applicationId"] = bag.ClusterAppID
+						exp, ok := mmBlock["metricExpression"]
+						if ok && exp != nil {
+							dw.updateMetricDefinition(exp.(map[string]interface{}), bag, &widget)
+						}
+					}
+				}
+			}
 		}
 	}
 
 	dashboard.Height = maxY + WIDGET_GAP
-	dashboard.WidgetTemplates = *widgetList
+	dashboard.Widgets = *widgetList
+	fmt.Printf("Adjusted dashboard dimensions %d x %d\n", dashboard.Width, dashboard.Height)
 	//adjust the background height
-	dashboard.WidgetTemplates[0].Height = dashboard.Height
-
+	dashboard.Widgets[0]["height"] = dashboard.Height
+	fmt.Printf("Adjusted background dimensions %.0f x %.0f\n", dashboard.Widgets[0]["width"], dashboard.Widgets[0]["height"])
+	fmt.Printf("Added tier summary to to dash %s\n", dashboard.Name)
 	return dashboard, nil
 }
 
-func (dw *DashboardWorker) updateDashNode(expTemplate map[string]interface{}, bag *m.DashboardBag, parentWidget *m.WidgetTemplate) {
+func (dw *DashboardWorker) updateMetricDefinition(expTemplate map[string]interface{}, bag *m.DashboardBag, parentWidget *map[string]interface{}) {
+	ok, definition := dw.nodeHasDefinition(expTemplate)
+	if ok {
+		dw.updateMetricName(definition, bag, parentWidget)
+	} else {
+		dw.updateMetricsExpression(expTemplate, bag, parentWidget)
+	}
+}
+
+func (dw *DashboardWorker) nodeHasDefinition(node map[string]interface{}) (bool, map[string]interface{}) {
+
+	definition, ok := node["metricDefinition"]
+	if ok && definition != nil {
+		definitionObj := definition.(map[string]interface{})
+		_, ok = definitionObj["logicalMetricName"]
+		return ok, definitionObj
+	}
+	return ok && definition != nil, nil
+}
+
+func (dw *DashboardWorker) updateMetricName(expTemplate map[string]interface{}, dashBag *m.DashboardBag, parentWidget *map[string]interface{}) {
+	if expTemplate["logicalMetricName"] == nil {
+		return
+	}
+	metricPath := fmt.Sprintf(expTemplate["logicalMetricName"].(string), dw.Bag.TierName, dashBag.Namespace, dashBag.TierName)
+	metricID, err := dw.AppdController.GetMetricID(metricPath)
+	if err != nil {
+		dw.Logger.Printf("Cannot get metric ID for %s. %v", metricPath, err)
+	} else {
+		expTemplate["metricId"] = metricID
+	}
+	expTemplate["logicalMetricName"] = metricPath
+	scopeBlock := expTemplate["scope"].(map[string]interface{})
+	scopeBlock["entityId"] = dashBag.ClusterTierID
+}
+
+func (dw *DashboardWorker) updateMetricsExpression(expTemplate map[string]interface{}, dashBag *m.DashboardBag, parentWidget *map[string]interface{}) {
+	for i := 0; i < 2; i++ {
+		expNodeName := fmt.Sprintf("expression%d", i+1)
+		if expNode, ok := expTemplate[expNodeName]; ok {
+			hasDefinition, definition := dw.nodeHasDefinition(expNode.(map[string]interface{}))
+			if hasDefinition {
+				fmt.Printf("Expression %s has definition. %v", expNodeName, definition)
+				dw.updateMetricName(definition, dashBag, parentWidget)
+			} else {
+				dw.updateMetricsExpression(expNode.(map[string]interface{}), dashBag, parentWidget)
+			}
+		}
+	}
+}
+
+//templates
+
+func (dw *DashboardWorker) updateDashNode(expTemplate map[string]interface{}, bag *m.DashboardBag, parentWidget *map[string]interface{}) {
 	if dw.nodeHasPath(expTemplate) {
 		dw.updateNodePath(expTemplate, bag, parentWidget)
 	} else {
@@ -387,24 +550,37 @@ func (dw *DashboardWorker) nodeHasPath(node map[string]interface{}) bool {
 	return ok
 }
 
-func (dw *DashboardWorker) updateNodePath(expTemplate map[string]interface{}, dashBag *m.DashboardBag, parentWidget *m.WidgetTemplate) {
+func (dw *DashboardWorker) updateNodePath(expTemplate map[string]interface{}, dashBag *m.DashboardBag, parentWidget *map[string]interface{}) {
 	expTemplate["metricPath"] = fmt.Sprintf(expTemplate["metricPath"].(string), dw.Bag.TierName, dashBag.Namespace, dashBag.TierName)
 	scopeBlock := expTemplate["scopeEntity"].(map[string]interface{})
-	scopeBlock["applicationName"] = dashBag.AppName
-	scopeBlock["entityName"] = dashBag.TierName
+	appName, tierName := dw.GetEntityInfo(parentWidget, dashBag)
+	scopeBlock["applicationName"] = appName
+	scopeBlock["entityName"] = tierName
 
 	//drill-down
 }
 
-func (dw *DashboardWorker) updateNodeExpression(expTemplate map[string]interface{}, dashBag *m.DashboardBag, parentWidget *m.WidgetTemplate) {
+func (dw *DashboardWorker) updateNodeExpression(expTemplate map[string]interface{}, dashBag *m.DashboardBag, parentWidget *map[string]interface{}) {
 	for i := 0; i < 2; i++ {
 		expNodeName := fmt.Sprintf("expression%d", i+1)
 		if expNode, ok := expTemplate[expNodeName]; ok {
 			if dw.nodeHasPath(expNode.(map[string]interface{})) {
 				dw.updateNodePath(expNode.(map[string]interface{}), dashBag, parentWidget)
 			} else {
-				dw.updateNodeExpression(expTemplate, dashBag, parentWidget)
+				dw.updateNodeExpression(expNode.(map[string]interface{}), dashBag, parentWidget)
 			}
 		}
 	}
+}
+
+func (dw *DashboardWorker) GetEntityInfo(widget *map[string]interface{}, dashBag *m.DashboardBag) (string, string) {
+	label, ok := (*widget)["label"]
+	isAPMWidget := ok && (label == "APM")
+	appName := dw.Bag.AppName
+	tierName := dw.Bag.TierName
+	if isAPMWidget {
+		appName = dashBag.AppName
+		tierName = dashBag.TierName
+	}
+	return appName, tierName
 }
