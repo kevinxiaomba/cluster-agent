@@ -362,7 +362,7 @@ func (dw *DashboardWorker) updateTierDashboard(bag *m.DashboardBag) error {
 		}
 	}
 	if dashboard == nil {
-		return fmt.Errorf("Unable to build tier Dashboard. Weird things do happen")
+		return fmt.Errorf("Unable to build tier Dashboard. Weird things do happen...")
 	}
 	//by this time we should have dashboard object with id
 	//save base template with id, strip widgets

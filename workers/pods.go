@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/sjeltuhin/clusterAgent/utils"
+	w "github.com/sjeltuhin/clusterAgent/watchers"
 
 	"github.com/fatih/structs"
 	m "github.com/sjeltuhin/clusterAgent/models"
@@ -51,13 +52,16 @@ type PodWorker struct {
 	K8sConfig           *rest.Config
 	PendingCache        []string
 	FailedCache         map[string]m.AttachStatus
-	SvcCache            map[string]v1.Service
 	ServiceCache        map[string]m.ServiceSchema
 	EndpointCache       map[string]v1.Endpoints
 	RQCache             map[string]v1.ResourceQuota
 	PVCCache            map[string]v1.PersistentVolumeClaim
 	OwnerMap            map[string]string
 	NamespaceMap        map[string]string
+	ServiceWatcher      *w.ServiceWatcher
+	EndpointWatcher     *w.EndpointWatcher
+	PVCWatcher          *w.PVCWatcher
+	RQWatcher           *w.RQWatcher
 }
 
 func NewPodWorker(client *kubernetes.Clientset, bag *m.AppDBag, controller *app.ControllerClient, config *rest.Config, l *log.Logger) PodWorker {
@@ -65,10 +69,14 @@ func NewPodWorker(client *kubernetes.Clientset, bag *m.AppDBag, controller *app.
 	pw := PodWorker{Client: client, Bag: bag, Logger: l, SummaryMap: make(map[string]m.ClusterPodMetrics), AppSummaryMap: make(map[string]m.ClusterAppMetrics),
 		ContainerSummaryMap: make(map[string]m.ClusterContainerMetrics), InstanceSummaryMap: make(map[string]m.ClusterInstanceMetrics),
 		WQ: queue, AppdController: controller, K8sConfig: config, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus),
-		SvcCache: make(map[string]v1.Service), ServiceCache: make(map[string]m.ServiceSchema), EndpointCache: make(map[string]v1.Endpoints),
+		ServiceCache: make(map[string]m.ServiceSchema), EndpointCache: make(map[string]v1.Endpoints),
 		OwnerMap: make(map[string]string), NamespaceMap: make(map[string]string),
 		RQCache: make(map[string]v1.ResourceQuota), PVCCache: make(map[string]v1.PersistentVolumeClaim)}
 	pw.initPodInformer(client)
+	pw.ServiceWatcher = w.NewServiceWatcher(client)
+	pw.EndpointWatcher = w.NewEndpointWatcher(client)
+	pw.PVCWatcher = w.NewPVCWatcher(client)
+	pw.RQWatcher = w.NewRQWatcher(client)
 	return pw
 }
 
@@ -348,11 +356,11 @@ func (pw PodWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	wg.Add(1)
 	go pw.startEventQueueWorker(stopCh)
 
-	go pw.watchServices()
-	go pw.watchEndpoints()
-	go pw.watchResourceQuotas()
+	go pw.ServiceWatcher.WatchServices()
+	go pw.EndpointWatcher.WatchEndpoints()
+	go pw.RQWatcher.WatchResourceQuotas()
 
-	go pw.watchPVC()
+	go pw.PVCWatcher.WatchPVC()
 
 	<-stopCh
 }
@@ -397,6 +405,9 @@ func (pw *PodWorker) buildAppDMetrics() {
 	pw.ContainerSummaryMap = make(map[string]m.ClusterContainerMetrics)
 	pw.InstanceSummaryMap = make(map[string]m.ClusterInstanceMetrics)
 	pw.updateServiceCache()
+	pw.cloneEPCache()
+	pw.clonePVCCache()
+	pw.cloneRQCache()
 
 	dash := make(map[string]m.DashboardBag)
 
@@ -439,10 +450,34 @@ func (pw *PodWorker) buildAppDMetrics() {
 	}
 }
 
+func (pw *PodWorker) cloneEPCache() {
+	//clone watchers cache
+	pw.EndpointCache = make(map[string]v1.Endpoints)
+	for key, val := range pw.EndpointWatcher.EndpointCache {
+		pw.EndpointCache[key] = val
+	}
+}
+
+func (pw *PodWorker) clonePVCCache() {
+	//clone watchers cache
+	pw.PVCCache = make(map[string]v1.PersistentVolumeClaim)
+	for key, val := range pw.PVCWatcher.PVCCache {
+		pw.PVCCache[key] = val
+	}
+}
+
+func (pw *PodWorker) cloneRQCache() {
+	//clone watchers cache
+	pw.RQCache = make(map[string]v1.ResourceQuota)
+	for key, val := range pw.RQWatcher.RQCache {
+		pw.RQCache[key] = val
+	}
+}
+
 func (pw *PodWorker) updateServiceCache() {
 	pw.ServiceCache = make(map[string]m.ServiceSchema)
 	external := make(map[string]m.ServiceSchema)
-	for key, svc := range pw.SvcCache {
+	for key, svc := range pw.ServiceWatcher.SvcCache {
 		svcSchema := m.NewServiceSchema(&svc)
 		if svcSchema.HasExternalService {
 			external[key] = *svcSchema
@@ -1473,225 +1508,6 @@ func (pw PodWorker) addMetricToList(objMap map[string]interface{}, metric m.AppD
 			*list = append(*list, appdMetric)
 		}
 	}
-}
-
-//quotas
-func (pw PodWorker) watchResourceQuotas() {
-	api := pw.Client.CoreV1()
-	listOptions := metav1.ListOptions{}
-	fmt.Println("Starting Quota Watcher...")
-
-	watcher, err := api.ResourceQuotas(metav1.NamespaceAll).Watch(listOptions)
-	if err != nil {
-		fmt.Printf("Issues when setting up resource quota watcher. %v", err)
-	}
-
-	ch := watcher.ResultChan()
-
-	for ev := range ch {
-		rq, ok := ev.Object.(*v1.ResourceQuota)
-		if !ok {
-			fmt.Printf("Expected ResourceQuota, but received an object of an unknown type. ")
-			continue
-		}
-		switch ev.Type {
-		case watch.Added:
-			pw.onNewResourceQuota(rq)
-			break
-
-		case watch.Deleted:
-			pw.onDeleteResourceQuota(rq)
-			break
-
-		case watch.Modified:
-			pw.onUpdateResourceQuota(rq)
-			break
-		}
-
-	}
-	fmt.Println("Exiting quota watcher.")
-}
-
-func (pw PodWorker) onNewResourceQuota(rq *v1.ResourceQuota) {
-	pw.RQCache[utils.GetKey(rq.Namespace, rq.Name)] = *rq
-}
-
-func (pw PodWorker) onDeleteResourceQuota(rq *v1.ResourceQuota) {
-	key := utils.GetKey(rq.Namespace, rq.Name)
-	_, ok := pw.RQCache[key]
-	if ok {
-		delete(pw.RQCache, key)
-	}
-}
-
-func (pw PodWorker) onUpdateResourceQuota(rq *v1.ResourceQuota) {
-	pw.RQCache[utils.GetKey(rq.Namespace, rq.Name)] = *rq
-}
-
-//services
-
-func (pw PodWorker) watchServices() {
-	api := pw.Client.CoreV1()
-	listOptions := metav1.ListOptions{}
-	fmt.Println("Starting Service Watcher...")
-
-	watcher, err := api.Services(metav1.NamespaceAll).Watch(listOptions)
-	if err != nil {
-		fmt.Printf("Issues when setting up svc watcher. %v", err)
-	}
-
-	ch := watcher.ResultChan()
-
-	for ev := range ch {
-		svc, ok := ev.Object.(*v1.Service)
-		if !ok {
-			fmt.Printf("Expected Service, but received an object of an unknown type. ")
-			continue
-		}
-		switch ev.Type {
-		case watch.Added:
-			pw.onNewService(svc)
-			break
-
-		case watch.Deleted:
-			pw.onDeleteService(svc)
-			break
-
-		case watch.Modified:
-			pw.onUpdateService(svc)
-			break
-		}
-
-	}
-	fmt.Println("Exiting svc watcher.")
-}
-
-func (pw PodWorker) onNewService(svc *v1.Service) {
-	//	fmt.Printf("Added Service: %s\n", svc.Name)
-	pw.SvcCache[utils.GetK8sServiceKey(svc)] = *svc
-}
-
-func (pw PodWorker) onDeleteService(svc *v1.Service) {
-	_, ok := pw.SvcCache[utils.GetK8sServiceKey(svc)]
-	if ok {
-		delete(pw.SvcCache, utils.GetK8sServiceKey(svc))
-		//		fmt.Printf("Service %s deleted \n", svc.Name)
-	}
-}
-
-func (pw PodWorker) onUpdateService(svc *v1.Service) {
-	pw.SvcCache[utils.GetK8sServiceKey(svc)] = *svc
-	//	fmt.Printf("Updated Service: %s\n", svc.Name)
-
-}
-
-//end points
-func (pw PodWorker) watchEndpoints() {
-	api := pw.Client.CoreV1()
-	listOptions := metav1.ListOptions{}
-	fmt.Println("Starting Endpoint Watcher...")
-
-	watcher, err := api.Endpoints(metav1.NamespaceAll).Watch(listOptions)
-	if err != nil {
-		fmt.Printf("Issues when setting up ep watcher. %v", err)
-	}
-
-	ch := watcher.ResultChan()
-
-	for ev := range ch {
-		ep, ok := ev.Object.(*v1.Endpoints)
-		if !ok {
-			fmt.Printf("Expected Endpoints, but received an object of an unknown type. ")
-			continue
-		}
-		switch ev.Type {
-		case watch.Added:
-			pw.onNewEndpoint(ep)
-			break
-
-		case watch.Deleted:
-			pw.onDeleteEndpoint(ep)
-			break
-
-		case watch.Modified:
-			pw.onUpdateEndpoint(ep)
-			break
-		}
-
-	}
-	fmt.Println("Exiting svc watcher.")
-}
-
-func (pw PodWorker) onNewEndpoint(ep *v1.Endpoints) {
-	pw.EndpointCache[utils.GetEndpointKey(ep)] = *ep
-}
-
-func (pw PodWorker) onDeleteEndpoint(ep *v1.Endpoints) {
-	_, ok := pw.EndpointCache[utils.GetEndpointKey(ep)]
-	if ok {
-		delete(pw.EndpointCache, utils.GetEndpointKey(ep))
-	}
-}
-
-func (pw PodWorker) onUpdateEndpoint(ep *v1.Endpoints) {
-	pw.EndpointCache[utils.GetEndpointKey(ep)] = *ep
-}
-
-//PVCs
-func (pw PodWorker) watchPVC() {
-	api := pw.Client.CoreV1()
-	listOptions := metav1.ListOptions{}
-	fmt.Println("Starting Persistent Volume Claim Watcher...")
-
-	watcher, err := api.PersistentVolumeClaims(metav1.NamespaceAll).Watch(listOptions)
-	if err != nil {
-		fmt.Printf("Issues when setting up PVC watcher. %v", err)
-	}
-
-	ch := watcher.ResultChan()
-
-	for ev := range ch {
-		pvc, ok := ev.Object.(*v1.PersistentVolumeClaim)
-		//		quant := pvc.Spec.Resources.Requests[v1.ResourceStorage]
-		if !ok {
-			fmt.Printf("Expected PVC, but received an object of an unknown type. ")
-			continue
-		}
-		switch ev.Type {
-		case watch.Added:
-			pw.onNewPVC(pvc)
-			break
-
-		case watch.Deleted:
-			pw.onDeletePVC(pvc)
-			break
-
-		case watch.Modified:
-			pw.onUpdatePVC(pvc)
-			break
-		}
-
-	}
-	fmt.Println("Exiting PVC watcher.")
-}
-
-func (pw PodWorker) onNewPVC(pvc *v1.PersistentVolumeClaim) {
-	fmt.Printf("Added PVC: %s\n", pvc.Name)
-	pw.PVCCache[utils.GetKey(pvc.Namespace, pvc.Name)] = *pvc
-}
-
-func (pw PodWorker) onDeletePVC(pvc *v1.PersistentVolumeClaim) {
-	_, ok := pw.PVCCache[utils.GetKey(pvc.Namespace, pvc.Name)]
-	if ok {
-		delete(pw.PVCCache, utils.GetKey(pvc.Namespace, pvc.Name))
-		fmt.Printf("PVC %s deleted \n", pvc.Name)
-	}
-}
-
-func (pw PodWorker) onUpdatePVC(pvc *v1.PersistentVolumeClaim) {
-	pw.PVCCache[utils.GetKey(pvc.Namespace, pvc.Name)] = *pvc
-	fmt.Printf("PVC updated: %s\n", pvc.Name)
-
 }
 
 //dashboards
