@@ -2,6 +2,7 @@ package watchers
 
 import (
 	"fmt"
+	"sync"
 
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/watch"
@@ -17,6 +18,8 @@ type PVCWatcher struct {
 	Client   *kubernetes.Clientset
 	PVCCache map[string]v1.PersistentVolumeClaim
 }
+
+var lockPVC = sync.RWMutex{}
 
 func NewPVCWatcher(client *kubernetes.Clientset) *PVCWatcher {
 	epw := PVCWatcher{Client: client, PVCCache: make(map[string]v1.PersistentVolumeClaim)}
@@ -63,19 +66,38 @@ func (pw PVCWatcher) WatchPVC() {
 
 func (pw PVCWatcher) onNewPVC(pvc *v1.PersistentVolumeClaim) {
 	fmt.Printf("Added PVC: %s\n", pvc.Name)
-	pw.PVCCache[utils.GetKey(pvc.Namespace, pvc.Name)] = *pvc
+	pw.updateMap(pvc)
 }
 
 func (pw PVCWatcher) onDeletePVC(pvc *v1.PersistentVolumeClaim) {
 	_, ok := pw.PVCCache[utils.GetKey(pvc.Namespace, pvc.Name)]
 	if ok {
+		lockPVC.Lock()
+		defer lockPVC.Unlock()
 		delete(pw.PVCCache, utils.GetKey(pvc.Namespace, pvc.Name))
 		fmt.Printf("PVC %s deleted \n", pvc.Name)
 	}
 }
 
 func (pw PVCWatcher) onUpdatePVC(pvc *v1.PersistentVolumeClaim) {
-	pw.PVCCache[utils.GetKey(pvc.Namespace, pvc.Name)] = *pvc
+	pw.updateMap(pvc)
 	fmt.Printf("PVC updated: %s\n", pvc.Name)
 
+}
+
+func (pw PVCWatcher) updateMap(pvc *v1.PersistentVolumeClaim) {
+	lockPVC.Lock()
+	defer lockPVC.Unlock()
+	pw.PVCCache[utils.GetKey(pvc.Namespace, pvc.Name)] = *pvc
+}
+
+func (pw PVCWatcher) CloneMap() map[string]v1.PersistentVolumeClaim {
+	lockPVC.RLock()
+	defer lockPVC.RUnlock()
+	m := make(map[string]v1.PersistentVolumeClaim)
+	for key, val := range pw.PVCCache {
+		pw.PVCCache[key] = val
+	}
+
+	return m
 }

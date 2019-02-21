@@ -336,7 +336,7 @@
                                 "displayName": "notready",
                                 "inputMetricText": false,
                                 "inputMetricPath": null,
-                                "metricPath": "Application Infrastructure Performance|ClusterAgent|Custom Metrics|Cluster Stats|Namespaces|devops|Deployments|client-api|Containers|client-api|Instances|client-api-7f68698889-dst7p|Ports|8080|Ready",
+                                "metricPath": "Application Infrastructure Performance|ClusterAgent|Custom Metrics|Cluster Stats|Namespaces|devops|Deployments|client-api|Containers|client-api|Instances|client-api-5c6c7b4cbf-gwsf4|Ports|8080|Ready",
                                 "scopeEntity": {
                                     "applicationName": "K8s-Cluster-Agent",
                                     "entityType": "APPLICATION_COMPONENT",
@@ -431,7 +431,7 @@
                                 "displayName": "unmapped",
                                 "inputMetricText": false,
                                 "inputMetricPath": null,
-                                "metricPath": "Application Infrastructure Performance|ClusterAgent|Custom Metrics|Cluster Stats|Namespaces|devops|Deployments|client-api|Containers|client-api|Instances|client-api-7f68698889-dst7p|Ports|8080|Mapped",
+                                "metricPath": "Application Infrastructure Performance|ClusterAgent|Custom Metrics|Cluster Stats|Namespaces|devops|Deployments|client-api|Containers|client-api|Instances|client-api-5c6c7b4cbf-gwsf4|Ports|8080|Mapped",
                                 "scopeEntity": {
                                     "applicationName": "K8s-Cluster-Agent",
                                     "entityType": "APPLICATION_COMPONENT",
@@ -1123,7 +1123,7 @@
                                 "displayName": "Memory",
                                 "inputMetricText": false,
                                 "inputMetricPath": null,
-                                "metricPath": "Application Infrastructure Performance|ClusterAgent|Custom Metrics|Cluster Stats|Namespaces|devops|Deployments|client-api|Containers|client-api|Instances|client-api-7f68698889-dst7p|UseMemory",
+                                "metricPath": "Application Infrastructure Performance|ClusterAgent|Custom Metrics|Cluster Stats|Namespaces|devops|Deployments|client-api|Containers|client-api|Instances|client-api-5c6c7b4cbf-gwsf4|UseMemory",
                                 "scopeEntity": {
                                     "applicationName": "K8s-Cluster-Agent",
                                     "entityType": "APPLICATION_COMPONENT",
@@ -1271,7 +1271,7 @@
                                 "displayName": "CPU",
                                 "inputMetricText": false,
                                 "inputMetricPath": null,
-                                "metricPath": "Application Infrastructure Performance|ClusterAgent|Custom Metrics|Cluster Stats|Namespaces|devops|Deployments|client-api|Containers|client-api|Instances|client-api-7f68698889-dst7p|UseCpu",
+                                "metricPath": "Application Infrastructure Performance|ClusterAgent|Custom Metrics|Cluster Stats|Namespaces|devops|Deployments|client-api|Containers|client-api|Instances|client-api-5c6c7b4cbf-gwsf4|UseCpu",
                                 "scopeEntity": {
                                     "applicationName": "K8s-Cluster-Agent",
                                     "entityType": "APPLICATION_COMPONENT",
@@ -1474,7 +1474,7 @@
                             "displayName": "null",
                             "inputMetricText": false,
                             "inputMetricPath": null,
-                            "metricPath": "Application Infrastructure Performance|ClusterAgent|Custom Metrics|Cluster Stats|Namespaces|devops|Deployments|client-api|Containers|client-api|Instances|client-api-7f68698889-dst7p|Ports|8080|Mapped",
+                            "metricPath": "Application Infrastructure Performance|ClusterAgent|Custom Metrics|Cluster Stats|Namespaces|devops|Deployments|client-api|Containers|client-api|Instances|client-api-5c6c7b4cbf-gwsf4|Ports|8080|Mapped",
                             "scopeEntity": {
                                 "applicationName": "K8s-Cluster-Agent",
                                 "entityType": "APPLICATION_COMPONENT",
@@ -1871,7 +1871,7 @@
                             "displayName": "null",
                             "inputMetricText": false,
                             "inputMetricPath": null,
-                            "metricPath": "Application Infrastructure Performance|ClusterAgent|Custom Metrics|Cluster Stats|Namespaces|devops|Deployments|client-api|Containers|client-api|Instances|client-api-7f68698889-dst7p|Ports|8080|Ready",
+                            "metricPath": "Application Infrastructure Performance|ClusterAgent|Custom Metrics|Cluster Stats|Namespaces|devops|Deployments|client-api|Containers|client-api|Instances|client-api-5c6c7b4cbf-gwsf4|Ports|8080|Ready",
                             "scopeEntity": {
                                 "applicationName": "K8s-Cluster-Agent",
                                 "entityType": "APPLICATION_COMPONENT",
@@ -3903,7 +3903,7 @@
                             "displayName": "null",
                             "inputMetricText": false,
                             "inputMetricPath": null,
-                            "metricPath": "Application Infrastructure Performance|ClusterAgent|Custom Metrics|Cluster Stats|Namespaces|devops|Deployments|client-api|Containers|client-api|Instances|client-api-7f68698889-dst7p|Restarts",
+                            "metricPath": "Application Infrastructure Performance|ClusterAgent|Custom Metrics|Cluster Stats|Namespaces|devops|Deployments|client-api|Containers|client-api|Instances|client-api-5c6c7b4cbf-gwsf4|Restarts",
                             "scopeEntity": {
                                 "applicationName": "K8s-Cluster-Agent",
                                 "entityType": "APPLICATION_COMPONENT",

@@ -181,10 +181,12 @@ func (c *ControllerClient) DetermineNodeID(appName string, tierName string, node
 func (c *ControllerClient) FindAppID(appName string) (int, error) {
 	var appID int = 0
 	path := fmt.Sprintf("restui/applicationManagerUiBean/applicationByName?applicationName=%s", appName)
+	fmt.Printf("App by name path %s", path)
 	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
 	rc := NewRestClient(c.Bag, logger)
 	data, err := rc.CallAppDController(path, "GET", nil)
 	if err != nil {
+		fmt.Printf("App by name response: %v %v", data, err)
 		return appID, fmt.Errorf("Unable to find appID")
 	}
 	var appObj map[string]interface{}
@@ -198,7 +200,7 @@ func (c *ControllerClient) FindAppID(appName string) (int, error) {
 			break
 		}
 	}
-	fmt.Printf("App ID = %d ", appID)
+	fmt.Printf("App ID = %d \n", appID)
 	return appID, nil
 }
 
@@ -206,14 +208,17 @@ func (c *ControllerClient) FindNodeID(appID int, tierName string, nodeName strin
 	var nodeID int = 0
 	var tierID int = 0
 	path := "restui/tiers/list/health"
-	jsonData := fmt.Sprintf(`{"requestFilter": {"queryParams": {"applicationId": %d}, "filters": []}, "resultColumns": ["TIER_NAME"], "columnSorts": [{"column": "TIER_NAME", "direction": "ASC"}], "searchFilters": [], "limit": -1, "offset": 0}`, appID)
+	jsonData := fmt.Sprintf(`{"requestFilter": {"queryParams": {"applicationId": %d, "performanceDataFilter": "REPORTING"}, "filters": []}, "resultColumns": ["TIER_NAME"], "columnSorts": [{"column": "TIER_NAME", "direction": "ASC"}], "searchFilters": [], "limit": -1, "offset": 0}`, appID)
 	d := []byte(jsonData)
+
+	fmt.Printf("Node ID JSON data: %s", jsonData)
 
 	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
 	rc := NewRestClient(c.Bag, logger)
 	data, err := rc.CallAppDController(path, "POST", d)
 	if err != nil {
-		return tierID, nodeID, fmt.Errorf("Unable to find nodeID")
+		fmt.Printf("Unable to find nodeID. %v", err)
+		return tierID, nodeID, fmt.Errorf("Unable to find nodeID. %v", err)
 	}
 	var tierObj map[string]interface{}
 	errJson := json.Unmarshal(data, &tierObj)
@@ -284,3 +289,15 @@ func (c *ControllerClient) GetMetricID(metricPath string) (float64, error) {
 
 	return 0, nil
 }
+
+// enable analytics
+// POST controller/restui/analyticsConfigTxnAnalyticsUiService/enableAnalyticsForApplication?enabled=true
+// appId: 12
+// name: "RemoteBiQ"
+
+// all business transactions
+// restui/bt/allBusinessTransactions/<appID>
+
+// save = enable BTs for analytics
+// POST controller/restui/analyticsConfigTxnAnalyticsUiService/enableAnalyticsDataCollectionForBTs
+// [1, 2, 3]

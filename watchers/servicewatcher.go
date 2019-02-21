@@ -2,6 +2,7 @@ package watchers
 
 import (
 	"fmt"
+	"sync"
 
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/watch"
@@ -11,13 +12,14 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/sjeltuhin/clusterAgent/utils"
-	//	m "github.com/sjeltuhin/clusterAgent/models"
 )
 
 type ServiceWatcher struct {
 	Client   *kubernetes.Clientset
 	SvcCache map[string]v1.Service
 }
+
+var lockServices = sync.RWMutex{}
 
 func NewServiceWatcher(client *kubernetes.Clientset) *ServiceWatcher {
 	sw := ServiceWatcher{Client: client, SvcCache: make(map[string]v1.Service)}
@@ -61,16 +63,35 @@ func (pw ServiceWatcher) WatchServices() {
 }
 
 func (pw ServiceWatcher) onNewService(svc *v1.Service) {
-	pw.SvcCache[utils.GetK8sServiceKey(svc)] = *svc
+	pw.updateMap(svc)
 }
 
 func (pw ServiceWatcher) onDeleteService(svc *v1.Service) {
 	_, ok := pw.SvcCache[utils.GetK8sServiceKey(svc)]
 	if ok {
+		lockServices.Lock()
+		defer lockServices.Unlock()
 		delete(pw.SvcCache, utils.GetK8sServiceKey(svc))
 	}
 }
 
 func (pw ServiceWatcher) onUpdateService(svc *v1.Service) {
+	pw.updateMap(svc)
+}
+
+func (pw ServiceWatcher) updateMap(svc *v1.Service) {
+	lockServices.Lock()
+	defer lockServices.Unlock()
 	pw.SvcCache[utils.GetK8sServiceKey(svc)] = *svc
+}
+
+func (pw ServiceWatcher) CloneMap() map[string]v1.Service {
+	lockServices.RLock()
+	defer lockServices.RUnlock()
+	m := make(map[string]v1.Service)
+	for key, val := range pw.SvcCache {
+		pw.SvcCache[key] = val
+	}
+
+	return m
 }

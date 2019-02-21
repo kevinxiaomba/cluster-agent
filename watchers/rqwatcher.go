@@ -2,6 +2,7 @@ package watchers
 
 import (
 	"fmt"
+	"sync"
 
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/watch"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/sjeltuhin/clusterAgent/utils"
 )
+
+var lockRQ = sync.RWMutex{}
 
 type RQWatcher struct {
 	Client  *kubernetes.Clientset
@@ -61,17 +64,36 @@ func (pw RQWatcher) WatchResourceQuotas() {
 }
 
 func (pw RQWatcher) onNewResourceQuota(rq *v1.ResourceQuota) {
-	pw.RQCache[utils.GetKey(rq.Namespace, rq.Name)] = *rq
+	pw.updateMap(rq)
 }
 
 func (pw RQWatcher) onDeleteResourceQuota(rq *v1.ResourceQuota) {
 	key := utils.GetKey(rq.Namespace, rq.Name)
 	_, ok := pw.RQCache[key]
 	if ok {
+		lockRQ.Lock()
+		defer lockRQ.Unlock()
 		delete(pw.RQCache, key)
 	}
 }
 
 func (pw RQWatcher) onUpdateResourceQuota(rq *v1.ResourceQuota) {
+	pw.updateMap(rq)
+}
+
+func (pw RQWatcher) updateMap(rq *v1.ResourceQuota) {
+	lockRQ.Lock()
+	defer lockRQ.Unlock()
 	pw.RQCache[utils.GetKey(rq.Namespace, rq.Name)] = *rq
+}
+
+func (pw RQWatcher) CloneMap() map[string]v1.ResourceQuota {
+	lockRQ.RLock()
+	defer lockRQ.RUnlock()
+	m := make(map[string]v1.ResourceQuota)
+	for key, val := range pw.RQCache {
+		pw.RQCache[key] = val
+	}
+
+	return m
 }

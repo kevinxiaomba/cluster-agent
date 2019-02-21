@@ -62,7 +62,11 @@ type PodWorker struct {
 	EndpointWatcher     *w.EndpointWatcher
 	PVCWatcher          *w.PVCWatcher
 	RQWatcher           *w.RQWatcher
+	DashboardCache      map[string]m.PodSchema
 }
+
+var lockOwnerMap = sync.RWMutex{}
+var lockDashboards = sync.RWMutex{}
 
 func NewPodWorker(client *kubernetes.Clientset, bag *m.AppDBag, controller *app.ControllerClient, config *rest.Config, l *log.Logger) PodWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
@@ -71,7 +75,7 @@ func NewPodWorker(client *kubernetes.Clientset, bag *m.AppDBag, controller *app.
 		WQ: queue, AppdController: controller, K8sConfig: config, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus),
 		ServiceCache: make(map[string]m.ServiceSchema), EndpointCache: make(map[string]v1.Endpoints),
 		OwnerMap: make(map[string]string), NamespaceMap: make(map[string]string),
-		RQCache: make(map[string]v1.ResourceQuota), PVCCache: make(map[string]v1.PersistentVolumeClaim)}
+		RQCache: make(map[string]v1.ResourceQuota), PVCCache: make(map[string]v1.PersistentVolumeClaim), DashboardCache: make(map[string]m.PodSchema)}
 	pw.initPodInformer(client)
 	pw.ServiceWatcher = w.NewServiceWatcher(client)
 	pw.EndpointWatcher = w.NewEndpointWatcher(client)
@@ -109,6 +113,7 @@ func (pw *PodWorker) onNewPod(obj interface{}) {
 	podObj := obj.(*v1.Pod)
 	fmt.Printf("Added Pod: %s %s\n", podObj.Namespace, podObj.Name)
 	podRecord, _ := pw.processObject(podObj, nil)
+	pw.tryDashboardCache(&podRecord)
 	pw.WQ.Add(&podRecord)
 	pw.checkForInstrumentation(podObj, &podRecord)
 }
@@ -132,11 +137,28 @@ func (pw *PodWorker) GetCachedPod(namespace string, podName string) (*v1.Pod, st
 		owner = pw.getPodOwner(podObj)
 	} else {
 		//pod must be gone, get from cache
+		lockOwnerMap.RLock()
+		defer lockOwnerMap.RUnlock()
 		owner, _ = pw.OwnerMap[key]
 		return nil, owner, fmt.Errorf("Unable to find podschema for key %s", key)
 	}
 
 	return podObj, owner, err
+}
+
+func (pw *PodWorker) tryDashboardCache(podRecord *m.PodSchema) {
+	if utils.StringInSlice(podRecord.Owner, pw.Bag.DeploysToDashboard) {
+		lockDashboards.Lock()
+		defer lockDashboards.Unlock()
+		pw.DashboardCache[utils.GetKey(podRecord.Namespace, podRecord.Owner)] = *podRecord
+	}
+}
+
+func (pw *PodWorker) shouldUpdateDashboard(podRecord *m.PodSchema) bool {
+	lockDashboards.RLock()
+	defer lockDashboards.RUnlock()
+	_, ok := pw.DashboardCache[utils.GetKey(podRecord.Namespace, podRecord.Owner)]
+	return ok
 }
 
 func (pw *PodWorker) GetKnownNamespaces() map[string]string {
@@ -283,7 +305,7 @@ func (pw *PodWorker) onUpdatePod(objOld interface{}, objNew interface{}) {
 	podOldObj := objOld.(*v1.Pod)
 
 	podRecord, changed := pw.processObject(podObj, podOldObj)
-
+	pw.tryDashboardCache(&podRecord)
 	if changed {
 		fmt.Printf("Pod changed: %s %s\n", podObj.Namespace, podObj.Name)
 		pw.WQ.Add(&podRecord)
@@ -323,6 +345,8 @@ func (pw *PodWorker) checkForInstrumentation(podObj *v1.Pod, podSchema *m.PodSch
 			if st.LastMessage != "" {
 				EmitInstrumentationEvent(podObj, pw.Client, "AppDInstrumentation", st.LastMessage, v1.EventTypeWarning)
 			} else {
+				//now that the pod is instrumented successfully, add it to the dashboard queue
+				pw.tryDashboardCache(podSchema)
 				EmitInstrumentationEvent(podObj, pw.Client, "AppDInstrumentation", "Successfully instrumented", v1.EventTypeNormal)
 			}
 			pw.PendingCache = utils.RemoveFromSlice(st.Key, pw.PendingCache)
@@ -410,7 +434,6 @@ func (pw *PodWorker) buildAppDMetrics() {
 	pw.cloneRQCache()
 
 	dash := make(map[string]m.DashboardBag)
-
 	fmt.Printf("Deployments configured for dashboarding: %s \n", pw.Bag.DeploysToDashboard)
 
 	var count int = 0
@@ -420,8 +443,9 @@ func (pw *PodWorker) buildAppDMetrics() {
 		pw.summarize(&podSchema)
 		count++
 		//should build the dashboard
-		if utils.StringInSlice(podSchema.Owner, pw.Bag.DeploysToDashboard) {
-			bag, ok := dash[podSchema.Owner]
+		if pw.shouldUpdateDashboard(&podSchema) {
+			key := utils.GetKey(podSchema.Namespace, podSchema.Owner)
+			bag, ok := dash[key]
 			if !ok {
 				bag = m.NewDashboardBag(podSchema.Namespace, podSchema.Owner, []m.PodSchema{})
 				bag.AppName = podSchema.AppName
@@ -433,7 +457,7 @@ func (pw *PodWorker) buildAppDMetrics() {
 				bag.NodeID = podSchema.NodeID
 			}
 			bag.Pods = append(bag.Pods, podSchema)
-			dash[podSchema.Owner] = bag
+			dash[key] = bag
 		}
 	}
 	fmt.Printf("Unique metrics: %d\n", count)
@@ -452,32 +476,23 @@ func (pw *PodWorker) buildAppDMetrics() {
 
 func (pw *PodWorker) cloneEPCache() {
 	//clone watchers cache
-	pw.EndpointCache = make(map[string]v1.Endpoints)
-	for key, val := range pw.EndpointWatcher.EndpointCache {
-		pw.EndpointCache[key] = val
-	}
+	pw.EndpointCache = pw.EndpointWatcher.CloneMap()
 }
 
 func (pw *PodWorker) clonePVCCache() {
 	//clone watchers cache
-	pw.PVCCache = make(map[string]v1.PersistentVolumeClaim)
-	for key, val := range pw.PVCWatcher.PVCCache {
-		pw.PVCCache[key] = val
-	}
+	pw.PVCCache = pw.PVCWatcher.CloneMap()
 }
 
 func (pw *PodWorker) cloneRQCache() {
 	//clone watchers cache
-	pw.RQCache = make(map[string]v1.ResourceQuota)
-	for key, val := range pw.RQWatcher.RQCache {
-		pw.RQCache[key] = val
-	}
+	pw.RQCache = pw.RQWatcher.CloneMap()
 }
 
 func (pw *PodWorker) updateServiceCache() {
-	pw.ServiceCache = make(map[string]m.ServiceSchema)
+	mapSvc := pw.ServiceWatcher.CloneMap()
 	external := make(map[string]m.ServiceSchema)
-	for key, svc := range pw.ServiceWatcher.SvcCache {
+	for key, svc := range mapSvc {
 		svcSchema := m.NewServiceSchema(&svc)
 		if svcSchema.HasExternalService {
 			external[key] = *svcSchema
@@ -743,6 +758,8 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 		podObject.Owner = p.OwnerReferences[0].Name
 	}
 
+	lockOwnerMap.Lock()
+	defer lockOwnerMap.Unlock()
 	pw.OwnerMap[utils.GetPodKey(p)] = podObject.Owner
 
 	podObject.Reason = p.Status.Reason
@@ -1513,6 +1530,8 @@ func (pw PodWorker) addMetricToList(objMap map[string]interface{}, metric m.AppD
 //dashboards
 func (pw *PodWorker) buildDashboards(dashData map[string]m.DashboardBag) {
 	bth := pw.AppdController.StartBT("BuildDashboard")
+	//clear cache
+	pw.DashboardCache = make(map[string]m.PodSchema)
 	dw := NewDashboardWorker(pw.Bag, pw.Logger, pw.AppdController)
 	for _, bag := range dashData {
 		if len(bag.Pods) > 0 {

@@ -509,7 +509,7 @@ func (dw *DashboardWorker) updateMetricName(expTemplate map[string]interface{}, 
 	metricPath := fmt.Sprintf(expTemplate["logicalMetricName"].(string), dw.Bag.TierName, dashBag.Namespace, dashBag.TierName)
 	metricID, err := dw.AppdController.GetMetricID(metricPath)
 	if err != nil {
-		dw.Logger.Printf("Cannot get metric ID for %s. %v", metricPath, err)
+		dw.Logger.Printf("Cannot get metric ID for %s. %v\n", metricPath, err)
 	} else {
 		expTemplate["metricId"] = metricID
 	}
@@ -524,7 +524,6 @@ func (dw *DashboardWorker) updateMetricsExpression(expTemplate map[string]interf
 		if expNode, ok := expTemplate[expNodeName]; ok {
 			hasDefinition, definition := dw.nodeHasDefinition(expNode.(map[string]interface{}))
 			if hasDefinition {
-				fmt.Printf("Expression %s has definition. %v", expNodeName, definition)
 				dw.updateMetricName(definition, dashBag, parentWidget)
 			} else {
 				dw.updateMetricsExpression(expNode.(map[string]interface{}), dashBag, parentWidget)

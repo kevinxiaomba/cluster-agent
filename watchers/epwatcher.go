@@ -2,6 +2,7 @@ package watchers
 
 import (
 	"fmt"
+	"sync"
 
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/watch"
@@ -17,6 +18,8 @@ type EndpointWatcher struct {
 	Client        *kubernetes.Clientset
 	EndpointCache map[string]v1.Endpoints
 }
+
+var lockEP = sync.RWMutex{}
 
 func NewEndpointWatcher(client *kubernetes.Clientset) *EndpointWatcher {
 	epw := EndpointWatcher{Client: client, EndpointCache: make(map[string]v1.Endpoints)}
@@ -61,16 +64,35 @@ func (pw EndpointWatcher) WatchEndpoints() {
 }
 
 func (pw EndpointWatcher) onNewEndpoint(ep *v1.Endpoints) {
-	pw.EndpointCache[utils.GetEndpointKey(ep)] = *ep
+	pw.updateMap(ep)
 }
 
 func (pw EndpointWatcher) onDeleteEndpoint(ep *v1.Endpoints) {
 	_, ok := pw.EndpointCache[utils.GetEndpointKey(ep)]
 	if ok {
+		lockEP.Lock()
+		defer lockEP.Unlock()
 		delete(pw.EndpointCache, utils.GetEndpointKey(ep))
 	}
 }
 
 func (pw EndpointWatcher) onUpdateEndpoint(ep *v1.Endpoints) {
+	pw.updateMap(ep)
+}
+
+func (pw EndpointWatcher) updateMap(ep *v1.Endpoints) {
+	lockEP.Lock()
+	defer lockEP.Unlock()
 	pw.EndpointCache[utils.GetEndpointKey(ep)] = *ep
+}
+
+func (pw EndpointWatcher) CloneMap() map[string]v1.Endpoints {
+	lockEP.RLock()
+	defer lockEP.RUnlock()
+	m := make(map[string]v1.Endpoints)
+	for key, val := range pw.EndpointCache {
+		pw.EndpointCache[key] = val
+	}
+
+	return m
 }

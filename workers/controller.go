@@ -40,20 +40,11 @@ func (c *MainController) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	wg.Add(2)
 	go c.startPodsWorker(stopCh, c.K8sClient, wg, appdController)
 
-	//	wg.Add(1)
-	//	go c.startDeployWorker(stopCh, c.K8sClient, wg, appdController)
-
-	//	wg.Add(1)
-	//	go c.startDashboardWorker(stopCh)
+	wg.Add(1)
+	go c.startDeployWorker(stopCh, c.K8sClient, wg, appdController)
 
 	//	<-stopCh
 }
-
-//func (c *MainController) startDashboardWorker(stopCh <-chan struct{}) {
-//	dw := NewDashboardWorker(c.Bag, c.Logger)
-//	dw.Run(stopCh)
-//	<-stopCh
-//}
 
 func nsWorker(finished chan *v1.NamespaceList, client *kubernetes.Clientset, wg *sync.WaitGroup) {
 	defer wg.Done()
