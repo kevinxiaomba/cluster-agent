@@ -77,10 +77,10 @@ func NewPodWorker(client *kubernetes.Clientset, bag *m.AppDBag, controller *app.
 		OwnerMap: make(map[string]string), NamespaceMap: make(map[string]string),
 		RQCache: make(map[string]v1.ResourceQuota), PVCCache: make(map[string]v1.PersistentVolumeClaim), DashboardCache: make(map[string]m.PodSchema)}
 	pw.initPodInformer(client)
-	pw.ServiceWatcher = w.NewServiceWatcher(client)
-	pw.EndpointWatcher = w.NewEndpointWatcher(client)
-	pw.PVCWatcher = w.NewPVCWatcher(client)
-	pw.RQWatcher = w.NewRQWatcher(client)
+	pw.ServiceWatcher = w.NewServiceWatcher(client, bag)
+	pw.EndpointWatcher = w.NewEndpointWatcher(client, bag)
+	pw.PVCWatcher = w.NewPVCWatcher(client, bag)
+	pw.RQWatcher = w.NewRQWatcher(client, bag)
 	return pw
 }
 
@@ -109,8 +109,17 @@ func (pw *PodWorker) initPodInformer(client *kubernetes.Clientset) cache.SharedI
 	return i
 }
 
+func (pw *PodWorker) qualifies(p *v1.Pod) bool {
+	return (len(pw.Bag.IncludeNsToInstrument) == 0 ||
+		utils.StringInSlice(p.Namespace, pw.Bag.IncludeNsToInstrument)) &&
+		!utils.StringInSlice(p.Namespace, pw.Bag.ExcludeNsToInstrument)
+}
+
 func (pw *PodWorker) onNewPod(obj interface{}) {
 	podObj := obj.(*v1.Pod)
+	if !pw.qualifies(podObj) {
+		return
+	}
 	fmt.Printf("Added Pod: %s %s\n", podObj.Namespace, podObj.Name)
 	podRecord, _ := pw.processObject(podObj, nil)
 	pw.tryDashboardCache(&podRecord)
@@ -295,6 +304,9 @@ func (pw *PodWorker) getNextQueueItem() (*m.PodSchema, bool) {
 
 func (pw *PodWorker) onDeletePod(obj interface{}) {
 	podObj := obj.(*v1.Pod)
+	if !pw.qualifies(podObj) {
+		return
+	}
 	fmt.Printf("Deleted Pod: %s %s\n", podObj.Namespace, podObj.Name)
 	podRecord, _ := pw.processObject(podObj, nil)
 	pw.WQ.Add(&podRecord)
@@ -302,6 +314,9 @@ func (pw *PodWorker) onDeletePod(obj interface{}) {
 
 func (pw *PodWorker) onUpdatePod(objOld interface{}, objNew interface{}) {
 	podObj := objNew.(*v1.Pod)
+	if !pw.qualifies(podObj) {
+		return
+	}
 	podOldObj := objOld.(*v1.Pod)
 
 	podRecord, changed := pw.processObject(podObj, podOldObj)

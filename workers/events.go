@@ -62,8 +62,17 @@ func (ew *EventWorker) initInformer(client *kubernetes.Clientset) cache.SharedIn
 	return i
 }
 
+func (pw *EventWorker) qualifies(p *v1.Event) bool {
+	return (len(pw.Bag.IncludeNsToInstrument) == 0 ||
+		utils.StringInSlice(p.Namespace, pw.Bag.IncludeNsToInstrument)) &&
+		!utils.StringInSlice(p.Namespace, pw.Bag.ExcludeNsToInstrument)
+}
+
 func (ew *EventWorker) onNewEvent(obj interface{}) {
 	eventObj := obj.(*v1.Event)
+	if !ew.qualifies(eventObj) {
+		return
+	}
 	fmt.Printf("Received event: %s %s %s\n", eventObj.Namespace, eventObj.Message, eventObj.Reason)
 	eventRecord := ew.processObject(eventObj)
 	ew.WQ.Add(&eventRecord)

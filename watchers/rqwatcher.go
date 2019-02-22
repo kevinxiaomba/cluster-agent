@@ -11,6 +11,7 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 
+	m "github.com/sjeltuhin/clusterAgent/models"
 	"github.com/sjeltuhin/clusterAgent/utils"
 )
 
@@ -19,11 +20,18 @@ var lockRQ = sync.RWMutex{}
 type RQWatcher struct {
 	Client  *kubernetes.Clientset
 	RQCache map[string]v1.ResourceQuota
+	Bag     *m.AppDBag
 }
 
-func NewRQWatcher(client *kubernetes.Clientset) *RQWatcher {
-	epw := RQWatcher{Client: client, RQCache: make(map[string]v1.ResourceQuota)}
+func NewRQWatcher(client *kubernetes.Clientset, bag *m.AppDBag) *RQWatcher {
+	epw := RQWatcher{Client: client, RQCache: make(map[string]v1.ResourceQuota), Bag: bag}
 	return &epw
+}
+
+func (pw *RQWatcher) qualifies(p *v1.ResourceQuota) bool {
+	return (len(pw.Bag.IncludeNsToInstrument) == 0 ||
+		utils.StringInSlice(p.Namespace, pw.Bag.IncludeNsToInstrument)) &&
+		!utils.StringInSlice(p.Namespace, pw.Bag.ExcludeNsToInstrument)
 }
 
 //quotas
@@ -64,10 +72,16 @@ func (pw RQWatcher) WatchResourceQuotas() {
 }
 
 func (pw RQWatcher) onNewResourceQuota(rq *v1.ResourceQuota) {
+	if !pw.qualifies(rq) {
+		return
+	}
 	pw.updateMap(rq)
 }
 
 func (pw RQWatcher) onDeleteResourceQuota(rq *v1.ResourceQuota) {
+	if !pw.qualifies(rq) {
+		return
+	}
 	key := utils.GetKey(rq.Namespace, rq.Name)
 	_, ok := pw.RQCache[key]
 	if ok {
@@ -78,6 +92,9 @@ func (pw RQWatcher) onDeleteResourceQuota(rq *v1.ResourceQuota) {
 }
 
 func (pw RQWatcher) onUpdateResourceQuota(rq *v1.ResourceQuota) {
+	if !pw.qualifies(rq) {
+		return
+	}
 	pw.updateMap(rq)
 }
 

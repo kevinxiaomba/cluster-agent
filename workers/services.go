@@ -6,6 +6,7 @@ import (
 
 	app "github.com/sjeltuhin/clusterAgent/appd"
 	m "github.com/sjeltuhin/clusterAgent/models"
+	"github.com/sjeltuhin/clusterAgent/utils"
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -57,6 +58,12 @@ func (sw *ServicesWorker) initServicesInformer(client *kubernetes.Clientset) cac
 	sw.informer = i
 
 	return i
+}
+
+func (pw *ServicesWorker) qualifies(p *v1.Service) bool {
+	return (len(pw.Bag.IncludeNsToInstrument) == 0 ||
+		utils.StringInSlice(p.Namespace, pw.Bag.IncludeNsToInstrument)) &&
+		!utils.StringInSlice(p.Namespace, pw.Bag.ExcludeNsToInstrument)
 }
 
 func (sw *ServicesWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {

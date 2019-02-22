@@ -11,19 +11,27 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 
+	m "github.com/sjeltuhin/clusterAgent/models"
 	"github.com/sjeltuhin/clusterAgent/utils"
 )
 
 type EndpointWatcher struct {
 	Client        *kubernetes.Clientset
 	EndpointCache map[string]v1.Endpoints
+	Bag           *m.AppDBag
 }
 
 var lockEP = sync.RWMutex{}
 
-func NewEndpointWatcher(client *kubernetes.Clientset) *EndpointWatcher {
-	epw := EndpointWatcher{Client: client, EndpointCache: make(map[string]v1.Endpoints)}
+func NewEndpointWatcher(client *kubernetes.Clientset, bag *m.AppDBag) *EndpointWatcher {
+	epw := EndpointWatcher{Client: client, EndpointCache: make(map[string]v1.Endpoints), Bag: bag}
 	return &epw
+}
+
+func (pw *EndpointWatcher) qualifies(p *v1.Endpoints) bool {
+	return (len(pw.Bag.IncludeNsToInstrument) == 0 ||
+		utils.StringInSlice(p.Namespace, pw.Bag.IncludeNsToInstrument)) &&
+		!utils.StringInSlice(p.Namespace, pw.Bag.ExcludeNsToInstrument)
 }
 
 //end points
@@ -64,10 +72,16 @@ func (pw EndpointWatcher) WatchEndpoints() {
 }
 
 func (pw EndpointWatcher) onNewEndpoint(ep *v1.Endpoints) {
+	if !pw.qualifies(ep) {
+		return
+	}
 	pw.updateMap(ep)
 }
 
 func (pw EndpointWatcher) onDeleteEndpoint(ep *v1.Endpoints) {
+	if !pw.qualifies(ep) {
+		return
+	}
 	_, ok := pw.EndpointCache[utils.GetEndpointKey(ep)]
 	if ok {
 		lockEP.Lock()
@@ -77,6 +91,9 @@ func (pw EndpointWatcher) onDeleteEndpoint(ep *v1.Endpoints) {
 }
 
 func (pw EndpointWatcher) onUpdateEndpoint(ep *v1.Endpoints) {
+	if !pw.qualifies(ep) {
+		return
+	}
 	pw.updateMap(ep)
 }
 

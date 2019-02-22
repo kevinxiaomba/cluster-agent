@@ -68,12 +68,15 @@ func (ws *AgentWebServer) getVersion(w http.ResponseWriter, req *http.Request) {
 func (ws *AgentWebServer) updateConfig(w http.ResponseWriter, req *http.Request) {
 	if req.Method == "POST" {
 		decoder := json.NewDecoder(req.Body)
-		var bag m.AppDBag
+		var bag map[string]interface{}
 		err := decoder.Decode(&bag)
 		if err != nil {
 			http.Error(w, "Bag update failed", 500)
 			return
 		}
+		//		for k, v : range bag{
+
+		//		}
 
 		w.Header().Set("Content-Type", "application/json")
 		result, _ := json.Marshal(ws.Bag)

@@ -74,8 +74,17 @@ func (dw *DeployWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	<-stopCh
 }
 
+func (pw *DeployWorker) qualifies(p *appsv1.Deployment) bool {
+	return (len(pw.Bag.IncludeNsToInstrument) == 0 ||
+		utils.StringInSlice(p.Namespace, pw.Bag.IncludeNsToInstrument)) &&
+		!utils.StringInSlice(p.Namespace, pw.Bag.ExcludeNsToInstrument)
+}
+
 func (dw *DeployWorker) onNewDeployment(obj interface{}) {
 	deployObj := obj.(*appsv1.Deployment)
+	if !dw.qualifies(deployObj) {
+		return
+	}
 	fmt.Printf("Added Deployment: %s\n", deployObj.Name)
 
 	init, biq, agentRequests := dw.shouldUpdate(deployObj)
@@ -86,11 +95,17 @@ func (dw *DeployWorker) onNewDeployment(obj interface{}) {
 
 func (dw *DeployWorker) onDeleteDeployment(obj interface{}) {
 	deployObj := obj.(*appsv1.Deployment)
+	if !dw.qualifies(deployObj) {
+		return
+	}
 	fmt.Printf("Deleted Deployment: %s\n", deployObj.Name)
 }
 
 func (dw *DeployWorker) onUpdateDeployment(objOld interface{}, objNew interface{}) {
 	deployObj := objNew.(*appsv1.Deployment)
+	if !dw.qualifies(deployObj) {
+		return
+	}
 	fmt.Printf("Deployment %s changed\n", deployObj.Name)
 	init, biq, agentRequests := dw.shouldUpdate(deployObj)
 	if init || biq {

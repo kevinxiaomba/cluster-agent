@@ -12,6 +12,7 @@ import (
 	"github.com/fatih/structs"
 
 	m "github.com/sjeltuhin/clusterAgent/models"
+	"github.com/sjeltuhin/clusterAgent/utils"
 
 	app "github.com/sjeltuhin/clusterAgent/appd"
 	batchTypes "k8s.io/api/batch/v1"
@@ -74,19 +75,34 @@ func (nw *JobsWorker) initJobInformer(client *kubernetes.Clientset) cache.Shared
 	return i
 }
 
+func (pw *JobsWorker) qualifies(p *batchTypes.Job) bool {
+	return (len(pw.Bag.IncludeNsToInstrument) == 0 ||
+		utils.StringInSlice(p.Namespace, pw.Bag.IncludeNsToInstrument)) &&
+		!utils.StringInSlice(p.Namespace, pw.Bag.ExcludeNsToInstrument)
+}
+
 func (nw *JobsWorker) onNewJob(obj interface{}) {
-	jobObj := obj.(*v1.Node)
+	jobObj := obj.(*batchTypes.Job)
+	if !nw.qualifies(jobObj) {
+		return
+	}
 	fmt.Printf("Added Job: %s\n", jobObj.Name)
 
 }
 
 func (nw *JobsWorker) onDeleteJob(obj interface{}) {
-	jobObj := obj.(*v1.Node)
+	jobObj := obj.(*batchTypes.Job)
+	if !nw.qualifies(jobObj) {
+		return
+	}
 	fmt.Printf("Deleted Job: %s\n", jobObj.Name)
 }
 
 func (nw *JobsWorker) onUpdateJob(objOld interface{}, objNew interface{}) {
-	jobObj := objOld.(*v1.Node)
+	jobObj := objOld.(*batchTypes.Job)
+	if !nw.qualifies(jobObj) {
+		return
+	}
 	fmt.Printf("Updated Job: %s\n", jobObj.Name)
 }
 

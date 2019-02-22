@@ -57,4 +57,6 @@ type AppDBag struct {
 	IncludeNsToInstrument       []string
 	ExcludeNsToInstrument       []string
 	DeploysToDashboard          []string
+	IncludeNodesToInstrument    []string
+	ExcludeNodesToInstrument    []string
 }

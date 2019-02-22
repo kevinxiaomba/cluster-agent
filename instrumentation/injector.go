@@ -348,6 +348,8 @@ func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tier
 					podObj.Annotations[APPD_APPID] = strconv.Itoa(appID)
 					podObj.Annotations[APPD_TIERID] = strconv.Itoa(tierID)
 					podObj.Annotations[APPD_NODEID] = strconv.Itoa(nodeID)
+
+					//if analytics was intstrumented, queue up to enable the app for analytics
 				}
 			}
 		}

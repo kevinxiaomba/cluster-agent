@@ -11,19 +11,27 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 
+	m "github.com/sjeltuhin/clusterAgent/models"
 	"github.com/sjeltuhin/clusterAgent/utils"
 )
 
 type PVCWatcher struct {
 	Client   *kubernetes.Clientset
 	PVCCache map[string]v1.PersistentVolumeClaim
+	Bag      *m.AppDBag
 }
 
 var lockPVC = sync.RWMutex{}
 
-func NewPVCWatcher(client *kubernetes.Clientset) *PVCWatcher {
-	epw := PVCWatcher{Client: client, PVCCache: make(map[string]v1.PersistentVolumeClaim)}
+func NewPVCWatcher(client *kubernetes.Clientset, bag *m.AppDBag) *PVCWatcher {
+	epw := PVCWatcher{Client: client, PVCCache: make(map[string]v1.PersistentVolumeClaim), Bag: bag}
 	return &epw
+}
+
+func (pw *PVCWatcher) qualifies(p *v1.PersistentVolumeClaim) bool {
+	return (len(pw.Bag.IncludeNsToInstrument) == 0 ||
+		utils.StringInSlice(p.Namespace, pw.Bag.IncludeNsToInstrument)) &&
+		!utils.StringInSlice(p.Namespace, pw.Bag.ExcludeNsToInstrument)
 }
 
 //PVCs
@@ -65,11 +73,17 @@ func (pw PVCWatcher) WatchPVC() {
 }
 
 func (pw PVCWatcher) onNewPVC(pvc *v1.PersistentVolumeClaim) {
+	if !pw.qualifies(pvc) {
+		return
+	}
 	fmt.Printf("Added PVC: %s\n", pvc.Name)
 	pw.updateMap(pvc)
 }
 
 func (pw PVCWatcher) onDeletePVC(pvc *v1.PersistentVolumeClaim) {
+	if !pw.qualifies(pvc) {
+		return
+	}
 	_, ok := pw.PVCCache[utils.GetKey(pvc.Namespace, pvc.Name)]
 	if ok {
 		lockPVC.Lock()
@@ -80,6 +94,9 @@ func (pw PVCWatcher) onDeletePVC(pvc *v1.PersistentVolumeClaim) {
 }
 
 func (pw PVCWatcher) onUpdatePVC(pvc *v1.PersistentVolumeClaim) {
+	if !pw.qualifies(pvc) {
+		return
+	}
 	pw.updateMap(pvc)
 	fmt.Printf("PVC updated: %s\n", pvc.Name)
 

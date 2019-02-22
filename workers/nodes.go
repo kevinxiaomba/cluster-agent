@@ -10,6 +10,7 @@ import (
 	"time"
 
 	m "github.com/sjeltuhin/clusterAgent/models"
+	"github.com/sjeltuhin/clusterAgent/utils"
 
 	app "github.com/sjeltuhin/clusterAgent/appd"
 	"k8s.io/api/core/v1"
@@ -62,8 +63,17 @@ func (nw *NodesWorker) initNodeInformer(client *kubernetes.Clientset) cache.Shar
 	return i
 }
 
+func (pw *NodesWorker) qualifies(p *v1.Node) bool {
+	return (len(pw.Bag.IncludeNodesToInstrument) == 0 ||
+		utils.StringInSlice(p.Name, pw.Bag.IncludeNodesToInstrument)) &&
+		!utils.StringInSlice(p.Name, pw.Bag.ExcludeNodesToInstrument)
+}
+
 func (nw *NodesWorker) onNewNode(obj interface{}) {
 	nodeObj := obj.(*v1.Node)
+	if !nw.qualifies(nodeObj) {
+		return
+	}
 	fmt.Printf("Added Node: %s\n", nodeObj.Name)
 	nodeRecord, _ := nw.processObject(nodeObj, nil)
 	nw.WQ.Add(&nodeRecord)
@@ -72,6 +82,9 @@ func (nw *NodesWorker) onNewNode(obj interface{}) {
 
 func (nw *NodesWorker) onDeleteNode(obj interface{}) {
 	nodeObj := obj.(*v1.Node)
+	if !nw.qualifies(nodeObj) {
+		return
+	}
 	fmt.Printf("Deleted Node: %s\n", nodeObj.Name)
 	nodeRecord, _ := nw.processObject(nodeObj, nil)
 	nw.WQ.Add(&nodeRecord)
@@ -79,6 +92,9 @@ func (nw *NodesWorker) onDeleteNode(obj interface{}) {
 
 func (nw *NodesWorker) onUpdateNode(objOld interface{}, objNew interface{}) {
 	nodeObj := objNew.(*v1.Node)
+	if !nw.qualifies(nodeObj) {
+		return
+	}
 	nodeOldObj := objOld.(*v1.Node)
 	if m.CompareNodeObjects(nodeObj, nodeOldObj) == true {
 		nodeRecord, changed := nw.processObject(nodeObj, nodeOldObj)
