@@ -11,27 +11,27 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 
-	m "github.com/sjeltuhin/clusterAgent/models"
+	"github.com/sjeltuhin/clusterAgent/config"
 	"github.com/sjeltuhin/clusterAgent/utils"
 )
 
 type EndpointWatcher struct {
 	Client        *kubernetes.Clientset
 	EndpointCache map[string]v1.Endpoints
-	Bag           *m.AppDBag
+	ConfManager   *config.MutexConfigManager
 }
 
 var lockEP = sync.RWMutex{}
 
-func NewEndpointWatcher(client *kubernetes.Clientset, bag *m.AppDBag) *EndpointWatcher {
-	epw := EndpointWatcher{Client: client, EndpointCache: make(map[string]v1.Endpoints), Bag: bag}
+func NewEndpointWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager) *EndpointWatcher {
+	epw := EndpointWatcher{Client: client, EndpointCache: make(map[string]v1.Endpoints), ConfManager: cm}
 	return &epw
 }
 
 func (pw *EndpointWatcher) qualifies(p *v1.Endpoints) bool {
-	return (len(pw.Bag.IncludeNsToInstrument) == 0 ||
-		utils.StringInSlice(p.Namespace, pw.Bag.IncludeNsToInstrument)) &&
-		!utils.StringInSlice(p.Namespace, pw.Bag.ExcludeNsToInstrument)
+	return (len((*pw.ConfManager).Get().IncludeNsToInstrument) == 0 ||
+		utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().IncludeNsToInstrument)) &&
+		!utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().ExcludeNsToInstrument)
 }
 
 //end points

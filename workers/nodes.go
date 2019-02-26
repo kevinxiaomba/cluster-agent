@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sjeltuhin/clusterAgent/config"
 	m "github.com/sjeltuhin/clusterAgent/models"
 	"github.com/sjeltuhin/clusterAgent/utils"
 
@@ -25,15 +26,15 @@ import (
 type NodesWorker struct {
 	informer       cache.SharedIndexInformer
 	Client         *kubernetes.Clientset
-	Bag            *m.AppDBag
+	ConfigManager  *config.MutexConfigManager
 	SummaryMap     map[string]m.ClusterNodeMetrics
 	WQ             workqueue.RateLimitingInterface
 	AppdController *app.ControllerClient
 }
 
-func NewNodesWorker(client *kubernetes.Clientset, bag *m.AppDBag, controller *app.ControllerClient) NodesWorker {
+func NewNodesWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient) NodesWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
-	pw := NodesWorker{Client: client, Bag: bag, SummaryMap: make(map[string]m.ClusterNodeMetrics), WQ: queue, AppdController: controller}
+	pw := NodesWorker{Client: client, ConfigManager: cm, SummaryMap: make(map[string]m.ClusterNodeMetrics), WQ: queue, AppdController: controller}
 	pw.initNodeInformer(client)
 	return pw
 }
@@ -64,9 +65,10 @@ func (nw *NodesWorker) initNodeInformer(client *kubernetes.Clientset) cache.Shar
 }
 
 func (pw *NodesWorker) qualifies(p *v1.Node) bool {
-	return (len(pw.Bag.IncludeNodesToInstrument) == 0 ||
-		utils.StringInSlice(p.Name, pw.Bag.IncludeNodesToInstrument)) &&
-		!utils.StringInSlice(p.Name, pw.Bag.ExcludeNodesToInstrument)
+	bag := (*pw.ConfigManager).Get()
+	return (len(bag.IncludeNodesToInstrument) == 0 ||
+		utils.StringInSlice(p.Name, bag.IncludeNodesToInstrument)) &&
+		!utils.StringInSlice(p.Name, bag.ExcludeNodesToInstrument)
 }
 
 func (nw *NodesWorker) onNewNode(obj interface{}) {
@@ -131,7 +133,8 @@ func (pw *NodesWorker) HasSynced() bool {
 }
 
 func (pw *NodesWorker) startMetricsWorker(stopCh <-chan struct{}) {
-	pw.appMetricTicker(stopCh, time.NewTicker(time.Duration(pw.Bag.MetricsSyncInterval)*time.Second))
+	bag := (*pw.ConfigManager).Get()
+	pw.appMetricTicker(stopCh, time.NewTicker(time.Duration(bag.MetricsSyncInterval)*time.Second))
 
 }
 
@@ -165,6 +168,7 @@ func (pw *NodesWorker) startEventQueueWorker(stopCh <-chan struct{}) {
 }
 
 func (pw *NodesWorker) flushQueue() {
+	bag := (*pw.ConfigManager).Get()
 	bth := pw.AppdController.StartBT("FlushNodeDataQueue")
 	count := pw.WQ.Len()
 	if count > 0 {
@@ -188,7 +192,7 @@ func (pw *NodesWorker) flushQueue() {
 		} else {
 			fmt.Println("Queue shut down")
 		}
-		if count == 0 || len(objList) >= pw.Bag.EventAPILimit {
+		if count == 0 || len(objList) >= bag.EventAPILimit {
 			fmt.Printf("Sending %d node records to AppD events API\n", len(objList))
 			pw.postNodeRecords(&objList)
 			pw.AppdController.StopBT(bth)
@@ -199,25 +203,26 @@ func (pw *NodesWorker) flushQueue() {
 }
 
 func (pw *NodesWorker) postNodeRecords(objList *[]m.NodeSchema) {
+	bag := (*pw.ConfigManager).Get()
 	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	rc := app.NewRestClient(pw.Bag, logger)
+	rc := app.NewRestClient(bag, logger)
 	data, err := json.Marshal(objList)
 	schemaDefObj := m.NewNodeSchemaDefWrapper()
 	schemaDef, e := json.Marshal(schemaDefObj)
 	if err == nil && e == nil {
-		if rc.SchemaExists(pw.Bag.NodeSchemaName) == false {
-			fmt.Printf("Creating schema. %s\n", pw.Bag.NodeSchemaName)
-			schemaObj, err := rc.CreateSchema(pw.Bag.NodeSchemaName, schemaDef)
+		if rc.SchemaExists(bag.NodeSchemaName) == false {
+			fmt.Printf("Creating schema. %s\n", bag.NodeSchemaName)
+			schemaObj, err := rc.CreateSchema(bag.NodeSchemaName, schemaDef)
 			if err != nil {
 				return
 			} else if schemaObj != nil {
-				fmt.Printf("Schema %s created\n", pw.Bag.NodeSchemaName)
+				fmt.Printf("Schema %s created\n", bag.NodeSchemaName)
 			} else {
-				fmt.Printf("Schema %s exists\n", pw.Bag.NodeSchemaName)
+				fmt.Printf("Schema %s exists\n", bag.NodeSchemaName)
 			}
 		}
 		fmt.Println("About to post records")
-		rc.PostAppDEvents(pw.Bag.NodeSchemaName, data)
+		rc.PostAppDEvents(bag.NodeSchemaName, data)
 	} else {
 		fmt.Printf("Problems when serializing array of pod schemas. %v\n", err)
 	}
@@ -258,17 +263,18 @@ func (pw *NodesWorker) buildAppDMetrics() {
 }
 
 func (pw *NodesWorker) summarize(nodeObject *m.NodeSchema) {
+	bag := (*pw.ConfigManager).Get()
 	//global metrics
 	summary, okSum := pw.SummaryMap[m.ALL]
 	if !okSum {
-		summary = m.NewClusterNodeMetrics(pw.Bag, m.ALL)
+		summary = m.NewClusterNodeMetrics(bag, m.ALL)
 		pw.SummaryMap[m.ALL] = summary
 	}
 
 	//node metrics
 	summaryNode, okNode := pw.SummaryMap[nodeObject.NodeName]
 	if !okNode {
-		summaryNode = m.NewClusterNodeMetrics(pw.Bag, nodeObject.NodeName)
+		summaryNode = m.NewClusterNodeMetrics(bag, nodeObject.NodeName)
 		pw.SummaryMap[nodeObject.NodeName] = summaryNode
 	}
 

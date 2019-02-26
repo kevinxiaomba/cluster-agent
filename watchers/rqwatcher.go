@@ -7,31 +7,31 @@ import (
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/watch"
 
+	"github.com/sjeltuhin/clusterAgent/config"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"k8s.io/client-go/kubernetes"
 
-	m "github.com/sjeltuhin/clusterAgent/models"
 	"github.com/sjeltuhin/clusterAgent/utils"
 )
 
 var lockRQ = sync.RWMutex{}
 
 type RQWatcher struct {
-	Client  *kubernetes.Clientset
-	RQCache map[string]v1.ResourceQuota
-	Bag     *m.AppDBag
+	Client      *kubernetes.Clientset
+	RQCache     map[string]v1.ResourceQuota
+	ConfManager *config.MutexConfigManager
 }
 
-func NewRQWatcher(client *kubernetes.Clientset, bag *m.AppDBag) *RQWatcher {
-	epw := RQWatcher{Client: client, RQCache: make(map[string]v1.ResourceQuota), Bag: bag}
+func NewRQWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager) *RQWatcher {
+	epw := RQWatcher{Client: client, RQCache: make(map[string]v1.ResourceQuota), ConfManager: cm}
 	return &epw
 }
 
 func (pw *RQWatcher) qualifies(p *v1.ResourceQuota) bool {
-	return (len(pw.Bag.IncludeNsToInstrument) == 0 ||
-		utils.StringInSlice(p.Namespace, pw.Bag.IncludeNsToInstrument)) &&
-		!utils.StringInSlice(p.Namespace, pw.Bag.ExcludeNsToInstrument)
+	return (len((*pw.ConfManager).Get().IncludeNsToInstrument) == 0 ||
+		utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().IncludeNsToInstrument)) &&
+		!utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().ExcludeNsToInstrument)
 }
 
 //quotas

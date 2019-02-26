@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/sjeltuhin/clusterAgent/config"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/watch"
 
@@ -11,27 +12,26 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 
-	m "github.com/sjeltuhin/clusterAgent/models"
 	"github.com/sjeltuhin/clusterAgent/utils"
 )
 
 type PVCWatcher struct {
-	Client   *kubernetes.Clientset
-	PVCCache map[string]v1.PersistentVolumeClaim
-	Bag      *m.AppDBag
+	Client      *kubernetes.Clientset
+	PVCCache    map[string]v1.PersistentVolumeClaim
+	ConfManager *config.MutexConfigManager
 }
 
 var lockPVC = sync.RWMutex{}
 
-func NewPVCWatcher(client *kubernetes.Clientset, bag *m.AppDBag) *PVCWatcher {
-	epw := PVCWatcher{Client: client, PVCCache: make(map[string]v1.PersistentVolumeClaim), Bag: bag}
+func NewPVCWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager) *PVCWatcher {
+	epw := PVCWatcher{Client: client, PVCCache: make(map[string]v1.PersistentVolumeClaim), ConfManager: cm}
 	return &epw
 }
 
 func (pw *PVCWatcher) qualifies(p *v1.PersistentVolumeClaim) bool {
-	return (len(pw.Bag.IncludeNsToInstrument) == 0 ||
-		utils.StringInSlice(p.Namespace, pw.Bag.IncludeNsToInstrument)) &&
-		!utils.StringInSlice(p.Namespace, pw.Bag.ExcludeNsToInstrument)
+	return (len((*pw.ConfManager).Get().IncludeNsToInstrument) == 0 ||
+		utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().IncludeNsToInstrument)) &&
+		!utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().ExcludeNsToInstrument)
 }
 
 //PVCs

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/sjeltuhin/clusterAgent/config"
 	m "github.com/sjeltuhin/clusterAgent/models"
 	w "github.com/sjeltuhin/clusterAgent/workers"
 
@@ -99,7 +100,12 @@ func main() {
 
 	params := buildParams()
 
-	fmt.Printf("Parameters:\n %s and NodeName = %s", params, params.Bag.NodeName)
+	configManager := config.NewMutexConfigManager(&params.Bag)
+
+	defer func() {
+		configManager.Close()
+	}()
+
 	config, err := authFromConfig(&params)
 	if err != nil {
 		log.Printf("Issues getting kube config. %s. Terminating...", err.Error())
@@ -114,7 +120,7 @@ func main() {
 
 	var wg sync.WaitGroup
 	l := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	controller := w.NewController(&params.Bag, clientset, l, config)
+	controller := w.NewController(configManager, clientset, l, config)
 	controller.Run(stop, &wg)
 
 	<-sigs

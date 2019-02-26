@@ -5,9 +5,10 @@ import (
 	"log"
 	"sync"
 
+	"github.com/sjeltuhin/clusterAgent/config"
+
 	app "github.com/sjeltuhin/clusterAgent/appd"
-	m "github.com/sjeltuhin/clusterAgent/models"
-	"github.com/sjeltuhin/clusterAgent/web"
+
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -15,24 +16,24 @@ import (
 )
 
 type MainController struct {
-	Bag        *m.AppDBag
-	K8sClient  *kubernetes.Clientset
-	Logger     *log.Logger
-	K8sConfig  *rest.Config
-	PodsWorker *PodWorker
+	ConfManager *config.MutexConfigManager
+	K8sClient   *kubernetes.Clientset
+	Logger      *log.Logger
+	K8sConfig   *rest.Config
+	PodsWorker  *PodWorker
 }
 
-func NewController(bag *m.AppDBag, client *kubernetes.Clientset, l *log.Logger, config *rest.Config) MainController {
-	return MainController{Bag: bag, K8sClient: client, Logger: l, K8sConfig: config}
+func NewController(cm *config.MutexConfigManager, client *kubernetes.Clientset, l *log.Logger, config *rest.Config) MainController {
+	return MainController{ConfManager: cm, K8sClient: client, Logger: l, K8sConfig: config}
 }
 
 func (c *MainController) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 
-	ws := web.NewAgentWebServer(c.Bag)
-	wg.Add(1)
-	go ws.RunServer()
+	//	ws := web.NewAgentWebServer(c.Bag)
+	//	wg.Add(1)
+	//	go ws.RunServer()
 
-	appdController := app.NewControllerClient(c.Bag, c.Logger)
+	appdController := app.NewControllerClient(c.ConfManager, c.Logger)
 
 	wg.Add(1)
 	go c.startNodeWorker(stopCh, c.K8sClient, wg, appdController)
@@ -61,7 +62,7 @@ func nsWorker(finished chan *v1.NamespaceList, client *kubernetes.Clientset, wg 
 func (c *MainController) startPodsWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
 	fmt.Println("Starting Pods worker")
 	defer wg.Done()
-	pw := NewPodWorker(client, c.Bag, appdController, c.K8sConfig, c.Logger)
+	pw := NewPodWorker(client, c.ConfManager, appdController, c.K8sConfig, c.Logger)
 	c.PodsWorker = &pw
 	go c.startEventsWorker(stopCh, c.K8sClient, wg, appdController)
 	c.PodsWorker.Observe(stopCh, wg)
@@ -71,7 +72,7 @@ func (c *MainController) startPodsWorker(stopCh <-chan struct{}, client *kuberne
 func (c *MainController) startDeployWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
 	fmt.Println("Starting Deployment worker")
 	defer wg.Done()
-	pw := NewDeployWorker(client, c.Bag, appdController)
+	pw := NewDeployWorker(client, c.ConfManager, appdController)
 	pw.Observe(stopCh, wg)
 	<-stopCh
 }
@@ -79,14 +80,14 @@ func (c *MainController) startDeployWorker(stopCh <-chan struct{}, client *kuber
 func (c *MainController) startEventsWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
 	fmt.Println("Starting events worker")
 	defer wg.Done()
-	ew := NewEventWorker(client, c.Bag, appdController, c.PodsWorker)
+	ew := NewEventWorker(client, c.ConfManager, appdController, c.PodsWorker)
 	ew.Observe(stopCh, wg)
 }
 
 func (c *MainController) startNodeWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
 	fmt.Println("Starting nodes worker")
 	defer wg.Done()
-	ew := NewNodesWorker(client, c.Bag, appdController)
+	ew := NewNodesWorker(client, c.ConfManager, appdController)
 	ew.Observe(stopCh, wg)
 }
 

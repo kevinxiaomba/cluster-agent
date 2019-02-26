@@ -7,6 +7,7 @@ import (
 	"time"
 
 	app "github.com/sjeltuhin/clusterAgent/appd"
+	"github.com/sjeltuhin/clusterAgent/config"
 	instr "github.com/sjeltuhin/clusterAgent/instrumentation"
 	m "github.com/sjeltuhin/clusterAgent/models"
 	"github.com/sjeltuhin/clusterAgent/utils"
@@ -24,7 +25,7 @@ import (
 type DeployWorker struct {
 	informer       cache.SharedIndexInformer
 	Client         *kubernetes.Clientset
-	Bag            *m.AppDBag
+	ConfManager    *config.MutexConfigManager
 	SummaryMap     map[string]m.ClusterPodMetrics
 	WQ             workqueue.RateLimitingInterface
 	AppdController *app.ControllerClient
@@ -32,9 +33,9 @@ type DeployWorker struct {
 	FailedCache    map[string]m.AttachStatus
 }
 
-func NewDeployWorker(client *kubernetes.Clientset, bag *m.AppDBag, controller *app.ControllerClient) DeployWorker {
+func NewDeployWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient) DeployWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
-	dw := DeployWorker{Client: client, Bag: bag, SummaryMap: make(map[string]m.ClusterPodMetrics), WQ: queue,
+	dw := DeployWorker{Client: client, ConfManager: cm, SummaryMap: make(map[string]m.ClusterPodMetrics), WQ: queue,
 		AppdController: controller, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus)}
 	dw.initDeployInformer(client)
 	return dw
@@ -75,9 +76,9 @@ func (dw *DeployWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 }
 
 func (pw *DeployWorker) qualifies(p *appsv1.Deployment) bool {
-	return (len(pw.Bag.IncludeNsToInstrument) == 0 ||
-		utils.StringInSlice(p.Namespace, pw.Bag.IncludeNsToInstrument)) &&
-		!utils.StringInSlice(p.Namespace, pw.Bag.ExcludeNsToInstrument)
+	return (len((*pw.ConfManager).Get().IncludeNsToInstrument) == 0 ||
+		utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().IncludeNsToInstrument)) &&
+		!utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().ExcludeNsToInstrument)
 }
 
 func (dw *DeployWorker) onNewDeployment(obj interface{}) {
@@ -119,24 +120,24 @@ func (dw *DeployWorker) shouldUpdate(deployObj *appsv1.Deployment) (bool, bool, 
 	var biqRequested = false
 	var biQDeploymentOption m.BiQDeploymentOption
 	for k, v := range deployObj.Labels {
-		if k == dw.Bag.AppDAppLabel {
+		if k == (*dw.ConfManager).Get().AppDAppLabel {
 			appName = v
 		}
 
-		if k == dw.Bag.AppDTierLabel {
+		if k == (*dw.ConfManager).Get().AppDTierLabel {
 			tierName = v
 		}
 
-		if k == dw.Bag.AgentLabel {
+		if k == (*dw.ConfManager).Get().AgentLabel {
 			appAgent = v
 		}
 
-		if k == dw.Bag.AppDAnalyticsLabel {
+		if k == (*dw.ConfManager).Get().AppDAnalyticsLabel {
 			biqRequested = true
 			biQDeploymentOption = m.BiQDeploymentOption(v)
 		}
 	}
-	initRequested := !instr.AgentInitExists(&deployObj.Spec.Template.Spec, dw.Bag) && (appName != "" || appAgent != "") && dw.Bag.InstrumentationMethod == m.Mount
+	initRequested := !instr.AgentInitExists(&deployObj.Spec.Template.Spec, (*dw.ConfManager).Get()) && (appName != "" || appAgent != "") && (*dw.ConfManager).Get().InstrumentationMethod == m.Mount
 	//check if already updated
 	updated := false
 	biqUpdated := false
@@ -174,7 +175,7 @@ func (dw *DeployWorker) shouldUpdate(deployObj *appsv1.Deployment) (bool, bool, 
 		return false, false, nil
 	}
 
-	biq := biQDeploymentOption == m.Sidecar && !instr.AnalyticsAgentExists(&deployObj.Spec.Template.Spec, dw.Bag)
+	biq := biQDeploymentOption == m.Sidecar && !instr.AnalyticsAgentExists(&deployObj.Spec.Template.Spec, (*dw.ConfManager).Get())
 
 	if tierName == "" {
 		tierName = deployObj.Name
@@ -202,7 +203,7 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 		if init {
 			fmt.Println("Adding init container...")
 			//add volume and mounts for agent binaries
-			dw.updateSpec(result, dw.Bag.AgentMountName, dw.Bag.AgentMountPath, agentRequests, true)
+			dw.updateSpec(result, (*dw.ConfManager).Get().AgentMountName, (*dw.ConfManager).Get().AgentMountPath, agentRequests, true)
 			//add init container for agent attach
 			agentReq := agentRequests.GetFirstRequest()
 			agentAttachContainer := dw.buildInitContainer(&agentReq)
@@ -218,7 +219,7 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 		if biq {
 			fmt.Println("Adding analytics container")
 			//add volume and mounts for logging
-			dw.updateSpec(result, dw.Bag.AppLogMountName, dw.Bag.AppLogMountPath, agentRequests, false)
+			dw.updateSpec(result, (*dw.ConfManager).Get().AppLogMountName, (*dw.ConfManager).Get().AppLogMountPath, agentRequests, false)
 
 			//add analytics agent container
 			analyticsContainer := dw.buildBiqSideCar()
@@ -289,7 +290,7 @@ func (dw *DeployWorker) updateSpec(result *appsv1.Deployment, volName string, vo
 			tech := agentRequests.GetFirstRequest().Tech
 			if tech == m.DotNet {
 				fmt.Printf("Requested env var update for DotNet container %s\n", c.Name)
-				dotnetInjector := instr.NewDotNetInjector(dw.Bag, dw.AppdController)
+				dotnetInjector := instr.NewDotNetInjector((*dw.ConfManager).Get(), dw.AppdController)
 				dotnetInjector.AddEnvVars(&c, agentRequests.AppName, agentRequests.TierName)
 			}
 		}
@@ -301,11 +302,11 @@ func (dw *DeployWorker) updateSpec(result *appsv1.Deployment, volName string, vo
 func (dw *DeployWorker) buildInitContainer(agentrequest *m.AgentRequest) v1.Container {
 	fmt.Printf("Building init container using agent request %s\n", agentrequest.ToString())
 	//volume mount for agent files
-	volumeMount := v1.VolumeMount{Name: dw.Bag.AgentMountName, MountPath: dw.Bag.AgentMountPath}
+	volumeMount := v1.VolumeMount{Name: (*dw.ConfManager).Get().AgentMountName, MountPath: (*dw.ConfManager).Get().AgentMountPath}
 	mounts := []v1.VolumeMount{volumeMount}
 
-	cmd := []string{"cp", "-ra", dw.Bag.InitContainerDir, dw.Bag.AgentMountPath}
-	cont := v1.Container{Name: dw.Bag.AppDInitContainerName, Image: agentrequest.GetAgentImageName(dw.Bag), ImagePullPolicy: v1.PullIfNotPresent,
+	cmd := []string{"cp", "-ra", (*dw.ConfManager).Get().InitContainerDir, (*dw.ConfManager).Get().AgentMountPath}
+	cont := v1.Container{Name: (*dw.ConfManager).Get().AppDInitContainerName, Image: agentrequest.GetAgentImageName((*dw.ConfManager).Get()), ImagePullPolicy: v1.PullIfNotPresent,
 		VolumeMounts: mounts, Command: cmd}
 
 	return cont
@@ -329,27 +330,27 @@ func (dw *DeployWorker) buildBiqSideCar() v1.Container {
 	ports := []v1.ContainerPort{p}
 
 	//volume mount for logs
-	volumeMount := v1.VolumeMount{Name: dw.Bag.AppLogMountName, MountPath: dw.Bag.AppLogMountPath}
+	volumeMount := v1.VolumeMount{Name: (*dw.ConfManager).Get().AppLogMountName, MountPath: (*dw.ConfManager).Get().AppLogMountPath}
 	mounts := []v1.VolumeMount{volumeMount}
 
-	cont := v1.Container{Name: dw.Bag.AnalyticsAgentContainerName, Image: dw.Bag.AnalyticsAgentImage, ImagePullPolicy: v1.PullIfNotPresent,
+	cont := v1.Container{Name: (*dw.ConfManager).Get().AnalyticsAgentContainerName, Image: (*dw.ConfManager).Get().AnalyticsAgentImage, ImagePullPolicy: v1.PullIfNotPresent,
 		Ports: ports, EnvFrom: envFrom, Env: env, VolumeMounts: mounts}
 
 	return cont
 }
 
 func (dw *DeployWorker) addVolume(deployObj *appsv1.Deployment, container *v1.Container) {
-
+	bag := (*dw.ConfManager).Get()
 	mountExists := false
 	for _, vm := range container.VolumeMounts {
-		if vm.Name == dw.Bag.AgentMountName {
+		if vm.Name == bag.AgentMountName {
 			mountExists = true
 			break
 		}
 	}
 	if !mountExists {
 		//container volume mount
-		volumeMount := v1.VolumeMount{Name: dw.Bag.AgentMountName, MountPath: "/opt/appd", ReadOnly: true}
+		volumeMount := v1.VolumeMount{Name: bag.AgentMountName, MountPath: "/opt/appd", ReadOnly: true}
 		if container.VolumeMounts == nil || len(container.VolumeMounts) == 0 {
 			container.VolumeMounts = []v1.VolumeMount{volumeMount}
 		} else {
@@ -359,7 +360,7 @@ func (dw *DeployWorker) addVolume(deployObj *appsv1.Deployment, container *v1.Co
 
 	volExists := false
 	for _, vol := range deployObj.Spec.Template.Spec.Volumes {
-		if vol.Name == dw.Bag.AgentMountName {
+		if vol.Name == bag.AgentMountName {
 			volExists = true
 			break
 		}

@@ -11,20 +11,20 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 
-	m "github.com/sjeltuhin/clusterAgent/models"
+	"github.com/sjeltuhin/clusterAgent/config"
 	"github.com/sjeltuhin/clusterAgent/utils"
 )
 
 type ServiceWatcher struct {
-	Client   *kubernetes.Clientset
-	SvcCache map[string]v1.Service
-	Bag      *m.AppDBag
+	Client      *kubernetes.Clientset
+	SvcCache    map[string]v1.Service
+	ConfManager *config.MutexConfigManager
 }
 
 var lockServices = sync.RWMutex{}
 
-func NewServiceWatcher(client *kubernetes.Clientset, bag *m.AppDBag) *ServiceWatcher {
-	sw := ServiceWatcher{Client: client, SvcCache: make(map[string]v1.Service), Bag: bag}
+func NewServiceWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager) *ServiceWatcher {
+	sw := ServiceWatcher{Client: client, SvcCache: make(map[string]v1.Service), ConfManager: cm}
 	return &sw
 }
 
@@ -65,9 +65,9 @@ func (pw ServiceWatcher) WatchServices() {
 }
 
 func (pw *ServiceWatcher) qualifies(p *v1.Service) bool {
-	return (len(pw.Bag.IncludeNsToInstrument) == 0 ||
-		utils.StringInSlice(p.Namespace, pw.Bag.IncludeNsToInstrument)) &&
-		!utils.StringInSlice(p.Namespace, pw.Bag.ExcludeNsToInstrument)
+	return (len((*pw.ConfManager).Get().IncludeNsToInstrument) == 0 ||
+		utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().IncludeNsToInstrument)) &&
+		!utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().ExcludeNsToInstrument)
 }
 
 func (pw ServiceWatcher) onNewService(svc *v1.Service) {

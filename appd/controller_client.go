@@ -8,19 +8,22 @@ import (
 	"os"
 	"strings"
 
+	"github.com/sjeltuhin/clusterAgent/config"
 	m "github.com/sjeltuhin/clusterAgent/models"
 
 	appd "appdynamics"
 )
 
 type ControllerClient struct {
-	logger     *log.Logger
-	Bag        *m.AppDBag
-	regMetrics map[string]bool
+	logger      *log.Logger
+	ConfManager *config.MutexConfigManager
+	regMetrics  map[string]bool
 }
 
-func NewControllerClient(bag *m.AppDBag, logger *log.Logger) *ControllerClient {
+func NewControllerClient(cm *config.MutexConfigManager, logger *log.Logger) *ControllerClient {
 	cfg := appd.Config{}
+
+	bag := (*cm).Get()
 
 	cfg.AppName = bag.AppName
 	cfg.TierName = bag.TierName
@@ -52,7 +55,7 @@ func NewControllerClient(bag *m.AppDBag, logger *log.Logger) *ControllerClient {
 	}
 	logger.Println(&cfg.Controller)
 
-	controller := ControllerClient{Bag: bag, logger: logger, regMetrics: make(map[string]bool)}
+	controller := ControllerClient{ConfManager: cm, logger: logger, regMetrics: make(map[string]bool)}
 
 	appID, tierID, nodeID, errAppd := controller.DetermineNodeID(bag.AppName, bag.TierName, bag.NodeName)
 	if errAppd != nil {
@@ -61,6 +64,7 @@ func NewControllerClient(bag *m.AppDBag, logger *log.Logger) *ControllerClient {
 		bag.AppID = appID
 		bag.TierID = tierID
 		bag.NodeID = nodeID
+		(*cm).Set(bag)
 	}
 
 	return &controller
@@ -71,7 +75,7 @@ func (c *ControllerClient) RegisterMetrics(metrics m.AppDMetricList) error {
 	bt := appd.StartBT("RegMetrics", "")
 	for _, metric := range metrics.Items {
 
-		metric.MetricPath = fmt.Sprintf(metric.MetricPath, c.Bag.TierName)
+		metric.MetricPath = fmt.Sprintf(metric.MetricPath, (*c.ConfManager).Get().TierName)
 		_, exists := c.regMetrics[metric.MetricPath]
 		if !exists {
 			//		c.logger.Println(metric)
@@ -109,7 +113,7 @@ func (c *ControllerClient) PostMetrics(metrics m.AppDMetricList) error {
 	c.logger.Println("Pushing Metrics through the agent:")
 	bt := appd.StartBT("PostMetrics", "")
 	for _, metric := range metrics.Items {
-		metric.MetricPath = fmt.Sprintf(metric.MetricPath, c.Bag.TierName)
+		metric.MetricPath = fmt.Sprintf(metric.MetricPath, (*c.ConfManager).Get().TierName)
 		c.registerMetric(metric)
 		appd.ReportCustomMetric("", metric.MetricPath, metric.MetricValue)
 	}
@@ -183,7 +187,7 @@ func (c *ControllerClient) FindAppID(appName string) (int, error) {
 	path := fmt.Sprintf("restui/applicationManagerUiBean/applicationByName?applicationName=%s", appName)
 	fmt.Printf("App by name path %s", path)
 	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	rc := NewRestClient(c.Bag, logger)
+	rc := NewRestClient((*c.ConfManager).Get(), logger)
 	data, err := rc.CallAppDController(path, "GET", nil)
 	if err != nil {
 		fmt.Printf("App by name response: %v %v", data, err)
@@ -214,7 +218,7 @@ func (c *ControllerClient) FindNodeID(appID int, tierName string, nodeName strin
 	fmt.Printf("Node ID JSON data: %s", jsonData)
 
 	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	rc := NewRestClient(c.Bag, logger)
+	rc := NewRestClient((*c.ConfManager).Get(), logger)
 	data, err := rc.CallAppDController(path, "POST", d)
 	if err != nil {
 		fmt.Printf("Unable to find nodeID. %v", err)
@@ -268,7 +272,7 @@ func (c *ControllerClient) GetMetricID(metricPath string) (float64, error) {
 		fmt.Printf("Unable to serialize metrics path. %v ", eM)
 	}
 
-	rc := NewRestClient(c.Bag, logger)
+	rc := NewRestClient((*c.ConfManager).Get(), logger)
 	data, err := rc.CallAppDController(path, "POST", body)
 	if err != nil {
 		return 0, fmt.Errorf("Unable to find metric ID")
@@ -300,7 +304,7 @@ func (c *ControllerClient) EnableAppAnalytics(appID int, appName string) error {
 		return fmt.Errorf("Unable to serialize payload. %v ", e)
 	}
 
-	rc := NewRestClient(c.Bag, logger)
+	rc := NewRestClient((*c.ConfManager).Get(), logger)
 	_, err := rc.CallAppDController(path, "POST", body)
 	if err != nil {
 		return fmt.Errorf("Unable to enable analytics for App %s. %v", appName, err)

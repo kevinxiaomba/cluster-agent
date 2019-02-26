@@ -18,6 +18,7 @@ import (
 
 	m "github.com/sjeltuhin/clusterAgent/models"
 
+	"github.com/sjeltuhin/clusterAgent/config"
 	"github.com/sjeltuhin/clusterAgent/utils"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
@@ -26,16 +27,16 @@ import (
 type EventWorker struct {
 	informer       cache.SharedIndexInformer
 	Client         *kubernetes.Clientset
-	Bag            *m.AppDBag
+	ConfigManager  *config.MutexConfigManager
 	SummaryMap     map[string]m.ClusterEventMetrics
 	WQ             workqueue.RateLimitingInterface
 	AppdController *app.ControllerClient
 	PodsWorker     *PodWorker
 }
 
-func NewEventWorker(client *kubernetes.Clientset, bag *m.AppDBag, appdController *app.ControllerClient, podsWorker *PodWorker) EventWorker {
+func NewEventWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, appdController *app.ControllerClient, podsWorker *PodWorker) EventWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
-	ew := EventWorker{Client: client, Bag: bag,
+	ew := EventWorker{Client: client, ConfigManager: cm,
 		AppdController: appdController, SummaryMap: make(map[string]m.ClusterEventMetrics), WQ: queue, PodsWorker: podsWorker}
 	ew.informer = ew.initInformer(client)
 	return ew
@@ -63,9 +64,10 @@ func (ew *EventWorker) initInformer(client *kubernetes.Clientset) cache.SharedIn
 }
 
 func (pw *EventWorker) qualifies(p *v1.Event) bool {
-	return (len(pw.Bag.IncludeNsToInstrument) == 0 ||
-		utils.StringInSlice(p.Namespace, pw.Bag.IncludeNsToInstrument)) &&
-		!utils.StringInSlice(p.Namespace, pw.Bag.ExcludeNsToInstrument)
+	bag := (*pw.ConfigManager).Get()
+	return (len(bag.IncludeNsToInstrument) == 0 ||
+		utils.StringInSlice(p.Namespace, bag.IncludeNsToInstrument)) &&
+		!utils.StringInSlice(p.Namespace, bag.ExcludeNsToInstrument)
 }
 
 func (ew *EventWorker) onNewEvent(obj interface{}) {
@@ -102,7 +104,8 @@ func (ew *EventWorker) HasSynced() bool {
 }
 
 func (ew *EventWorker) startMetricsWorker(stopCh <-chan struct{}) {
-	ew.appMetricTicker(stopCh, time.NewTicker(time.Duration(ew.Bag.MetricsSyncInterval)*time.Second))
+	bag := (*ew.ConfigManager).Get()
+	ew.appMetricTicker(stopCh, time.NewTicker(time.Duration(bag.MetricsSyncInterval)*time.Second))
 
 }
 
@@ -131,10 +134,12 @@ func (ew *EventWorker) eventQueueTicker(stop <-chan struct{}, ticker *time.Ticke
 }
 
 func (ew *EventWorker) startEventQueueWorker(stopCh <-chan struct{}) {
-	ew.eventQueueTicker(stopCh, time.NewTicker(time.Duration(ew.Bag.SnapshotSyncInterval)*time.Second))
+	bag := (*ew.ConfigManager).Get()
+	ew.eventQueueTicker(stopCh, time.NewTicker(time.Duration(bag.SnapshotSyncInterval)*time.Second))
 }
 
 func (ew *EventWorker) flushQueue() {
+	bag := (*ew.ConfigManager).Get()
 	bth := ew.AppdController.StartBT("FlushEventDataQueue")
 	count := ew.WQ.Len()
 	if count > 0 {
@@ -160,7 +165,7 @@ func (ew *EventWorker) flushQueue() {
 		} else {
 			fmt.Println("Queue shut down")
 		}
-		if count == 0 || len(objList) >= ew.Bag.EventAPILimit {
+		if count == 0 || len(objList) >= bag.EventAPILimit {
 			fmt.Printf("Sending %d event records to AppD events API\n", len(objList))
 			ew.postEventRecords(&objList)
 			ew.AppdController.StopBT(bth)
@@ -171,25 +176,26 @@ func (ew *EventWorker) flushQueue() {
 }
 
 func (ew *EventWorker) postEventRecords(objList *[]m.EventSchema) {
+	bag := (*ew.ConfigManager).Get()
 	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	rc := app.NewRestClient(ew.Bag, logger)
+	rc := app.NewRestClient(bag, logger)
 	data, err := json.Marshal(objList)
 	schemaDefObj := m.NewEventSchemaDefWrapper()
 	schemaDef, e := json.Marshal(schemaDefObj)
 	if err == nil && e == nil {
-		if rc.SchemaExists(ew.Bag.EventSchemaName) == false {
-			fmt.Printf("Creating schema. %s\n", ew.Bag.EventSchemaName)
-			schemaObj, err := rc.CreateSchema(ew.Bag.EventSchemaName, schemaDef)
+		if rc.SchemaExists(bag.EventSchemaName) == false {
+			fmt.Printf("Creating schema. %s\n", bag.EventSchemaName)
+			schemaObj, err := rc.CreateSchema(bag.EventSchemaName, schemaDef)
 			if err != nil {
 				return
 			} else if schemaObj != nil {
-				fmt.Printf("Schema %s created\n", ew.Bag.EventSchemaName)
+				fmt.Printf("Schema %s created\n", bag.EventSchemaName)
 			} else {
-				fmt.Printf("Schema %s exists\n", ew.Bag.EventSchemaName)
+				fmt.Printf("Schema %s exists\n", bag.EventSchemaName)
 			}
 		}
 		fmt.Println("About to post event records")
-		rc.PostAppDEvents(ew.Bag.EventSchemaName, data)
+		rc.PostAppDEvents(bag.EventSchemaName, data)
 	} else {
 		fmt.Printf("Problems when serializing array of event schemas. %v\n", err)
 	}
@@ -208,6 +214,7 @@ func (ew *EventWorker) getNextQueueItem() (*m.EventSchema, bool) {
 }
 
 func (ew *EventWorker) buildAppDMetrics() {
+	bag := (*ew.ConfigManager).Get()
 	bth := ew.AppdController.StartBT("PostEventMetrics")
 	ew.SummaryMap = make(map[string]m.ClusterEventMetrics)
 
@@ -226,14 +233,14 @@ func (ew *EventWorker) buildAppDMetrics() {
 	//add 0 values for missing entities
 	if len(ew.SummaryMap) == 0 {
 		//cluster
-		summary := m.NewClusterEventMetrics(ew.Bag, m.ALL, m.ALL)
+		summary := m.NewClusterEventMetrics(bag, m.ALL, m.ALL)
 		ew.SummaryMap[m.ALL] = summary
 	}
 	//check for missing namespaces
 	nsMap := ew.PodsWorker.GetKnownNamespaces()
 	for ns, _ := range nsMap {
 		if _, ok := ew.SummaryMap[ns]; !ok {
-			summaryNS := m.NewClusterEventMetrics(ew.Bag, ns, m.ALL)
+			summaryNS := m.NewClusterEventMetrics(bag, ns, m.ALL)
 			ew.SummaryMap[ns] = summaryNS
 		}
 	}
@@ -243,7 +250,7 @@ func (ew *EventWorker) buildAppDMetrics() {
 	for key, tierName := range tierMap {
 		if _, ok := ew.SummaryMap[key]; !ok {
 			ns, _ := utils.SplitPodKey(key)
-			emptyMetrics := m.NewClusterEventMetrics(ew.Bag, ns, tierName)
+			emptyMetrics := m.NewClusterEventMetrics(bag, ns, tierName)
 			ew.SummaryMap[tierName] = emptyMetrics
 		}
 	}
@@ -262,12 +269,13 @@ func (ew *EventWorker) buildAppDMetrics() {
 }
 
 func (ew *EventWorker) processObject(e *v1.Event) m.EventSchema {
+	bag := (*ew.ConfigManager).Get()
 	eventObject := m.NewEventObj()
 
 	if e.ClusterName != "" {
 		eventObject.ClusterName = e.ClusterName
 	} else {
-		eventObject.ClusterName = ew.Bag.AppName
+		eventObject.ClusterName = bag.AppName
 	}
 
 	eventObject.Count = e.Count
@@ -308,7 +316,7 @@ func buildTierKeyForEvent(namespace, tierName string) string {
 }
 
 func (ew *EventWorker) summarize(eventObject *m.EventSchema) {
-
+	bag := (*ew.ConfigManager).Get()
 	var err error = nil
 	var tierName string = ""
 	var tierKey string = ""
@@ -323,14 +331,14 @@ func (ew *EventWorker) summarize(eventObject *m.EventSchema) {
 	//global metrics
 	summary, okSum := ew.SummaryMap[m.ALL]
 	if !okSum {
-		summary = m.NewClusterEventMetrics(ew.Bag, m.ALL, m.ALL)
+		summary = m.NewClusterEventMetrics(bag, m.ALL, m.ALL)
 		ew.SummaryMap[m.ALL] = summary
 	}
 
 	//node namespace
 	summaryNS, okNS := ew.SummaryMap[eventObject.Namespace]
 	if !okNS {
-		summaryNS = m.NewClusterEventMetrics(ew.Bag, eventObject.Namespace, m.ALL)
+		summaryNS = m.NewClusterEventMetrics(bag, eventObject.Namespace, m.ALL)
 		ew.SummaryMap[eventObject.Namespace] = summaryNS
 	}
 
@@ -343,7 +351,7 @@ func (ew *EventWorker) summarize(eventObject *m.EventSchema) {
 		var tierObj m.ClusterEventMetrics
 		tierObj, okTier = ew.SummaryMap[tierKey]
 		if !okTier {
-			tierObj = m.NewClusterEventMetrics(ew.Bag, eventObject.Namespace, tierName)
+			tierObj = m.NewClusterEventMetrics(bag, eventObject.Namespace, tierName)
 			ew.SummaryMap[tierKey] = tierObj
 		}
 		summaryTier = &tierObj
