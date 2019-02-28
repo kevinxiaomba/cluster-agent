@@ -49,6 +49,7 @@ rules:
   - appdynamics.com
   resources:
   - '*'
-  - servervizs
+  - clusteragents
+  - svms
   verbs:
   - '*'

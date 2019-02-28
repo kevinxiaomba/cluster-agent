@@ -43,7 +43,11 @@ spec:
             secretKeyRef:
               key: REST_API_CREDENTIALS
               name: appd-clusteragent
+		- name: AGENT_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
         ports:
-        - containerPort: 8080
+        - containerPort: 8989
           protocol: TCP
     restartPolicy: Always

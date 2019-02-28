@@ -32,6 +32,7 @@ func buildParams() Flags {
 	params := Flags{}
 
 	flag.StringVar(&params.Kubeconfig, "kubeconfig", getKubeConfigPath(), "(optional) absolute path to the kubeconfig file")
+	flag.StringVar(&params.Bag.AgentNamespace, "agent-namespace", getAgentNamespace(), "Agent namespace")
 	flag.StringVar(&params.Bag.Account, "account-name", getAccountName(), "Account name")
 	flag.StringVar(&params.Bag.GlobalAccount, "global-account-name", getGLobalAccountName(), "Global Account name")
 	flag.StringVar(&params.Bag.AppName, "app-name", getAppName(), "Application name")
@@ -121,6 +122,11 @@ func main() {
 	var wg sync.WaitGroup
 	l := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
 	controller := w.NewController(configManager, clientset, l, config)
+	validationErr := controller.ValidateParameters()
+	if validationErr != nil {
+		log.Printf("Cluster Agent parameters are invalid. %v. Terminating...", validationErr)
+		return
+	}
 	controller.Run(stop, &wg)
 
 	<-sigs
@@ -135,7 +141,7 @@ func main() {
 
 func authFromConfig(params *Flags) (*rest.Config, error) {
 	if params.Kubeconfig != "" {
-		fmt.Printf("Kube config = %s", params.Kubeconfig)
+		fmt.Printf("Kube config = %s\n", params.Kubeconfig)
 		return clientcmd.BuildConfigFromFlags("", params.Kubeconfig)
 	} else {
 		fmt.Printf("Using in-cluster auth")
@@ -223,6 +229,10 @@ func getDashboardSuffix() string {
 	}
 
 	return dn
+}
+
+func getAgentNamespace() string {
+	return os.Getenv("AGENT_NAMESPACE")
 }
 
 func getJavaAgentVersion() string {

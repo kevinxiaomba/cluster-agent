@@ -1,6 +1,7 @@
 package models
 
 type AppDBag struct {
+	AgentNamespace              string
 	AppName                     string
 	TierName                    string
 	NodeName                    string
