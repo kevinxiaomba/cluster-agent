@@ -57,6 +57,15 @@ func (c *MainController) ValidateParameters() error {
 		bag.SSLEnabled = strings.Contains(protocol, "s")
 	}
 
+	//build rest api url
+	restApiUrl := bag.ControllerUrl
+	if bag.SSLEnabled {
+		restApiUrl = fmt.Sprintf("https://%s/controller/", restApiUrl)
+	} else {
+		restApiUrl = fmt.Sprintf("http://%s:%d/controller/", restApiUrl, bag.ControllerPort)
+	}
+	bag.RestAPIUrl = restApiUrl
+
 	//events API url
 	if bag.EventServiceUrl == "" {
 		if strings.Contains(bag.ControllerUrl, "appdynamics.com") {
@@ -131,6 +140,9 @@ func (c *MainController) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	wg.Add(1)
 	go c.startDeployWorker(stopCh, c.K8sClient, wg, appdController)
 
+	wg.Add(1)
+	go c.startJobsWorker(stopCh, c.K8sClient, wg, appdController)
+
 	//	<-stopCh
 }
 
@@ -168,6 +180,13 @@ func (c *MainController) startEventsWorker(stopCh <-chan struct{}, client *kuber
 	fmt.Println("Starting events worker")
 	defer wg.Done()
 	ew := NewEventWorker(client, c.ConfManager, appdController, c.PodsWorker)
+	ew.Observe(stopCh, wg)
+}
+
+func (c *MainController) startJobsWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
+	fmt.Println("Starting jobs worker")
+	defer wg.Done()
+	ew := NewJobsWorker(client, c.ConfManager, appdController, c.K8sConfig)
 	ew.Observe(stopCh, wg)
 }
 

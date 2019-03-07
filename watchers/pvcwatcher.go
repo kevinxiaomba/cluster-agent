@@ -113,7 +113,7 @@ func (pw PVCWatcher) CloneMap() map[string]v1.PersistentVolumeClaim {
 	defer lockPVC.RUnlock()
 	m := make(map[string]v1.PersistentVolumeClaim)
 	for key, val := range pw.PVCCache {
-		pw.PVCCache[key] = val
+		m[key] = val
 	}
 
 	return m

@@ -11,6 +11,7 @@ import (
 
 	"github.com/fatih/structs"
 
+	"github.com/sjeltuhin/clusterAgent/config"
 	m "github.com/sjeltuhin/clusterAgent/models"
 	"github.com/sjeltuhin/clusterAgent/utils"
 
@@ -30,16 +31,16 @@ import (
 type JobsWorker struct {
 	informer       cache.SharedIndexInformer
 	Client         *kubernetes.Clientset
-	Bag            *m.AppDBag
+	ConfigManager  *config.MutexConfigManager
 	SummaryMap     map[string]m.ClusterJobMetrics
 	WQ             workqueue.RateLimitingInterface
 	AppdController *app.ControllerClient
 	K8sConfig      *rest.Config
 }
 
-func NewJobsWorker(client *kubernetes.Clientset, bag *m.AppDBag, controller *app.ControllerClient, config *rest.Config) JobsWorker {
+func NewJobsWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient, config *rest.Config) JobsWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
-	pw := JobsWorker{Client: client, Bag: bag, SummaryMap: make(map[string]m.ClusterJobMetrics), WQ: queue, AppdController: controller, K8sConfig: config}
+	pw := JobsWorker{Client: client, ConfigManager: cm, SummaryMap: make(map[string]m.ClusterJobMetrics), WQ: queue, AppdController: controller, K8sConfig: config}
 	pw.initJobInformer(client)
 	return pw
 }
@@ -76,9 +77,10 @@ func (nw *JobsWorker) initJobInformer(client *kubernetes.Clientset) cache.Shared
 }
 
 func (pw *JobsWorker) qualifies(p *batchTypes.Job) bool {
-	return (len(pw.Bag.IncludeNsToInstrument) == 0 ||
-		utils.StringInSlice(p.Namespace, pw.Bag.IncludeNsToInstrument)) &&
-		!utils.StringInSlice(p.Namespace, pw.Bag.ExcludeNsToInstrument)
+	bag := (*pw.ConfigManager).Get()
+	return (len(bag.IncludeNsToInstrument) == 0 ||
+		utils.StringInSlice(p.Namespace, bag.IncludeNsToInstrument)) &&
+		!utils.StringInSlice(p.Namespace, bag.ExcludeNsToInstrument)
 }
 
 func (nw *JobsWorker) onNewJob(obj interface{}) {
@@ -169,12 +171,13 @@ func (pw *JobsWorker) buildAppDMetrics() {
 }
 
 func (pw *JobsWorker) processObject(j *batchTypes.Job) m.JobSchema {
+	bag := (*pw.ConfigManager).Get()
 	jobObject := m.NewJobObj()
 
 	if j.ClusterName != "" {
 		jobObject.ClusterName = j.ClusterName
 	} else {
-		jobObject.ClusterName = pw.Bag.AppName
+		jobObject.ClusterName = bag.AppName
 	}
 	jobObject.Name = j.Name
 	jobObject.Namespace = j.Namespace
@@ -206,41 +209,56 @@ func (pw *JobsWorker) processObject(j *batchTypes.Job) m.JobSchema {
 		jobObject.Duration = time.Since(jobObject.StartTime).Seconds()
 	}
 
-	jobObject.ActiveDeadlineSeconds = *j.Spec.ActiveDeadlineSeconds
-	jobObject.Completions = *j.Spec.Completions
-	jobObject.BackoffLimit = *j.Spec.BackoffLimit
-	jobObject.Parallelism = *j.Spec.Parallelism
+	if j.Spec.ActiveDeadlineSeconds != nil {
+		jobObject.ActiveDeadlineSeconds = *j.Spec.ActiveDeadlineSeconds
+	}
+
+	if j.Spec.Completions != nil {
+		jobObject.Completions = *j.Spec.Completions
+	}
+
+	if j.Spec.BackoffLimit != nil {
+		jobObject.BackoffLimit = *j.Spec.BackoffLimit
+	}
+
+	if j.Spec.BackoffLimit != nil {
+		jobObject.Parallelism = *j.Spec.Parallelism
+	}
 
 	return jobObject
 }
 
 func (pw *JobsWorker) summarize(jobObject *m.JobSchema) {
+	bag := (*pw.ConfigManager).Get()
 	//global metrics
 	summary, ok := pw.SummaryMap[m.ALL]
 	if !ok {
-		summary = m.NewClusterJobMetrics(pw.Bag, m.ALL, m.ALL)
+		summary = m.NewClusterJobMetrics(bag, m.ALL, m.ALL)
 		pw.SummaryMap[m.ALL] = summary
 	}
 
 	//namespace metrics
 	summaryNS, ok := pw.SummaryMap[jobObject.Namespace]
 	if !ok {
-		summaryNS = m.NewClusterJobMetrics(pw.Bag, m.ALL, jobObject.Namespace)
+		summaryNS = m.NewClusterJobMetrics(bag, m.ALL, jobObject.Namespace)
 		pw.SummaryMap[jobObject.Namespace] = summaryNS
 	}
 
 	summary.JobCount++
 	summaryNS.JobCount++
 
-	summary.ActiveCount += int64(jobObject.Active)
-	summary.FailedCount += int64(jobObject.Failed)
-	summary.SuccessCount += int64(jobObject.Success)
-	summary.Duration += int64(jobObject.Duration)
+	summary.JobActiveCount += int64(jobObject.Active)
+	summary.JobFailedCount += int64(jobObject.Failed)
+	summary.JobSuccessCount += int64(jobObject.Success)
+	summary.JobDuration += int64(jobObject.Duration)
 
-	summaryNS.ActiveCount += int64(jobObject.Active)
-	summaryNS.FailedCount += int64(jobObject.Failed)
-	summaryNS.SuccessCount += int64(jobObject.Success)
-	summaryNS.Duration += int64(jobObject.Duration)
+	summaryNS.JobActiveCount += int64(jobObject.Active)
+	summaryNS.JobFailedCount += int64(jobObject.Failed)
+	summaryNS.JobSuccessCount += int64(jobObject.Success)
+	summaryNS.JobDuration += int64(jobObject.Duration)
+
+	pw.SummaryMap[m.ALL] = summary
+	pw.SummaryMap[jobObject.Namespace] = summaryNS
 }
 
 func (pw JobsWorker) builAppDMetricsList() m.AppDMetricList {
@@ -282,6 +300,7 @@ func (pw *JobsWorker) eventQueueTicker(stop <-chan struct{}, ticker *time.Ticker
 }
 
 func (pw *JobsWorker) flushQueue() {
+	bag := (*pw.ConfigManager).Get()
 	bth := pw.AppdController.StartBT("FlushJobEventsQueue")
 	count := pw.WQ.Len()
 	fmt.Printf("Flushing the queue of %d records", count)
@@ -302,7 +321,7 @@ func (pw *JobsWorker) flushQueue() {
 		} else {
 			fmt.Println("Queue shut down")
 		}
-		if count == 0 || len(objList) >= pw.Bag.EventAPILimit {
+		if count == 0 || len(objList) >= bag.EventAPILimit {
 			fmt.Printf("Sending %d records to AppD events API\n", len(objList))
 			pw.postJobRecords(&objList)
 			return
@@ -312,26 +331,27 @@ func (pw *JobsWorker) flushQueue() {
 }
 
 func (pw *JobsWorker) postJobRecords(objList *[]m.JobSchema) {
+	bag := (*pw.ConfigManager).Get()
 	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	rc := app.NewRestClient(pw.Bag, logger)
+	rc := app.NewRestClient(bag, logger)
 	data, err := json.Marshal(objList)
 	schemaDefObj := m.NewPodSchemaDefWrapper()
 	schemaDef, e := json.Marshal(schemaDefObj)
 	fmt.Printf("Schema def: %s\n", string(schemaDef))
 	if err == nil && e == nil {
-		if rc.SchemaExists(pw.Bag.JobSchemaName) == false {
-			fmt.Printf("Creating schema. %s\n", pw.Bag.JobSchemaName)
-			schemaObj, err := rc.CreateSchema(pw.Bag.JobSchemaName, schemaDef)
+		if rc.SchemaExists(bag.JobSchemaName) == false {
+			fmt.Printf("Creating schema. %s\n", bag.JobSchemaName)
+			schemaObj, err := rc.CreateSchema(bag.JobSchemaName, schemaDef)
 			if err != nil {
 				return
 			} else if schemaObj != nil {
-				fmt.Printf("Schema %s created\n", pw.Bag.JobSchemaName)
+				fmt.Printf("Schema %s created\n", bag.JobSchemaName)
 			} else {
-				fmt.Printf("Schema %s exists\n", pw.Bag.JobSchemaName)
+				fmt.Printf("Schema %s exists\n", bag.JobSchemaName)
 			}
 		}
 		fmt.Println("About to post records")
-		rc.PostAppDEvents(pw.Bag.JobSchemaName, data)
+		rc.PostAppDEvents(bag.JobSchemaName, data)
 	} else {
 		fmt.Printf("Problems when serializing array of pod schemas. %v", err)
 	}

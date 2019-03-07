@@ -29,6 +29,10 @@ type RQFields struct {
 	Metadata      map[string]AppDMetricMetadata
 }
 
+func NewRQFields() RQFields {
+	return RQFields{RequestCpu: 0, RequestMemory: 0, LimitCpu: 0, LimitMemory: 0, StoragePod: 0, Storage: 0, PVC: 0, Pods: 0}
+}
+
 func (cpm RQFields) GetPath() string {
 
 	return cpm.Path
@@ -45,6 +49,17 @@ func (cpm RQFields) Unwrap() *map[string]interface{} {
 	objMap := structs.Map(cpm)
 
 	return &objMap
+}
+
+func (self RQFields) Increment(rqVals *RQFields) {
+	self.RequestCpu += rqVals.RequestCpu
+	self.RequestMemory += rqVals.RequestMemory
+	self.LimitCpu += rqVals.LimitCpu
+	self.LimitMemory += rqVals.LimitMemory
+	self.StoragePod += rqVals.StoragePod
+	self.Storage += rqVals.Storage
+	self.PVC += rqVals.PVC
+	self.Pods += rqVals.Pods
 }
 
 func NewRQ(rq *v1.ResourceQuota) RQSchema {
@@ -148,8 +163,19 @@ func NewRQ(rq *v1.ResourceQuota) RQSchema {
 }
 
 func (rq *RQSchema) AppliesToPod(podObject *PodSchema) bool {
-	//TODO: check rq selector
-	return !rq.PodsOnly && rq.Namespace == podObject.Namespace
+	check := !rq.PodsOnly && rq.Namespace == podObject.Namespace
+
+	return check
+}
+
+func (rq *RQSchema) AddQuotaStatsToNamespaceMetrics(metrics *ClusterPodMetrics) {
+	metrics.QuotasSpec = rq.Spec
+	metrics.QuotasUsed = rq.Used
+}
+
+func (rq *RQSchema) IncrementQuotaStatsClusterMetrics(metrics *ClusterPodMetrics) {
+	metrics.QuotasSpec.Increment(&rq.Spec)
+	metrics.QuotasUsed.Increment(&rq.Used)
 }
 
 func (rq *RQSchema) AddQuotaStatsToAppMetrics(metrics *ClusterAppMetrics) {

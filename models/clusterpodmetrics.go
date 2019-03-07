@@ -12,6 +12,9 @@ type ClusterPodMetrics struct {
 	Namespace          string
 	Nodename           string
 	PodCount           int64
+	NamespaceCount     int64
+	ServiceCount       int64
+	ExtServiceCount    int64
 	Evictions          int64
 	PodRestarts        int64
 	PodRunning         int64
@@ -35,6 +38,8 @@ type ClusterPodMetrics struct {
 	LimitMemory        int64
 	UseCpu             int64
 	UseMemory          int64
+	QuotasSpec         RQFields
+	QuotasUsed         RQFields
 }
 
 func (cpm ClusterPodMetrics) GetPath() string {
@@ -43,7 +48,7 @@ func (cpm ClusterPodMetrics) GetPath() string {
 }
 
 func (cpm ClusterPodMetrics) ShouldExcludeField(fieldName string) bool {
-	if fieldName == "Nodename" || fieldName == "Namespace" || fieldName == "Path" || fieldName == "Metadata" {
+	if fieldName == "Nodename" || fieldName == "Namespace" || fieldName == "Path" || fieldName == "Metadata" || fieldName == "QuotasSpec" || fieldName == "QuotasUsed" {
 		return true
 	}
 	return false
@@ -53,6 +58,20 @@ func (cpm ClusterPodMetrics) Unwrap() *map[string]interface{} {
 	objMap := structs.Map(cpm)
 
 	return &objMap
+}
+
+func (cpm ClusterPodMetrics) GetQuotaSpecMetrics() RQFields {
+
+	path := fmt.Sprintf("%s%s%s", cpm.GetPath(), METRIC_PATH_RQSPEC, METRIC_SEPARATOR)
+	cpm.QuotasSpec.Path = path
+	return cpm.QuotasSpec
+}
+
+func (cpm ClusterPodMetrics) GetQuotaUsedMetrics() RQFields {
+
+	path := fmt.Sprintf("%s%s%s", cpm.GetPath(), METRIC_PATH_RQUSED, METRIC_SEPARATOR)
+	cpm.QuotasUsed.Path = path
+	return cpm.QuotasUsed
 }
 
 func NewClusterPodMetrics(bag *AppDBag, ns string, node string) ClusterPodMetrics {
@@ -65,7 +84,8 @@ func NewClusterPodMetrics(bag *AppDBag, ns string, node string) ClusterPodMetric
 	return ClusterPodMetrics{Namespace: ns, Nodename: node, PodCount: 0, Evictions: 0,
 		PodRestarts: 0, PodRunning: 0, PodFailed: 0, PodPending: 0, PendingTime: 0, UpTime: 0, ContainerCount: 0, InitContainerCount: 0,
 		NoLimits: 0, NoReadinessProbe: 0, NoLivenessProbe: 0, Privileged: 0, RequestCpu: 0, RequestMemory: 0, LimitCpu: 0, LimitMemory: 0,
-		UseCpu: 0, UseMemory: 0, PodStorageRequest: 0, PodStorageLimit: 0, StorageRequest: 0, StorageCapacity: 0, Path: p}
+		UseCpu: 0, UseMemory: 0, PodStorageRequest: 0, PodStorageLimit: 0, StorageRequest: 0, StorageCapacity: 0, NamespaceCount: 0,
+		ServiceCount: 0, ExtServiceCount: 0, QuotasSpec: NewRQFields(), QuotasUsed: NewRQFields(), Path: p}
 }
 
 func NewClusterPodMetricsMetadata(bag *AppDBag, ns string, node string) ClusterPodMetrics {

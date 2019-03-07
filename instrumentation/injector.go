@@ -104,6 +104,9 @@ func (ai AgentInjector) EnsureInstrumentation(statusChanel chan m.AttachStatus, 
 		}
 	}
 
+	//if the instrumentation is not requested at the deployment level, check the cluster agent config
+	//namespace and/or label selector rules
+
 	if appName != "" {
 		fmt.Println("Instrumentation requested. Checking for necessary components...")
 

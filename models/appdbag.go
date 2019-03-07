@@ -13,6 +13,7 @@ type AppDBag struct {
 	AccessKey                   string
 	ControllerUrl               string
 	ControllerPort              uint16
+	RestAPIUrl                  string
 	SSLEnabled                  bool
 	SystemSSLCert               string
 	AgentSSLCert                string
@@ -28,6 +29,7 @@ type AppDBag struct {
 	LogSchemaName               string
 	DashboardTemplatePath       string
 	DashboardSuffix             string
+	DashboardDelayMin           int
 	JavaAgentVersion            string
 	AgentLabel                  string
 	AppDAppLabel                string

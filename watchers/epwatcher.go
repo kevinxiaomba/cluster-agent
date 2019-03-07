@@ -108,7 +108,7 @@ func (pw EndpointWatcher) CloneMap() map[string]v1.Endpoints {
 	defer lockEP.RUnlock()
 	m := make(map[string]v1.Endpoints)
 	for key, val := range pw.EndpointCache {
-		pw.EndpointCache[key] = val
+		m[key] = val
 	}
 
 	return m

@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -73,4 +74,17 @@ func RemoveFromSlice(s string, list []string) []string {
 	list[i] = list[len(list)-1]
 
 	return list[:len(list)-1]
+}
+
+func CloneMap(source map[string]interface{}) (map[string]interface{}, error) {
+	jsonStr, err := json.Marshal(source)
+	if err != nil {
+		return nil, err
+	}
+	var dest map[string]interface{}
+	err = json.Unmarshal(jsonStr, &dest)
+	if err != nil {
+		return nil, err
+	}
+	return dest, nil
 }

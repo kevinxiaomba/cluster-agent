@@ -5,30 +5,37 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	app "github.com/sjeltuhin/clusterAgent/appd"
 	m "github.com/sjeltuhin/clusterAgent/models"
+	"github.com/sjeltuhin/clusterAgent/utils"
 )
 
 const (
-	WIDGET_GAP   float64 = 10
-	FULL_CLUSTER string  = "/k8s_dashboard_template.json"
-	DEPLOY_BASE  string  = "/base_deploy_template.json"
-	TIER_SUMMARY string  = "/tier_stats_widget.json"
-	BACKGROUND   string  = "/background.json"
+	WIDGET_GAP      float64 = 10
+	FULL_CLUSTER    string  = "/cluster-template.json"
+	CLUSTER_WIDGETS string  = "/cluster-widgets.json"
+	DEPLOY_BASE     string  = "/base_deploy_template.json"
+	TIER_SUMMARY    string  = "/tier_stats_widget.json"
+	BACKGROUND      string  = "/background.json"
+	HEAT_MAP        string  = "/heatnodetemplate.json"
 )
 
 type DashboardWorker struct {
 	Bag            *m.AppDBag
 	Logger         *log.Logger
 	AppdController *app.ControllerClient
+	AdqlWorker     AdqlSearchWorker
 }
 
 func NewDashboardWorker(bag *m.AppDBag, l *log.Logger, appController *app.ControllerClient) DashboardWorker {
-	return DashboardWorker{bag, l, appController}
+	dw := DashboardWorker{bag, l, appController, NewAdqlSearchWorker(bag, l)}
+	return dw
 }
 
 func (dw *DashboardWorker) ensureClusterDashboard() error {
@@ -326,6 +333,191 @@ func (dw *DashboardWorker) validateTierDashboardBag(bag *m.DashboardBag) error {
 	return nil
 }
 
+//cluster dashboard
+func (dw *DashboardWorker) updateClusterOverview(bag *m.DashboardBag) error {
+	fileName := fmt.Sprintf("/deploy/%", FULL_CLUSTER)
+	dashboard, err, exists := dw.loadDashboardTemplate(fileName)
+	if err != nil && exists {
+		return fmt.Errorf("Cluster template exists, but cannot be loaded. %v", err)
+	}
+	dashName := fmt.Sprintf("Cluster-Overview-%s-%s", dw.Bag.AppName, dw.Bag.DashboardSuffix)
+	dashboard, err = dw.loadDashboard(dashName)
+	if dashboard == nil {
+		fmt.Printf("Not found. Creating cluster overview dashboard from scratch\n")
+		dashboard, err, exists = dw.loadDashboardTemplate(FULL_CLUSTER)
+		fmt.Printf("Load template %s. Error: %v, Exists: %t\n", FULL_CLUSTER, err, true)
+		if !exists {
+			return fmt.Errorf("Cluster overview template not found. Aborting dashboard generation")
+		}
+		if err != nil {
+			return fmt.Errorf("Cluster overview template exists, but cannot be loaded. %v", err)
+		}
+		dashboard.Name = dashName
+		dashboard, err = dw.createDashboard(dashboard)
+		fmt.Printf("Create dashboard result. Error: %v, \n", err)
+		if err != nil {
+			return err
+		}
+	}
+
+	if dashboard == nil {
+		return fmt.Errorf("Unable to build Cluster overview sashboard. Weird things do happen...")
+	}
+	//by this time we should have dashboard object with id
+	//load the template with all static widgets
+	widgetList, err, exists := dw.loadWidgetTemplate(CLUSTER_WIDGETS)
+	if err != nil && exists {
+		return fmt.Errorf("Cluster widget template exists, but cannot be loaded. %v\n", err)
+	}
+	if !exists {
+		return fmt.Errorf("Cluster widget template does not exist, skipping dashboard. %v\n", err)
+	}
+
+	dashboard.Widgets = *widgetList
+
+	//replace metric references
+	for _, widget := range dashboard.Widgets {
+		widget["dashboardId"] = dashboard.ID
+		dsTemplates, ok := widget["widgetsMetricMatchCriterias"]
+		if ok && dsTemplates != nil {
+			for _, t := range dsTemplates.([]interface{}) {
+				if t != nil {
+					mm, ok := t.(map[string]interface{})["metricMatchCriteria"]
+					if ok && mm != nil {
+						mmBlock := mm.(map[string]interface{})
+						mmBlock["applicationId"] = bag.ClusterAppID
+						exp, ok := mmBlock["metricExpression"]
+						if ok && exp != nil {
+							dw.updateMetricDefinition(exp.(map[string]interface{}), bag, &widget)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// save template for future use
+	_, errSave := dw.saveTemplate(dashboard, fileName)
+	if errSave != nil {
+		fmt.Printf("Issues when saving template for Cluster overview dashboard %s/%s\n", bag.Namespace, bag.TierName)
+	}
+
+	//add heat map
+	hotdash, heatErr := dw.addPodHeatMap(dashboard, bag)
+	if heatErr != nil {
+		fmt.Printf("Unable to add heatmap to the cluster dashboard. %v\n", heatErr)
+		return heatErr
+	}
+	errSaveDash := dw.saveDashboard(hotdash)
+	fmt.Printf("saveDashboard. %v\n", errSaveDash)
+
+	return nil
+}
+
+func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.DashboardBag) (*m.Dashboard, error) {
+	//w/h:1103 x 235
+	//pos: 14 x 429
+	//min size: 10/10
+	//start: 26 x 466
+	backWidth := 1103
+	backTop := 429
+	startLine := 466
+	backHeight := 235
+	minSize := 10
+	leftMargin := 26
+	nodeMargin := minSize
+
+	currentX := leftMargin
+	currentY := startLine
+
+	width := 10
+	height := 10
+
+	numPods := len(bag.HeatNodes)
+	availableArea := (backWidth-2*nodeMargin)*backHeight - (startLine - backTop)
+	areaPerNode := math.Round(float64(availableArea / numPods))
+	side := areaPerNode / 2
+	if side > float64(minSize+nodeMargin) {
+		nodeMargin = int(math.Round(side / 2))
+		width = nodeMargin
+		height = nodeMargin
+	}
+	rightMargin := backWidth - nodeMargin - minSize
+	lastLine := backTop + backHeight - nodeMargin - height
+
+	//heat background
+	bkwidgetList, err, exists := dw.loadWidgetTemplate(BACKGROUND)
+	if err != nil && exists {
+		return nil, fmt.Errorf("Background template exists, but cannot be loaded. %v\n", err)
+	}
+	if !exists {
+		return nil, fmt.Errorf("Background template does not exist, skipping cluster dashboard. %v\n", err)
+	}
+	backgroundWidet := (*bkwidgetList)[0]
+	backgroundWidet["height"] = backHeight
+	backgroundWidet["width"] = backWidth
+	backgroundWidet["x"] = 14
+	backgroundWidet["y"] = 429
+
+	widgetList, err, exists := dw.loadWidgetTemplate(HEAT_MAP)
+	if err != nil && exists {
+		return nil, fmt.Errorf("Heatmap template exists, but cannot be loaded. %v\n", err)
+	}
+	if !exists {
+		return nil, fmt.Errorf("Heatmap template does not exist, skipping dashboard for deployment %s/%s. %v\n", bag.Namespace, bag.TierName, err)
+	}
+	heatWidet := (*widgetList)[0]
+	dotArray := []map[string]interface{}{}
+	for _, hn := range bag.HeatNodes {
+		dot, err := utils.CloneMap(heatWidet)
+		if err != nil {
+			return nil, fmt.Errorf("Heatmap template is invalid. %v\n", err)
+		}
+		dot["dashboardId"] = dashboard.ID
+		dot["height"] = height
+		dot["width"] = width
+		dot["description"] = fmt.Sprintf("%s/%s %s", hn.Namespace, hn.Podname, hn.Nodename)
+
+		//color
+		c := "000000"
+		if hn.State == "Running" {
+			c = "009900" //"0084E5"
+		} else if hn.State == "Pending" {
+			c = "FD6312"
+		} else if hn.State == "Failed" {
+			c = "CC0000"
+		}
+		n, _ := strconv.ParseUint(c, 16, 32)
+		colorCode := uint32(n)
+		dot["backgroundColor"] = colorCode
+		dot["color"] = colorCode
+		dot["backgroundColors"] = []uint32{colorCode, colorCode}
+
+		//position
+		dot["x"] = currentX
+		dot["y"] = currentY
+
+		currentX = currentX + minSize + nodeMargin
+		if currentX > rightMargin {
+			currentX = leftMargin
+			currentY = currentY + minSize + nodeMargin
+			if currentY > lastLine {
+				//make the background taller
+				lastLine = lastLine + minSize + nodeMargin
+				backgroundWidet["height"] = lastLine + minSize + nodeMargin
+			}
+		}
+		dotArray = append(dotArray, dot)
+
+	}
+	dashboard.Widgets = append(dashboard.Widgets, backgroundWidet)
+	for _, d := range dotArray {
+		dashboard.Widgets = append(dashboard.Widgets, d)
+	}
+
+	return dashboard, nil
+}
+
 //dynamic dashboard
 func (dw *DashboardWorker) updateTierDashboard(bag *m.DashboardBag) error {
 	valErr := dw.validateTierDashboardBag(bag)
@@ -506,7 +698,16 @@ func (dw *DashboardWorker) updateMetricName(expTemplate map[string]interface{}, 
 	if expTemplate["logicalMetricName"] == nil {
 		return
 	}
-	metricPath := fmt.Sprintf(expTemplate["logicalMetricName"].(string), dw.Bag.TierName, dashBag.Namespace, dashBag.TierName)
+	rawPath := expTemplate["logicalMetricName"].(string)
+	metricPath := ""
+	if dashBag.Type == m.Cluster {
+		metricPath = fmt.Sprintf(rawPath, dw.Bag.TierName)
+	}
+
+	if dashBag.Type == m.Tier {
+		metricPath = fmt.Sprintf(rawPath, dw.Bag.TierName, dashBag.Namespace, dashBag.TierName)
+	}
+
 	metricID, err := dw.AppdController.GetMetricID(metricPath)
 	if err != nil {
 		dw.Logger.Printf("Cannot get metric ID for %s. %v\n", metricPath, err)
@@ -516,6 +717,17 @@ func (dw *DashboardWorker) updateMetricName(expTemplate map[string]interface{}, 
 	expTemplate["logicalMetricName"] = metricPath
 	scopeBlock := expTemplate["scope"].(map[string]interface{})
 	scopeBlock["entityId"] = dashBag.ClusterTierID
+
+	//update drilldown if cluster level dash
+	if dashBag.Type == m.Cluster {
+		searchPath := dw.AdqlWorker.GetSearch(rawPath)
+		if searchPath != "" && (*parentWidget)["drillDownUrl"] == "" {
+			(*parentWidget)["drillDownUrl"] = searchPath
+			(*parentWidget)["useMetricBrowserAsDrillDown"] = false
+		} else {
+			(*parentWidget)["useMetricBrowserAsDrillDown"] = true
+		}
+	}
 }
 
 func (dw *DashboardWorker) updateMetricsExpression(expTemplate map[string]interface{}, dashBag *m.DashboardBag, parentWidget *map[string]interface{}) {

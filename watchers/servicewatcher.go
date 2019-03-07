@@ -107,7 +107,7 @@ func (pw ServiceWatcher) CloneMap() map[string]v1.Service {
 	defer lockServices.RUnlock()
 	m := make(map[string]v1.Service)
 	for key, val := range pw.SvcCache {
-		pw.SvcCache[key] = val
+		m[key] = val
 	}
 
 	return m

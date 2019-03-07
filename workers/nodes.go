@@ -364,7 +364,7 @@ func (pw *NodesWorker) processObject(n *v1.Node, old *v1.Node) (m.NodeSchema, bo
 			nodeObject.MemCapacity = c.Value()
 		}
 		if key == "cpu" {
-			nodeObject.CpuCapacity = c.Value()
+			nodeObject.CpuCapacity = c.Value() * 1000 //milli
 		}
 		if key == "pods" {
 			nodeObject.PodCapacity = c.Value()

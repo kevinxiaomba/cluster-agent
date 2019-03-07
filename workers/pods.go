@@ -64,6 +64,7 @@ type PodWorker struct {
 	PVCWatcher          *w.PVCWatcher
 	RQWatcher           *w.RQWatcher
 	DashboardCache      map[string]m.PodSchema
+	DelayDashboard      bool
 }
 
 var lockOwnerMap = sync.RWMutex{}
@@ -82,6 +83,7 @@ func NewPodWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, c
 	pw.EndpointWatcher = w.NewEndpointWatcher(client, cm)
 	pw.PVCWatcher = w.NewPVCWatcher(client, cm)
 	pw.RQWatcher = w.NewRQWatcher(client, cm)
+	pw.DelayDashboard = true
 	return pw
 }
 
@@ -179,7 +181,15 @@ func (pw *PodWorker) GetKnownNamespaces() map[string]string {
 }
 
 func (pw *PodWorker) GetKnownDeployments() map[string]string {
-	return pw.OwnerMap
+	lockOwnerMap.RLock()
+	defer lockOwnerMap.RUnlock()
+
+	m := make(map[string]string)
+	for key, val := range pw.OwnerMap {
+		m[key] = val
+	}
+
+	return m
 }
 
 func (pw *PodWorker) startEventQueueWorker(stopCh <-chan struct{}) {
@@ -410,6 +420,14 @@ func (pw PodWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 
 	go pw.PVCWatcher.WatchPVC()
 
+	//dashbard timer
+	dashTimer := time.NewTimer(time.Minute * 7)
+	go func() {
+		<-dashTimer.C
+		pw.DelayDashboard = false
+		fmt.Println("Dashboard delay lifted")
+	}()
+
 	<-stopCh
 }
 
@@ -462,28 +480,31 @@ func (pw *PodWorker) buildAppDMetrics() {
 	dash := make(map[string]m.DashboardBag)
 	fmt.Printf("Deployments configured for dashboarding: %s \n", bag.DeploysToDashboard)
 
+	heatMapData := []m.HeatNode{}
 	var count int = 0
 	for _, obj := range pw.informer.GetStore().List() {
 		podObject := obj.(*v1.Pod)
 		podSchema, _ := pw.processObject(podObject, nil)
 		pw.summarize(&podSchema)
+		heatNode := m.NewHeatNode(podSchema.Namespace, podSchema.NodeName, podSchema.Name, podSchema.Phase, podSchema.AppID > 0)
+		heatMapData = append(heatMapData, heatNode)
 		count++
 		//should build the dashboard
 		if pw.shouldUpdateDashboard(&podSchema) {
 			key := utils.GetKey(podSchema.Namespace, podSchema.Owner)
-			bag, ok := dash[key]
+			dashBag, ok := dash[key]
 			if !ok {
-				bag = m.NewDashboardBag(podSchema.Namespace, podSchema.Owner, []m.PodSchema{})
-				bag.AppName = podSchema.AppName
-				bag.ClusterName = podSchema.ClusterName
-				bag.ClusterAppID = bag.AppID
-				bag.ClusterTierID = bag.TierID
-				bag.AppID = podSchema.AppID
-				bag.TierID = podSchema.TierID
-				bag.NodeID = podSchema.NodeID
+				dashBag = m.NewDashboardBagTier(podSchema.Namespace, podSchema.Owner, []m.PodSchema{})
+				dashBag.AppName = podSchema.AppName
+				dashBag.ClusterName = podSchema.ClusterName
+				dashBag.ClusterAppID = bag.AppID
+				dashBag.ClusterTierID = bag.TierID
+				dashBag.AppID = podSchema.AppID
+				dashBag.TierID = podSchema.TierID
+				dashBag.NodeID = podSchema.NodeID
 			}
-			bag.Pods = append(bag.Pods, podSchema)
-			dash[key] = bag
+			dashBag.Pods = append(dashBag.Pods, podSchema)
+			dash[key] = dashBag
 		}
 	}
 	fmt.Printf("Unique metrics: %d\n", count)
@@ -494,7 +515,15 @@ func (pw *PodWorker) buildAppDMetrics() {
 
 	pw.AppdController.PostMetrics(ml)
 	pw.AppdController.StopBT(bth)
-	if len(dash) > 0 {
+
+	//delay dashboard generation
+	if !pw.DelayDashboard {
+		//create cluster dashboard bag
+		clusterBag := m.NewDashboardBagCluster(heatMapData)
+		clusterBag.ClusterName = bag.AppName
+		clusterBag.ClusterAppID = bag.AppID
+		clusterBag.ClusterTierID = bag.TierID
+		dash[bag.AppName] = clusterBag
 		fmt.Printf("Number of dashboards to be updated %d\n", len(dash))
 		go pw.buildDashboards(dash)
 	}
@@ -547,6 +576,12 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 	summary, okSum := pw.SummaryMap[m.ALL]
 	if !okSum {
 		summary = m.NewClusterPodMetrics(bag, m.ALL, m.ALL)
+		summary.ServiceCount = int64(len(pw.ServiceCache))
+		for _, svc := range pw.ServiceCache {
+			if svc.HasExternalService {
+				summary.ExtServiceCount++
+			}
+		}
 		pw.SummaryMap[m.ALL] = summary
 	}
 
@@ -561,7 +596,16 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 	summaryNS, okNS := pw.SummaryMap[podObject.Namespace]
 	if !okNS {
 		summaryNS = m.NewClusterPodMetrics(bag, podObject.Namespace, m.ALL)
+		for _, svc := range pw.ServiceCache {
+			if svc.Namespace == podObject.Namespace {
+				summaryNS.ServiceCount++
+				if svc.HasExternalService {
+					summary.ExtServiceCount++
+				}
+			}
+		}
 		pw.SummaryMap[podObject.Namespace] = summaryNS
+		summary.NamespaceCount++
 	}
 
 	//app/tier metrics
@@ -582,6 +626,8 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 		}
 		if theQuota != nil {
 			theQuota.AddQuotaStatsToAppMetrics(&summaryApp)
+			theQuota.AddQuotaStatsToNamespaceMetrics(&summaryNS)
+			theQuota.IncrementQuotaStatsClusterMetrics(&summary)
 		}
 	}
 
@@ -693,10 +739,6 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 	summaryApp.UseCpu += podObject.CpuUse
 	summaryApp.UseMemory += podObject.MemUse
 
-	pw.SummaryMap[m.ALL] = summary
-	pw.SummaryMap[podObject.Namespace] = summaryNS
-	pw.SummaryMap[podObject.NodeName] = summaryNode
-
 	//app summary for containers
 	if !podObject.IsEvicted {
 		for _, c := range podObject.Containers {
@@ -716,6 +758,16 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 				summaryContainer.StorageRequest = c.StorageRequest
 				summaryContainer.StorageCapacity = c.StorageCapacity
 
+				summary.PodStorageLimit += c.PodStorageLimit
+				summary.PodStorageRequest += c.PodStorageRequest
+				summary.StorageCapacity += c.StorageCapacity
+				summary.StorageRequest += c.StorageRequest
+
+				summaryNS.PodStorageLimit += c.PodStorageLimit
+				summaryNS.PodStorageRequest += c.PodStorageRequest
+				summaryNS.StorageCapacity += c.StorageCapacity
+				summaryNS.StorageRequest += c.StorageRequest
+
 				if !c.LimitsDefined {
 					summaryContainer.NoLimits = int64(1)
 				}
@@ -732,7 +784,11 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 			}
 		}
 	}
+
 	pw.AppSummaryMap[podObject.Owner] = summaryApp
+	pw.SummaryMap[m.ALL] = summary
+	pw.SummaryMap[podObject.Namespace] = summaryNS
+	pw.SummaryMap[podObject.NodeName] = summaryNode
 }
 
 func (pw *PodWorker) nextContainerInstance(podObject *m.PodSchema, c m.ContainerSchema) (*m.ClusterInstanceMetrics, string) {
@@ -1052,7 +1108,7 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 
 			for _, st := range p.Status.ContainerStatuses {
 				containerObj := findContainer(&podObject, st.Name)
-				pw.updateConatinerStatus(&podObject, containerObj, st)
+				pw.updateConatainerStatus(&podObject, containerObj, st)
 			}
 
 			//determine start time
@@ -1076,7 +1132,7 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 
 			for _, st := range p.Status.InitContainerStatuses {
 				containerObj := findInitContainer(&podObject, st.Name)
-				pw.updateConatinerStatus(&podObject, containerObj, st)
+				pw.updateConatainerStatus(&podObject, containerObj, st)
 			}
 		}
 
@@ -1133,7 +1189,7 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 	return podObject, changed
 }
 
-func (pw PodWorker) updateConatinerStatus(podObject *m.PodSchema, containerObj *m.ContainerSchema, st v1.ContainerStatus) {
+func (pw PodWorker) updateConatainerStatus(podObject *m.PodSchema, containerObj *m.ContainerSchema, st v1.ContainerStatus) {
 	bag := (*pw.ConfManager).Get()
 	if containerObj != nil {
 		containerObj.Restarts = st.RestartCount
@@ -1504,6 +1560,14 @@ func (pw PodWorker) builAppDMetricsList() m.AppDMetricList {
 	for _, metricPod := range pw.SummaryMap {
 		objMap := metricPod.Unwrap()
 		pw.addMetricToList(*objMap, metricPod, &list)
+		//quotas
+		quotaSpecs := metricPod.GetQuotaSpecMetrics()
+		qsMap := quotaSpecs.Unwrap()
+		pw.addMetricToList(*qsMap, quotaSpecs, &list)
+
+		quotaUsed := metricPod.GetQuotaUsedMetrics()
+		quMap := quotaUsed.Unwrap()
+		pw.addMetricToList(*quMap, quotaUsed, &list)
 	}
 	for _, metricApp := range pw.AppSummaryMap {
 		objMap := metricApp.Unwrap()
@@ -1565,8 +1629,11 @@ func (pw *PodWorker) buildDashboards(dashData map[string]m.DashboardBag) {
 	pw.DashboardCache = make(map[string]m.PodSchema)
 	dw := NewDashboardWorker(bag, pw.Logger, pw.AppdController)
 	for _, bag := range dashData {
-		if len(bag.Pods) > 0 {
+		if bag.Type == "tier" && len(bag.Pods) > 0 {
 			dw.updateTierDashboard(&bag)
+		}
+		if bag.Type == "cluster" {
+			dw.updateClusterOverview(&bag)
 		}
 	}
 	pw.AppdController.StopBT(bth)

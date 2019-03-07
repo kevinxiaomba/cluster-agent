@@ -1,0 +1,24 @@
+{
+	"version": 0,
+    "name": "cluster-template",
+    "template": false,
+    "templateEntityType": "APPLICATION_COMPONENT_NODE",
+    "backgroundColor": 15395562,
+    "color": 15395562,
+    "endDate": null,
+    "refreshInterval": 120000,
+    "widgets": [
+        
+    ],
+    "description": null,
+    "canvasType": "CANVAS_TYPE_ABSOLUTE",
+    "minutesBeforeAnchorTime": -1,
+    "dashboardFormatVersion": "4.0",
+    "width": 1500,
+    "associatedEntityTemplates": null,
+    "layoutType": "",
+    "warRoom": false,
+    "properties": null,
+    "startDate": null,
+    "height": 1000
+}

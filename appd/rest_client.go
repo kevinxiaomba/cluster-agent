@@ -162,13 +162,7 @@ func (rc *RestClient) GetRestAuth() (AppDRestAuth, error) {
 }
 
 func (rc *RestClient) getControllerUrl() string {
-	controllerHost := rc.Bag.ControllerUrl
-	if rc.Bag.SSLEnabled {
-		controllerHost = fmt.Sprintf("https://%s/controller/", controllerHost)
-	} else {
-		controllerHost = fmt.Sprintf("http://%s:%d/controller/", controllerHost, rc.Bag.ControllerPort)
-	}
-	return controllerHost
+	return rc.Bag.RestAPIUrl
 }
 
 func (rc *RestClient) CallAppDController(path, method string, data []byte) ([]byte, error) {

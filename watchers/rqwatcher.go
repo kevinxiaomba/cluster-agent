@@ -109,7 +109,7 @@ func (pw RQWatcher) CloneMap() map[string]v1.ResourceQuota {
 	defer lockRQ.RUnlock()
 	m := make(map[string]v1.ResourceQuota)
 	for key, val := range pw.RQCache {
-		pw.RQCache[key] = val
+		m[key] = val
 	}
 
 	return m

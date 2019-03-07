@@ -7,14 +7,14 @@ import (
 )
 
 type ClusterJobMetrics struct {
-	Path         string
-	Metadata     map[string]AppDMetricMetadata
-	Namespace    string
-	JobCount     int64
-	ActiveCount  int64
-	SuccessCount int64
-	FailedCount  int64
-	Duration     int64
+	Path            string
+	Metadata        map[string]AppDMetricMetadata
+	Namespace       string
+	JobCount        int64
+	JobActiveCount  int64
+	JobSuccessCount int64
+	JobFailedCount  int64
+	JobDuration     int64
 }
 
 func (cpm ClusterJobMetrics) Unwrap() *map[string]interface{} {
@@ -28,8 +28,8 @@ func NewClusterJobMetrics(bag *AppDBag, ns string, node string) ClusterJobMetric
 	if ns != "" && ns != ALL {
 		p = fmt.Sprintf("%s%s%s%s%s", p, METRIC_PATH_NAMESPACES, METRIC_SEPARATOR, ns, METRIC_SEPARATOR)
 	}
-	return ClusterJobMetrics{Namespace: ns, JobCount: 0, ActiveCount: 0,
-		SuccessCount: 0, FailedCount: 0, Duration: 0, Path: p}
+	return ClusterJobMetrics{Namespace: ns, JobCount: 0, JobActiveCount: 0,
+		JobSuccessCount: 0, JobFailedCount: 0, JobDuration: 0, Path: p}
 }
 
 func NewClusterJobMetricsMetadata(bag *AppDBag, ns string, node string) ClusterJobMetrics {
