@@ -421,7 +421,8 @@ func (pw PodWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	go pw.PVCWatcher.WatchPVC()
 
 	//dashbard timer
-	dashTimer := time.NewTimer(time.Minute * 7)
+	bag := (*pw.ConfManager).Get()
+	dashTimer := time.NewTimer(time.Minute * time.Duration(bag.DashboardDelayMin))
 	go func() {
 		<-dashTimer.C
 		pw.DelayDashboard = false
@@ -486,7 +487,7 @@ func (pw *PodWorker) buildAppDMetrics() {
 		podObject := obj.(*v1.Pod)
 		podSchema, _ := pw.processObject(podObject, nil)
 		pw.summarize(&podSchema)
-		heatNode := m.NewHeatNode(podSchema.Namespace, podSchema.NodeName, podSchema.Name, podSchema.Phase, podSchema.AppID > 0)
+		heatNode := m.NewHeatNode(podSchema)
 		heatMapData = append(heatMapData, heatNode)
 		count++
 		//should build the dashboard
@@ -581,18 +582,25 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 			if svc.HasExternalService {
 				summary.ExtServiceCount++
 			}
+			total, ready, notready := svc.GetEndPointsStats()
+			summary.EndpointCount += int64(total)
+			summary.EPReadyCount += int64(len(ready))
+			summary.EPNotReadyCount += int64(len(notready))
+			if len(ready) == 0 && len(notready) == 0 {
+				summary.OrphanService++
+			}
 		}
 		pw.SummaryMap[m.ALL] = summary
 	}
 
-	//namespace metrics
+	//node metrics
 	summaryNode, okNode := pw.SummaryMap[podObject.NodeName]
 	if !okNode {
 		summaryNode = m.NewClusterPodMetrics(bag, m.ALL, podObject.NodeName)
 		pw.SummaryMap[podObject.NodeName] = summaryNode
 	}
 
-	//node metrics
+	// namespace metrics
 	summaryNS, okNS := pw.SummaryMap[podObject.Namespace]
 	if !okNS {
 		summaryNS = m.NewClusterPodMetrics(bag, podObject.Namespace, m.ALL)
@@ -601,6 +609,13 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 				summaryNS.ServiceCount++
 				if svc.HasExternalService {
 					summary.ExtServiceCount++
+				}
+				total, ready, notready := svc.GetEndPointsStats()
+				summaryNS.EndpointCount += int64(total)
+				summaryNS.EPReadyCount += int64(len(ready))
+				summaryNS.EPNotReadyCount += int64(len(notready))
+				if len(ready) == 0 && len(notready) == 0 {
+					summaryNS.OrphanService++
 				}
 			}
 		}
@@ -809,13 +824,17 @@ func (pw *PodWorker) nextContainerInstance(podObject *m.PodSchema, c m.Container
 func (pw *PodWorker) getPodOwner(p *v1.Pod) string {
 	owner := ""
 	for k, v := range p.Labels {
-		if k == "name" {
+		if strings.ToLower(k) == "name" {
 			owner = v
 		}
 	}
 
 	if owner == "" && len(p.OwnerReferences) > 0 {
 		owner = p.OwnerReferences[0].Name
+	}
+
+	if owner == "" {
+		owner = p.Name
 	}
 	return owner
 }

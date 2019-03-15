@@ -141,6 +141,12 @@ func (c *MainController) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	go c.startDeployWorker(stopCh, c.K8sClient, wg, appdController)
 
 	wg.Add(1)
+	go c.startDaemonWorker(stopCh, c.K8sClient, wg, appdController)
+
+	wg.Add(1)
+	go c.startRsWorker(stopCh, c.K8sClient, wg, appdController)
+
+	wg.Add(1)
 	go c.startJobsWorker(stopCh, c.K8sClient, wg, appdController)
 
 	//	<-stopCh
@@ -172,6 +178,22 @@ func (c *MainController) startDeployWorker(stopCh <-chan struct{}, client *kuber
 	fmt.Println("Starting Deployment worker")
 	defer wg.Done()
 	pw := NewDeployWorker(client, c.ConfManager, appdController)
+	pw.Observe(stopCh, wg)
+	<-stopCh
+}
+
+func (c *MainController) startDaemonWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
+	fmt.Println("Starting Daemon worker")
+	defer wg.Done()
+	pw := NewDaemonWorker(client, c.ConfManager, appdController)
+	pw.Observe(stopCh, wg)
+	<-stopCh
+}
+
+func (c *MainController) startRsWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
+	fmt.Println("Starting ReplicaSet worker")
+	defer wg.Done()
+	pw := NewRsWorker(client, c.ConfManager, appdController)
 	pw.Observe(stopCh, wg)
 	<-stopCh
 }

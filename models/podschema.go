@@ -189,6 +189,14 @@ func (p PodSchema) ToString() string {
 		p.Images, p.WaitReasons, p.TermReasons, p.RunningStartTime.String(), p.TerminationTime.String(), p.PendingTime)
 }
 
+func (p PodSchema) GetState() string {
+	if p.IsEvicted {
+		return "Evicted"
+	} else {
+		return p.Phase
+	}
+}
+
 func (l PodObjList) AddItem(obj PodSchema) []PodSchema {
 	l.Items = append(l.Items, obj)
 	return l.Items

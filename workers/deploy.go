@@ -1,8 +1,11 @@
 package workers
 
 import (
-	//	"encoding/json"
+	"encoding/json"
 	"fmt"
+	"log"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,8 +28,8 @@ import (
 type DeployWorker struct {
 	informer       cache.SharedIndexInformer
 	Client         *kubernetes.Clientset
-	ConfManager    *config.MutexConfigManager
-	SummaryMap     map[string]m.ClusterPodMetrics
+	ConfigManager  *config.MutexConfigManager
+	SummaryMap     map[string]m.ClusterDeployMetrics
 	WQ             workqueue.RateLimitingInterface
 	AppdController *app.ControllerClient
 	PendingCache   []string
@@ -35,7 +38,7 @@ type DeployWorker struct {
 
 func NewDeployWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient) DeployWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
-	dw := DeployWorker{Client: client, ConfManager: cm, SummaryMap: make(map[string]m.ClusterPodMetrics), WQ: queue,
+	dw := DeployWorker{Client: client, ConfigManager: cm, SummaryMap: make(map[string]m.ClusterDeployMetrics), WQ: queue,
 		AppdController: controller, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus)}
 	dw.initDeployInformer(client)
 	return dw
@@ -72,13 +75,19 @@ func (dw *DeployWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	wg.Add(1)
 	go dw.informer.Run(stopCh)
 
+	wg.Add(1)
+	go dw.startMetricsWorker(stopCh)
+
+	wg.Add(1)
+	go dw.startEventQueueWorker(stopCh)
+
 	<-stopCh
 }
 
 func (pw *DeployWorker) qualifies(p *appsv1.Deployment) bool {
-	return (len((*pw.ConfManager).Get().IncludeNsToInstrument) == 0 ||
-		utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().IncludeNsToInstrument)) &&
-		!utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().ExcludeNsToInstrument)
+	return (len((*pw.ConfigManager).Get().IncludeNsToInstrument) == 0 ||
+		utils.StringInSlice(p.Namespace, (*pw.ConfigManager).Get().IncludeNsToInstrument)) &&
+		!utils.StringInSlice(p.Namespace, (*pw.ConfigManager).Get().ExcludeNsToInstrument)
 }
 
 func (dw *DeployWorker) onNewDeployment(obj interface{}) {
@@ -87,6 +96,9 @@ func (dw *DeployWorker) onNewDeployment(obj interface{}) {
 		return
 	}
 	fmt.Printf("Added Deployment: %s\n", deployObj.Name)
+
+	deployRecord, _ := dw.processObject(deployObj, nil)
+	dw.WQ.Add(&deployRecord)
 
 	init, biq, agentRequests := dw.shouldUpdate(deployObj)
 	if init || biq {
@@ -108,6 +120,10 @@ func (dw *DeployWorker) onUpdateDeployment(objOld interface{}, objNew interface{
 		return
 	}
 	fmt.Printf("Deployment %s changed\n", deployObj.Name)
+
+	deployRecord, _ := dw.processObject(deployObj, nil)
+	dw.WQ.Add(&deployRecord)
+
 	init, biq, agentRequests := dw.shouldUpdate(deployObj)
 	if init || biq {
 		fmt.Printf("Update is required. Init: %t. BiQ: %t\n", init, biq)
@@ -115,29 +131,278 @@ func (dw *DeployWorker) onUpdateDeployment(objOld interface{}, objNew interface{
 	}
 }
 
+func (pw *DeployWorker) startMetricsWorker(stopCh <-chan struct{}) {
+	bag := (*pw.ConfigManager).Get()
+	pw.appMetricTicker(stopCh, time.NewTicker(time.Duration(bag.MetricsSyncInterval)*time.Second))
+
+}
+
+func (pw *DeployWorker) appMetricTicker(stop <-chan struct{}, ticker *time.Ticker) {
+	for {
+		select {
+		case <-ticker.C:
+			pw.buildAppDMetrics()
+		case <-stop:
+			ticker.Stop()
+			return
+		}
+	}
+}
+
+func (pw *DeployWorker) eventQueueTicker(stop <-chan struct{}, ticker *time.Ticker) {
+	for {
+		select {
+		case <-ticker.C:
+			pw.flushQueue()
+		case <-stop:
+			ticker.Stop()
+			return
+		}
+	}
+}
+
+func (pw *DeployWorker) startEventQueueWorker(stopCh <-chan struct{}) {
+	bag := (*pw.ConfigManager).Get()
+	pw.eventQueueTicker(stopCh, time.NewTicker(time.Duration(bag.SnapshotSyncInterval)*time.Second))
+}
+
+func (pw *DeployWorker) flushQueue() {
+	bag := (*pw.ConfigManager).Get()
+	bth := pw.AppdController.StartBT("FlushDeploymentDataQueue")
+	count := pw.WQ.Len()
+	if count > 0 {
+		fmt.Printf("Flushing the queue of %d deployment records\n", count)
+	}
+	if count == 0 {
+		pw.AppdController.StopBT(bth)
+		return
+	}
+
+	var objList []m.DeploySchema
+
+	var deployRecord *m.DeploySchema
+	var ok bool = true
+
+	for count >= 0 {
+		deployRecord, ok = pw.getNextQueueItem()
+		count = count - 1
+		if ok {
+			objList = append(objList, *deployRecord)
+		} else {
+			fmt.Println("Queue shut down")
+		}
+		if count == 0 || len(objList) >= bag.EventAPILimit {
+			fmt.Printf("Sending %d deployment records to AppD events API\n", len(objList))
+			pw.postDeployRecords(&objList)
+			pw.AppdController.StopBT(bth)
+			return
+		}
+	}
+	pw.AppdController.StopBT(bth)
+}
+
+func (pw *DeployWorker) postDeployRecords(objList *[]m.DeploySchema) {
+	bag := (*pw.ConfigManager).Get()
+	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
+	rc := app.NewRestClient(bag, logger)
+	data, err := json.Marshal(objList)
+	schemaDefObj := m.NewDeploySchemaDefWrapper()
+	schemaDef, e := json.Marshal(schemaDefObj)
+	if err == nil && e == nil {
+		if rc.SchemaExists(bag.DeploySchemaName) == false {
+			fmt.Printf("Creating schema. %s\n", bag.DeploySchemaName)
+			schemaObj, err := rc.CreateSchema(bag.DeploySchemaName, schemaDef)
+			if err != nil {
+				return
+			} else if schemaObj != nil {
+				fmt.Printf("Schema %s created\n", bag.DeploySchemaName)
+			} else {
+				fmt.Printf("Schema %s exists\n", bag.DeploySchemaName)
+			}
+		}
+		fmt.Println("About to post records")
+		rc.PostAppDEvents(bag.DeploySchemaName, data)
+	} else {
+		fmt.Printf("Problems when serializing array of pod schemas. %v\n", err)
+	}
+}
+
+func (pw *DeployWorker) getNextQueueItem() (*m.DeploySchema, bool) {
+	deployRecord, quit := pw.WQ.Get()
+
+	if quit {
+		return deployRecord.(*m.DeploySchema), false
+	}
+	defer pw.WQ.Done(deployRecord)
+	pw.WQ.Forget(deployRecord)
+
+	return deployRecord.(*m.DeploySchema), true
+}
+
+func (pw *DeployWorker) buildAppDMetrics() {
+	bth := pw.AppdController.StartBT("PostDeploymentMetrics")
+	pw.SummaryMap = make(map[string]m.ClusterDeployMetrics)
+
+	var count int = 0
+	for _, obj := range pw.informer.GetStore().List() {
+		deployObject := obj.(*appsv1.Deployment)
+		deploySchema, _ := pw.processObject(deployObject, nil)
+		pw.summarize(&deploySchema)
+		count++
+	}
+
+	fmt.Printf("Unique deployment metrics: %d\n", count)
+
+	ml := pw.builAppDMetricsList()
+
+	fmt.Printf("Ready to push %d deployment metrics\n", len(ml.Items))
+
+	pw.AppdController.PostMetrics(ml)
+	pw.AppdController.StopBT(bth)
+}
+
+func (pw *DeployWorker) summarize(deployObject *m.DeploySchema) {
+	bag := (*pw.ConfigManager).Get()
+	//global metrics
+	summary, okSum := pw.SummaryMap[m.ALL]
+	if !okSum {
+		summary = m.NewClusterDeployMetrics(bag, m.ALL)
+		pw.SummaryMap[m.ALL] = summary
+	}
+
+	//namespace metrics
+	summaryNS, okNS := pw.SummaryMap[deployObject.Namespace]
+	if !okNS {
+		summaryNS = m.NewClusterDeployMetrics(bag, deployObject.Namespace)
+		pw.SummaryMap[deployObject.Namespace] = summaryNS
+	}
+
+	summary.DeployCount++
+	summaryNS.DeployCount++
+
+	summary.DeployReplicas = summary.DeployReplicas + int64(deployObject.Replicas)
+	summaryNS.DeployReplicas = summaryNS.DeployReplicas + int64(deployObject.Replicas)
+
+	summary.DeployReplicasUnAvailable = summary.DeployReplicasUnAvailable + int64(deployObject.ReplicasUnAvailable)
+	summaryNS.DeployReplicasUnAvailable = summaryNS.DeployReplicasUnAvailable + int64(deployObject.ReplicasUnAvailable)
+
+	summary.DeployCollisionCount = summary.DeployCollisionCount + int64(deployObject.CollisionCount)
+	summaryNS.DeployCollisionCount = summaryNS.DeployCollisionCount + int64(deployObject.CollisionCount)
+
+	pw.SummaryMap[m.ALL] = summary
+	pw.SummaryMap[deployObject.Namespace] = summaryNS
+}
+
+func (pw *DeployWorker) processObject(d *appsv1.Deployment, old *appsv1.Deployment) (m.DeploySchema, bool) {
+	changed := true
+	bag := (*pw.ConfigManager).Get()
+
+	deployObject := m.NewDeployObj()
+	deployObject.Name = d.Name
+	deployObject.Namespace = d.Namespace
+
+	if d.ClusterName != "" {
+		deployObject.ClusterName = d.ClusterName
+	} else {
+		deployObject.ClusterName = bag.AppName
+	}
+
+	var sb strings.Builder
+
+	for k, l := range d.Labels {
+		fmt.Fprintf(&sb, "%s:%s;", k, l)
+	}
+	deployObject.Labels = sb.String()
+	sb.Reset()
+
+	for k, l := range d.Annotations {
+		fmt.Fprintf(&sb, "%s:%s;", k, l)
+	}
+
+	deployObject.Annotations = sb.String()
+	sb.Reset()
+
+	deployObject.ObjectUid = string(d.GetUID())
+	deployObject.CreationTimestamp = d.GetCreationTimestamp().Time
+	if d.GetDeletionTimestamp() != nil {
+		deployObject.DeletionTimestamp = d.GetDeletionTimestamp().Time
+	}
+	deployObject.MinReadySecs = d.Spec.MinReadySeconds
+	if d.Spec.ProgressDeadlineSeconds != nil {
+		deployObject.ProgressDeadlineSecs = *d.Spec.ProgressDeadlineSeconds
+	}
+
+	if d.Spec.RevisionHistoryLimit != nil {
+		deployObject.RevisionHistoryLimits = *d.Spec.RevisionHistoryLimit
+	}
+
+	deployObject.Replicas = d.Status.Replicas
+
+	deployObject.Strategy = string(d.Spec.Strategy.Type)
+
+	if d.Spec.Strategy.RollingUpdate.MaxSurge != nil {
+		deployObject.MaxSurge = d.Spec.Strategy.RollingUpdate.MaxSurge.StrVal
+	}
+	if d.Spec.Strategy.RollingUpdate.MaxUnavailable != nil {
+		deployObject.MaxUnavailable = d.Spec.Strategy.RollingUpdate.MaxUnavailable.StrVal
+	}
+	deployObject.ReplicasAvailable = d.Status.AvailableReplicas
+	deployObject.ReplicasUnAvailable = d.Status.UnavailableReplicas
+	deployObject.ReplicasUpdated = d.Status.UpdatedReplicas
+	if d.Status.CollisionCount != nil {
+		deployObject.CollisionCount = *d.Status.CollisionCount
+	}
+	deployObject.ReplicasReady = d.Status.ReadyReplicas
+
+	return deployObject, changed
+}
+
+func (pw DeployWorker) builAppDMetricsList() m.AppDMetricList {
+	ml := m.NewAppDMetricList()
+	var list []m.AppDMetric
+	for _, metricNode := range pw.SummaryMap {
+		objMap := metricNode.Unwrap()
+		pw.addMetricToList(*objMap, metricNode, &list)
+	}
+
+	ml.Items = list
+	return ml
+}
+
+func (pw DeployWorker) addMetricToList(objMap map[string]interface{}, metric m.AppDMetricInterface, list *[]m.AppDMetric) {
+
+	for fieldName, fieldValue := range objMap {
+		if !metric.ShouldExcludeField(fieldName) {
+			appdMetric := m.NewAppDMetric(fieldName, fieldValue.(int64), metric.GetPath())
+			*list = append(*list, appdMetric)
+		}
+	}
+}
+
+//instrumentation
 func (dw *DeployWorker) shouldUpdate(deployObj *appsv1.Deployment) (bool, bool, *m.AgentRequestList) {
 	var appName, tierName, appAgent string
 	var biqRequested = false
 	var biQDeploymentOption m.BiQDeploymentOption
 	for k, v := range deployObj.Labels {
-		if k == (*dw.ConfManager).Get().AppDAppLabel {
+		if k == (*dw.ConfigManager).Get().AppDAppLabel {
 			appName = v
 		}
 
-		if k == (*dw.ConfManager).Get().AppDTierLabel {
+		if k == (*dw.ConfigManager).Get().AppDTierLabel {
 			tierName = v
 		}
 
-		if k == (*dw.ConfManager).Get().AgentLabel {
+		if k == (*dw.ConfigManager).Get().AgentLabel {
 			appAgent = v
 		}
 
-		if k == (*dw.ConfManager).Get().AppDAnalyticsLabel {
+		if k == (*dw.ConfigManager).Get().AppDAnalyticsLabel {
 			biqRequested = true
 			biQDeploymentOption = m.BiQDeploymentOption(v)
 		}
 	}
-	initRequested := !instr.AgentInitExists(&deployObj.Spec.Template.Spec, (*dw.ConfManager).Get()) && (appName != "" || appAgent != "") && (*dw.ConfManager).Get().InstrumentationMethod == m.Mount
+	initRequested := !instr.AgentInitExists(&deployObj.Spec.Template.Spec, (*dw.ConfigManager).Get()) && (appName != "" || appAgent != "") && (*dw.ConfigManager).Get().InstrumentationMethod == m.Mount
 	//check if already updated
 	updated := false
 	biqUpdated := false
@@ -175,7 +440,7 @@ func (dw *DeployWorker) shouldUpdate(deployObj *appsv1.Deployment) (bool, bool, 
 		return false, false, nil
 	}
 
-	biq := biQDeploymentOption == m.Sidecar && !instr.AnalyticsAgentExists(&deployObj.Spec.Template.Spec, (*dw.ConfManager).Get())
+	biq := biQDeploymentOption == m.Sidecar && !instr.AnalyticsAgentExists(&deployObj.Spec.Template.Spec, (*dw.ConfigManager).Get())
 
 	if tierName == "" {
 		tierName = deployObj.Name
@@ -203,7 +468,7 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 		if init {
 			fmt.Println("Adding init container...")
 			//add volume and mounts for agent binaries
-			dw.updateSpec(result, (*dw.ConfManager).Get().AgentMountName, (*dw.ConfManager).Get().AgentMountPath, agentRequests, true)
+			dw.updateSpec(result, (*dw.ConfigManager).Get().AgentMountName, (*dw.ConfigManager).Get().AgentMountPath, agentRequests, true)
 			//add init container for agent attach
 			agentReq := agentRequests.GetFirstRequest()
 			agentAttachContainer := dw.buildInitContainer(&agentReq)
@@ -219,7 +484,7 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 		if biq {
 			fmt.Println("Adding analytics container")
 			//add volume and mounts for logging
-			dw.updateSpec(result, (*dw.ConfManager).Get().AppLogMountName, (*dw.ConfManager).Get().AppLogMountPath, agentRequests, false)
+			dw.updateSpec(result, (*dw.ConfigManager).Get().AppLogMountName, (*dw.ConfigManager).Get().AppLogMountPath, agentRequests, false)
 
 			//add analytics agent container
 			analyticsContainer := dw.buildBiqSideCar()
@@ -290,7 +555,7 @@ func (dw *DeployWorker) updateSpec(result *appsv1.Deployment, volName string, vo
 			tech := agentRequests.GetFirstRequest().Tech
 			if tech == m.DotNet {
 				fmt.Printf("Requested env var update for DotNet container %s\n", c.Name)
-				dotnetInjector := instr.NewDotNetInjector((*dw.ConfManager).Get(), dw.AppdController)
+				dotnetInjector := instr.NewDotNetInjector((*dw.ConfigManager).Get(), dw.AppdController)
 				dotnetInjector.AddEnvVars(&c, agentRequests.AppName, agentRequests.TierName)
 			}
 		}
@@ -302,11 +567,11 @@ func (dw *DeployWorker) updateSpec(result *appsv1.Deployment, volName string, vo
 func (dw *DeployWorker) buildInitContainer(agentrequest *m.AgentRequest) v1.Container {
 	fmt.Printf("Building init container using agent request %s\n", agentrequest.ToString())
 	//volume mount for agent files
-	volumeMount := v1.VolumeMount{Name: (*dw.ConfManager).Get().AgentMountName, MountPath: (*dw.ConfManager).Get().AgentMountPath}
+	volumeMount := v1.VolumeMount{Name: (*dw.ConfigManager).Get().AgentMountName, MountPath: (*dw.ConfigManager).Get().AgentMountPath}
 	mounts := []v1.VolumeMount{volumeMount}
 
-	cmd := []string{"cp", "-ra", (*dw.ConfManager).Get().InitContainerDir, (*dw.ConfManager).Get().AgentMountPath}
-	cont := v1.Container{Name: (*dw.ConfManager).Get().AppDInitContainerName, Image: agentrequest.GetAgentImageName((*dw.ConfManager).Get()), ImagePullPolicy: v1.PullIfNotPresent,
+	cmd := []string{"cp", "-ra", (*dw.ConfigManager).Get().InitContainerDir, (*dw.ConfigManager).Get().AgentMountPath}
+	cont := v1.Container{Name: (*dw.ConfigManager).Get().AppDInitContainerName, Image: agentrequest.GetAgentImageName((*dw.ConfigManager).Get()), ImagePullPolicy: v1.PullIfNotPresent,
 		VolumeMounts: mounts, Command: cmd}
 
 	return cont
@@ -330,17 +595,17 @@ func (dw *DeployWorker) buildBiqSideCar() v1.Container {
 	ports := []v1.ContainerPort{p}
 
 	//volume mount for logs
-	volumeMount := v1.VolumeMount{Name: (*dw.ConfManager).Get().AppLogMountName, MountPath: (*dw.ConfManager).Get().AppLogMountPath}
+	volumeMount := v1.VolumeMount{Name: (*dw.ConfigManager).Get().AppLogMountName, MountPath: (*dw.ConfigManager).Get().AppLogMountPath}
 	mounts := []v1.VolumeMount{volumeMount}
 
-	cont := v1.Container{Name: (*dw.ConfManager).Get().AnalyticsAgentContainerName, Image: (*dw.ConfManager).Get().AnalyticsAgentImage, ImagePullPolicy: v1.PullIfNotPresent,
+	cont := v1.Container{Name: (*dw.ConfigManager).Get().AnalyticsAgentContainerName, Image: (*dw.ConfigManager).Get().AnalyticsAgentImage, ImagePullPolicy: v1.PullIfNotPresent,
 		Ports: ports, EnvFrom: envFrom, Env: env, VolumeMounts: mounts}
 
 	return cont
 }
 
 func (dw *DeployWorker) addVolume(deployObj *appsv1.Deployment, container *v1.Container) {
-	bag := (*dw.ConfManager).Get()
+	bag := (*dw.ConfigManager).Get()
 	mountExists := false
 	for _, vm := range container.VolumeMounts {
 		if vm.Name == bag.AgentMountName {

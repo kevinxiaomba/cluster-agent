@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/sjeltuhin/clusterAgent/config"
 	m "github.com/sjeltuhin/clusterAgent/models"
@@ -14,10 +15,13 @@ import (
 	appd "appdynamics"
 )
 
+var lockMap = sync.RWMutex{}
+
 type ControllerClient struct {
-	logger      *log.Logger
-	ConfManager *config.MutexConfigManager
-	regMetrics  map[string]bool
+	logger       *log.Logger
+	ConfManager  *config.MutexConfigManager
+	regMetrics   map[string]bool
+	MetricsCache map[string]float64
 }
 
 func NewControllerClient(cm *config.MutexConfigManager, logger *log.Logger) *ControllerClient {
@@ -55,7 +59,7 @@ func NewControllerClient(cm *config.MutexConfigManager, logger *log.Logger) *Con
 	}
 	logger.Println(&cfg.Controller)
 
-	controller := ControllerClient{ConfManager: cm, logger: logger, regMetrics: make(map[string]bool)}
+	controller := ControllerClient{ConfManager: cm, logger: logger, regMetrics: make(map[string]bool), MetricsCache: make(map[string]float64)}
 
 	appID, tierID, nodeID, errAppd := controller.DetermineNodeID(bag.AppName, bag.TierName, bag.NodeName)
 	if errAppd != nil {
@@ -76,7 +80,7 @@ func (c *ControllerClient) RegisterMetrics(metrics m.AppDMetricList) error {
 	for _, metric := range metrics.Items {
 
 		metric.MetricPath = fmt.Sprintf(metric.MetricPath, (*c.ConfManager).Get().TierName)
-		_, exists := c.regMetrics[metric.MetricPath]
+		exists := c.checkMetricCache(metric)
 		if !exists {
 			//		c.logger.Println(metric)
 			appd.AddCustomMetric("", metric.MetricPath,
@@ -84,7 +88,7 @@ func (c *ControllerClient) RegisterMetrics(metrics m.AppDMetricList) error {
 				metric.MetricClusterRollUpType,
 				appd.APPD_HOLEHANDLING_TYPE_REGULAR_COUNTER)
 			appd.ReportCustomMetric("", metric.MetricPath, 0)
-			c.regMetrics[metric.MetricPath] = true
+			c.saveMetricInCache(metric)
 		}
 	}
 	appd.EndBT(bt)
@@ -93,8 +97,21 @@ func (c *ControllerClient) RegisterMetrics(metrics m.AppDMetricList) error {
 	return nil
 }
 
-func (c *ControllerClient) registerMetric(metric m.AppDMetric) error {
+func (c *ControllerClient) checkMetricCache(metric m.AppDMetric) bool {
+	lockMap.RLock()
+	defer lockMap.RUnlock()
 	_, exists := c.regMetrics[metric.MetricPath]
+	return exists
+}
+
+func (c *ControllerClient) saveMetricInCache(metric m.AppDMetric) {
+	lockMap.Lock()
+	defer lockMap.Unlock()
+	c.regMetrics[metric.MetricPath] = true
+}
+
+func (c *ControllerClient) registerMetric(metric m.AppDMetric) error {
+	exists := c.checkMetricCache(metric)
 	if !exists {
 		bt := appd.StartBT("RegSingleMetric", "")
 		appd.AddCustomMetric("", metric.MetricPath,
@@ -102,7 +119,7 @@ func (c *ControllerClient) registerMetric(metric m.AppDMetric) error {
 			metric.MetricClusterRollUpType,
 			appd.APPD_HOLEHANDLING_TYPE_REGULAR_COUNTER)
 		appd.ReportCustomMetric("", metric.MetricPath, 0)
-		c.regMetrics[metric.MetricPath] = true
+		c.saveMetricInCache(metric)
 		appd.EndBT(bt)
 	}
 
@@ -259,20 +276,33 @@ func (c *ControllerClient) FindNodeID(appID int, tierName string, nodeName strin
 	return tierID, nodeID, nil
 }
 
-func (c *ControllerClient) GetMetricID(metricPath string) (float64, error) {
+func (c *ControllerClient) GetMetricID(appID int, metricPath string) (float64, error) {
+
 	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	path := "restui/metricBrowser/88"
+	path := fmt.Sprintf("restui/metricBrowser/%d", appID)
 	arr := strings.Split(metricPath, "|")
+	arrPath := arr[:len(arr)-1]
 	metricName := arr[len(arr)-1]
+	basePath := strings.Join(arrPath, "|")
+	baseKey := fmt.Sprintf("%d_%s", appID, basePath)
+	mk := fmt.Sprintf("%s|%s", baseKey, metricName)
+	if id, ok := c.MetricsCache[mk]; ok {
+		fmt.Printf("Metrics ID from cache = %f\n", id)
+		return id, nil
+	} else {
+		fmt.Printf("Key %s does not exist in metrics cache\n", mk)
+	}
+
 	arr = arr[:len(arr)-1]
-	logger.Printf("Asking for metrics with payload: %s", strings.Join(arr, ","))
+	logger.Printf("Asking for metrics with payload: %s\n", strings.Join(arr, ","))
 
 	body, eM := json.Marshal(arr)
 	if eM != nil {
-		fmt.Printf("Unable to serialize metrics path. %v ", eM)
+		fmt.Printf("Unable to serialize metrics path. %v \n", eM)
 	}
 
 	rc := NewRestClient((*c.ConfManager).Get(), logger)
+	logger.Printf("Calling metrics update: %s. %s\n", path, string(body))
 	data, err := rc.CallAppDController(path, "POST", body)
 	if err != nil {
 		return 0, fmt.Errorf("Unable to find metric ID")
@@ -280,18 +310,23 @@ func (c *ControllerClient) GetMetricID(metricPath string) (float64, error) {
 	var list []map[string]interface{}
 	errJson := json.Unmarshal(data, &list)
 	if errJson != nil {
-		return 0, fmt.Errorf("Unable to deserialize metrics list")
+		return 0, fmt.Errorf("Unable to deserialize metrics list\n")
 	}
 
+	var metricID float64 = 0
 	for _, metricObj := range list {
 		id, ok := metricObj["metricId"]
+		mn := metricObj["name"]
+		mp := fmt.Sprintf("%s|%s", baseKey, mn)
+		logger.Printf("Adding metric key %s\n", mp)
+		c.MetricsCache[mp] = id.(float64)
 		if ok && metricObj["name"] == metricName {
-			fmt.Printf("Metrics ID = %d ", id.(float64))
-			return id.(float64), nil
+			fmt.Printf("Metrics ID = %f \n", id.(float64))
+			metricID = id.(float64)
 		}
 	}
 
-	return 0, nil
+	return metricID, nil
 }
 
 func (c *ControllerClient) EnableAppAnalytics(appID int, appName string) error {

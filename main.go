@@ -46,13 +46,17 @@ func buildParams() Flags {
 	flag.StringVar(&params.Bag.EventKey, "event-key", getEventKey(), "Event API Key")
 	flag.StringVar(&params.Bag.RestAPICred, "rest-api-creds", getRestAPICred(), "Rest API Credentials")
 	flag.BoolVar(&params.Bag.SSLEnabled, "use-ssl", false, "Controller uses SSL connection")
-	flag.StringVar(&params.Bag.PodSchemaName, "schema-pods", "k8s_pod_snapshots", "Pod schema name")
-	flag.StringVar(&params.Bag.NodeSchemaName, "schema-nodes", "k8s_node_snapshots", "Node schema name")
-	flag.StringVar(&params.Bag.EventSchemaName, "schema-events", "k8s_event_snapshots", "Event schema name")
-	flag.StringVar(&params.Bag.ContainerSchemaName, "schema-containers", "k8s_container_snapshots", "Container schema name")
-	flag.StringVar(&params.Bag.LogSchemaName, "schema-logs", "k8s_logs", "Log schema name")
+	flag.StringVar(&params.Bag.PodSchemaName, "schema-pods", "kube_pod_snapshots", "Pod schema name")
+	flag.StringVar(&params.Bag.NodeSchemaName, "schema-nodes", "kube_node_snapshots", "Node schema name")
+	flag.StringVar(&params.Bag.EventSchemaName, "schema-events", "kube_event_snapshots", "Event schema name")
+	flag.StringVar(&params.Bag.DeploySchemaName, "schema-deploys", "kube_deploy_snapshots", "Deployment schema name")
+	flag.StringVar(&params.Bag.RSSchemaName, "schema-rs", "kube_rs_snapshots", "Replica set schema name")
+	flag.StringVar(&params.Bag.DaemonSchemaName, "schema-daemon", "kube_daemon_snapshots", "Daemon set schema name")
+	flag.StringVar(&params.Bag.ContainerSchemaName, "schema-containers", "kube_container_snapshots", "Container schema name")
+	flag.StringVar(&params.Bag.LogSchemaName, "schema-logs", "kube_logs", "Log schema name")
 	flag.StringVar(&params.Bag.DashboardTemplatePath, "template-path", getTemplatePath(), "Dashboard template path")
 	flag.StringVar(&params.Bag.DashboardSuffix, "dash-name", getDashboardSuffix(), "Dashboard name")
+	flag.IntVar(&params.Bag.DashboardDelayMin, "dash-delay", getDashboardDelayMin(), "Dashboard delay (min)")
 	flag.IntVar(&params.Bag.EventAPILimit, "event-batch-size", 100, "Max number of AppD events record to send in a batch")
 	flag.IntVar(&params.Bag.MetricsSyncInterval, "metrics-sync-interval", 60, "Frequency of metrics pushes to the controller, sec")
 	flag.IntVar(&params.Bag.SnapshotSyncInterval, "snapshot-sync-interval", 15, "Frequency of snapshot pushes to events api, sec")
@@ -229,6 +233,20 @@ func getDashboardSuffix() string {
 	}
 
 	return dn
+}
+
+func getDashboardDelayMin() int {
+	delay := os.Getenv("DASH_DELAY")
+	if delay == "" {
+		return 0
+	} else {
+		d, err := strconv.Atoi(delay)
+		if err != nil {
+			return 0
+		}
+
+		return d
+	}
 }
 
 func getAgentNamespace() string {

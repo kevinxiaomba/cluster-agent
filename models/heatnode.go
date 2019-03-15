@@ -8,6 +8,6 @@ type HeatNode struct {
 	APM       bool
 }
 
-func NewHeatNode(ns string, node string, podName string, state string, apm bool) HeatNode {
-	return HeatNode{Namespace: ns, Nodename: node, Podname: podName, State: state, APM: apm}
+func NewHeatNode(podSchema PodSchema) HeatNode {
+	return HeatNode{Namespace: podSchema.Namespace, Nodename: podSchema.NodeName, Podname: podSchema.Name, State: podSchema.GetState(), APM: podSchema.AppID > 0}
 }

@@ -23,6 +23,9 @@ type AppDBag struct {
 	EventAPILimit               int
 	PodSchemaName               string
 	NodeSchemaName              string
+	DeploySchemaName            string
+	RSSchemaName                string
+	DaemonSchemaName            string
 	EventSchemaName             string
 	ContainerSchemaName         string
 	JobSchemaName               string
