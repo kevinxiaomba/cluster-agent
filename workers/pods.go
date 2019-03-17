@@ -582,12 +582,14 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 			if svc.HasExternalService {
 				summary.ExtServiceCount++
 			}
-			total, ready, notready := svc.GetEndPointsStats()
-			summary.EndpointCount += int64(total)
-			summary.EPReadyCount += int64(len(ready))
-			summary.EPNotReadyCount += int64(len(notready))
-			if len(ready) == 0 && len(notready) == 0 {
-				summary.OrphanService++
+		}
+		for _, ep := range pw.EndpointCache {
+			summary.EndpointCount++
+			ready, notready, orphan := m.GetEPStats(&ep)
+			summary.EPReadyCount += int64(ready)
+			summary.EPNotReadyCount += int64(notready)
+			if orphan {
+				summary.OrphanEndpoint++
 			}
 		}
 		pw.SummaryMap[m.ALL] = summary
@@ -608,14 +610,19 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 			if svc.Namespace == podObject.Namespace {
 				summaryNS.ServiceCount++
 				if svc.HasExternalService {
-					summary.ExtServiceCount++
+					summaryNS.ExtServiceCount++
 				}
-				total, ready, notready := svc.GetEndPointsStats()
-				summaryNS.EndpointCount += int64(total)
-				summaryNS.EPReadyCount += int64(len(ready))
-				summaryNS.EPNotReadyCount += int64(len(notready))
-				if len(ready) == 0 && len(notready) == 0 {
-					summaryNS.OrphanService++
+			}
+		}
+
+		for _, ep := range pw.EndpointCache {
+			if ep.Namespace == podObject.Namespace {
+				summaryNS.EndpointCount++
+				ready, notready, orphan := m.GetEPStats(&ep)
+				summaryNS.EPReadyCount += int64(ready)
+				summaryNS.EPNotReadyCount += int64(notready)
+				if orphan {
+					summaryNS.OrphanEndpoint++
 				}
 			}
 		}
@@ -765,6 +772,7 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 				summaryContainer.LimitMemory = c.MemLimit
 				summaryContainer.RequestCpu = c.CpuRequest
 				summaryContainer.RequestMemory = c.MemRequest
+
 				summaryContainer.NoLivenessProbe = int64(c.LiveProbes)
 				summaryContainer.NoReadinessProbe = int64(c.ReadyProbes)
 
@@ -972,14 +980,14 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 		}
 
 		for _, c := range p.Spec.Containers {
-			containerObj, limitsDefined := pw.processContainer(p, podObject, c, false)
+			containerObj, limitsDefined := pw.processContainer(p, &podObject, c, false)
 
 			podObject.Containers[c.Name] = containerObj
 			podObject.LimitsDefined = limitsDefined
 		}
 
 		for _, c := range p.Spec.InitContainers {
-			containerObj, _ := pw.processContainer(p, podObject, c, true)
+			containerObj, _ := pw.processContainer(p, &podObject, c, true)
 			podObject.InitContainers[c.Name] = containerObj
 		}
 	}
@@ -1271,7 +1279,7 @@ func findInitContainer(podObject *m.PodSchema, containerName string) *m.Containe
 	return nil
 }
 
-func (pw PodWorker) processContainer(podObj *v1.Pod, podSchema m.PodSchema, c v1.Container, init bool) (m.ContainerSchema, bool) {
+func (pw PodWorker) processContainer(podObj *v1.Pod, podSchema *m.PodSchema, c v1.Container, init bool) (m.ContainerSchema, bool) {
 	var sb strings.Builder
 	var limitsDefined bool = false
 	containerObj := m.NewContainerObj()
@@ -1380,14 +1388,14 @@ func (pw PodWorker) processContainer(podObj *v1.Pod, podSchema m.PodSchema, c v1
 	return containerObj, limitsDefined
 }
 
-func (pw PodWorker) CheckPort(port *v1.ContainerPort, podObj *v1.Pod, podSchema m.PodSchema) *m.ContainerPort {
+func (pw PodWorker) CheckPort(port *v1.ContainerPort, podObj *v1.Pod, podSchema *m.PodSchema) *m.ContainerPort {
 	cp := m.ContainerPort{}
 	cp.PortNumber = port.ContainerPort
 	cp.Name = port.Name
 
 	//check if service exists and routes to the ports
 	for _, svc := range podSchema.Services {
-		mapped, ready := svc.IsPortAvailable(&cp, &podSchema)
+		mapped, ready := svc.IsPortAvailable(&cp, podSchema)
 		if !cp.Mapped {
 			cp.Mapped = mapped
 		}

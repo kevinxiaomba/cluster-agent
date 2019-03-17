@@ -50,6 +50,18 @@ type EPAddress struct {
 	Ready    bool
 }
 
+func GetEPStats(ep *v1.Endpoints) (int, int, bool) {
+	ready := 0
+	notready := 0
+	isOrphan := false
+	for _, eps := range ep.Subsets {
+		ready = ready + len(eps.Addresses)
+		notready = notready + len(eps.NotReadyAddresses)
+	}
+	isOrphan = ready == 0 && notready == 0
+	return ready, notready, isOrphan
+}
+
 func (svc *ServiceSchema) GetEndPointsStats() (int, map[string]int, map[string]int) {
 	total := 0
 	ready := make(map[string]int)
@@ -140,10 +152,6 @@ func (svcSchema *ServiceSchema) MatchesPod(podObject *v1.Pod) bool {
 }
 
 func (svcSchema *ServiceSchema) IsPortAvailable(cp *ContainerPort, podSchema *PodSchema) (bool, bool) {
-	if podSchema.Namespace != "devops" {
-		return false, false
-	}
-
 	var mapped, ready bool = false, false
 	for _, sp := range svcSchema.Ports {
 		if sp.TargetPort == cp.PortNumber {

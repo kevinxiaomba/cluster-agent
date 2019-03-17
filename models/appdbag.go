@@ -34,6 +34,7 @@ type AppDBag struct {
 	DashboardSuffix             string
 	DashboardDelayMin           int
 	JavaAgentVersion            string
+	AgentEnvVar                 string
 	AgentLabel                  string
 	AppDAppLabel                string
 	AppDTierLabel               string

@@ -448,13 +448,6 @@ func (dw *DashboardWorker) updateClusterOverview(bag *m.DashboardBag) error {
 		return heatErr
 	}
 
-	//save hotdash
-
-	_, errSave := dw.saveTemplate(dashboard, "/deploy/hotdash.json")
-	if errSave != nil {
-		fmt.Printf("Issues when saving template for Hot Dash dashboard %s/%s. %v\n", bag.Namespace, bag.TierName, errSave)
-	}
-
 	errSaveDash := dw.saveDashboard(hotdash)
 	fmt.Printf("saveDashboard. %v\n", errSaveDash)
 
@@ -525,7 +518,7 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 		dot["guid"] = uuid.New().String()
 		dot["height"] = height
 		dot["width"] = width
-		dot["description"] = fmt.Sprintf("%s/%s %s", hn.Namespace, hn.Podname, hn.Nodename)
+		dot["description"] = fmt.Sprintf("%s/%s\n%s", hn.Namespace, hn.Podname, hn.Nodename)
 
 		//color
 		colorCode := 0

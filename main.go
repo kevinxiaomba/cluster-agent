@@ -64,6 +64,7 @@ func buildParams() Flags {
 	flag.StringVar(&params.Bag.AppDJavaAttachImage, "java-attach-image", getJavaAttachImage(), "Java Attach Image")
 	flag.StringVar(&params.Bag.AppDDotNetAttachImage, "dotnet-attach-image", getDotNetAttachImage(), "DotNet Attach Image")
 	flag.StringVar(&params.Bag.AgentLabel, "agent-label", "appd-agent", "AppD Agent Label")
+	flag.StringVar(&params.Bag.AgentEnvVar, "agent-envvar", getAgentEnvvar(), "AppD Agent Env Var for instrumentation")
 	flag.StringVar(&params.Bag.AppDAppLabel, "appd-app", "appd-app", "AppD App Label")
 	flag.StringVar(&params.Bag.AppDTierLabel, "appd-tier", "appd-tier", "AppD Tier Label")
 	flag.StringVar(&params.Bag.AppDAnalyticsLabel, "appd-biq", "appd-biq", "AppD Analytics Label")
@@ -275,6 +276,15 @@ func getAgentInstrumentationMethod() string {
 		method = string(m.Copy)
 	}
 	return method
+}
+
+func getAgentEnvvar() string {
+	envvar := os.Getenv("APPD_AGENT_ENV_VAR")
+	if envvar == "" {
+		envvar = "$JAVA_OPTS"
+	}
+
+	return envvar
 }
 
 func getJavaAttachImage() string {
