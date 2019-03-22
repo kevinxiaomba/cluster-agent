@@ -3,6 +3,7 @@ package controller
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -13,6 +14,7 @@ import (
 	"os"
 
 	m "github.com/sjeltuhin/clusterAgent/models"
+	"github.com/sjeltuhin/clusterAgent/utils"
 )
 
 type RestClient struct {
@@ -49,6 +51,47 @@ func (rc *RestClient) addProxyAuth(req *http.Request) {
 	}
 }
 
+func (rc *RestClient) LoadSchema(schemaName string) (*map[string]interface{}, error) {
+	var schemaWrapper map[string]interface{}
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/events/schema/%s", rc.Bag.EventServiceUrl, schemaName), nil)
+	if err != nil {
+		fmt.Printf("Unable to initiate request. %v", err)
+		return nil, err
+	} else {
+		req.Header.Set("Accept", "application/vnd.appd.events+json;v=2")
+		req.Header.Set("Content-Type", "application/vnd.appd.events+json;v=2")
+		req.Header.Set("X-Events-API-AccountName", rc.Bag.GlobalAccount)
+		req.Header.Set("X-Events-API-Key", rc.Bag.EventKey)
+		//		fmt.Printf("Sending request. Account: %s   Event Key %s", rc.Bag.GlobalAccount, rc.Bag.EventKey)
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			fmt.Printf("Unable to load event schema %s. %v", schemaName, err)
+			return nil, err
+		}
+		if resp != nil && resp.Body != nil {
+			defer resp.Body.Close()
+			body, _ := ioutil.ReadAll(resp.Body)
+
+			if body == nil || len(body) == 0 {
+				return nil, fmt.Errorf("Schema %s does not exist\n", schemaName)
+			}
+
+			if resp.StatusCode == 404 {
+				return nil, fmt.Errorf("Schema %s does not exist\n", schemaName)
+			}
+
+			errJson := json.Unmarshal(body, &schemaWrapper)
+			if errJson != nil {
+				return nil, fmt.Errorf("Unable to deserialize the schemaWrapper. %v", errJson)
+			}
+			return &schemaWrapper, nil
+		} else {
+			return nil, fmt.Errorf("Unable to load event schema %s\n", schemaName)
+		}
+	}
+}
+
 func (rc *RestClient) SchemaExists(schemaName string) bool {
 	req, err := http.NewRequest("GET", fmt.Sprintf("%s/events/schema/%s", rc.Bag.EventServiceUrl, schemaName), nil)
 	if err != nil {
@@ -77,6 +120,112 @@ func (rc *RestClient) SchemaExists(schemaName string) bool {
 			return false
 		}
 	}
+}
+
+func (rc *RestClient) EnsureSchema(schemaName string, current m.AppDSchemaInterface) error {
+	if rc.Bag.SchemaUpdateCache == nil {
+		rc.Bag.SchemaUpdateCache = []string{}
+	}
+	if rc.Bag.SchemaUpdateCache != nil && utils.StringInSlice(schemaName, rc.Bag.SchemaUpdateCache) {
+		return nil
+	} else {
+		rc.Bag.SchemaUpdateCache = append(rc.Bag.SchemaUpdateCache, schemaName)
+	}
+	wrapper, err := rc.LoadSchema(schemaName)
+	if err != nil {
+		fmt.Printf("Enable load existing schema %s. Attempting to create. %v\n", schemaName, err)
+		//try to create
+		schemaDef, e := json.Marshal(current)
+		if e != nil {
+			return fmt.Errorf("Unable to serialize the current schema %s. %v", schemaName, e)
+		}
+		_, err = rc.CreateSchema(schemaName, schemaDef)
+		if err != nil {
+			return fmt.Errorf("Unable to recreate the current schema %s. %v", schemaName, err)
+		}
+		fmt.Printf("Schema %s created. \n", schemaName)
+		return nil
+	}
+	equal := true
+	currentMap := current.Unwrap()
+	currentSchema := (*currentMap)["Schema"]
+	currentObj := currentSchema.(map[string]interface{})
+
+	if schema, ok := (*wrapper)["schema"]; ok {
+		schemaObj := schema.(map[string]interface{})
+		//delete built in fields
+		delete(schemaObj, "pickupTimestamp")
+		delete(schemaObj, "eventTimestamp")
+
+		if len(currentObj) != len(schemaObj) {
+			equal = false
+		}
+		if equal {
+			for k, v := range currentObj {
+				currentVal, okCur := utils.MapContainsNocase(schemaObj, k)
+				if !okCur || currentVal != v {
+					equal = false
+					break
+				}
+			}
+		}
+	} else {
+		equal = false //invalid object
+	}
+
+	if !equal {
+		fmt.Printf("Schema %s has changed, recreating...\n", schemaName)
+		err := rc.DeleteSchema(schemaName)
+		if err != nil {
+			return fmt.Errorf("Unable to delete changed schema. %v", err)
+		}
+		fmt.Printf("Deleted the old schema %s. \n", schemaName)
+		schemaDef, e := json.Marshal(current)
+		if e != nil {
+			return fmt.Errorf("Unable to serialize the current schema %s. %v", schemaName, e)
+		}
+		_, err = rc.CreateSchema(schemaName, schemaDef)
+		if err != nil {
+			return fmt.Errorf("Unable to recreate the current schema %s. %v", schemaName, err)
+		}
+		fmt.Printf("Schema %s created. \n", schemaName)
+
+	} else {
+		fmt.Printf("Schema %s has not changed.\n", schemaName)
+	}
+	return nil
+}
+
+func (rc *RestClient) DeleteSchema(schemaName string) error {
+	req, err := http.NewRequest("DELETE", fmt.Sprintf("%s/events/schema/%s", rc.Bag.EventServiceUrl, schemaName), nil)
+	if err != nil {
+		fmt.Printf("Unable to initiate request. %v", err)
+		return err
+	} else {
+		req.Header.Set("Accept", "application/vnd.appd.events+json;v=2")
+		req.Header.Set("Content-Type", "application/vnd.appd.events+json;v=2")
+		req.Header.Set("X-Events-API-AccountName", rc.Bag.GlobalAccount)
+		req.Header.Set("X-Events-API-Key", rc.Bag.EventKey)
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			fmt.Printf("Unable to delete event schema %s. %v", schemaName, err)
+			return err
+		}
+		if resp != nil && resp.Body != nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == 200 {
+				return nil
+			} else {
+				return fmt.Errorf("Unable to delete schema. %v\n", resp)
+			}
+
+		} else {
+			return fmt.Errorf("Unable to delete schema. Unknown error\n")
+		}
+	}
+	return nil
+
 }
 
 func (rc *RestClient) CreateSchema(schemaName string, data []byte) ([]byte, error) {

@@ -114,13 +114,14 @@ func (pw *PodWorker) initPodInformer(client *kubernetes.Clientset) cache.SharedI
 
 func (pw *PodWorker) qualifies(p *v1.Pod) bool {
 	bag := (*pw.ConfManager).Get()
-	return (len(bag.IncludeNsToInstrument) == 0 ||
-		utils.StringInSlice(p.Namespace, bag.IncludeNsToInstrument)) &&
-		!utils.StringInSlice(p.Namespace, bag.ExcludeNsToInstrument)
+	return utils.NSQualifiesForMonitoring(p.Namespace, bag)
 }
 
 func (pw *PodWorker) onNewPod(obj interface{}) {
-	podObj := obj.(*v1.Pod)
+	podObj, ok := obj.(*v1.Pod)
+	if !ok {
+		return
+	}
 	if !pw.qualifies(podObj) {
 		return
 	}
@@ -278,7 +279,7 @@ func (pw *PodWorker) postContainerBatchRecords(objList *[]m.ContainerSchema) {
 
 		rc.PostAppDEvents(bag.ContainerSchemaName, data)
 	} else {
-		fmt.Printf("Problems when serializing array of pod schemas. %v", err)
+		fmt.Printf("Problems when serializing array of container schemas. %v", err)
 	}
 }
 
@@ -309,6 +310,26 @@ func (pw *PodWorker) postPodRecords(objList *[]m.PodSchema) {
 	}
 }
 
+func (pw *PodWorker) postEPBatchRecords(objList *[]m.EpSchema) {
+	bag := (*pw.ConfManager).Get()
+	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
+	rc := app.NewRestClient(bag, logger)
+
+	schemaDefObj := m.NewEpSchemaDefWrapper()
+
+	err := rc.EnsureSchema(bag.EpSchemaName, &schemaDefObj)
+	if err != nil {
+		fmt.Printf("Issues when ensuring %s schema. %v\n", bag.EpSchemaName, err)
+	} else {
+		data, err := json.Marshal(objList)
+		if err != nil {
+			fmt.Printf("Problems when serializing array of endpoint schemas. %v", err)
+		}
+		rc.PostAppDEvents(bag.EpSchemaName, data)
+	}
+
+}
+
 func (pw *PodWorker) getNextQueueItem() (*m.PodSchema, bool) {
 	podRecord, quit := pw.WQ.Get()
 
@@ -322,7 +343,10 @@ func (pw *PodWorker) getNextQueueItem() (*m.PodSchema, bool) {
 }
 
 func (pw *PodWorker) onDeletePod(obj interface{}) {
-	podObj := obj.(*v1.Pod)
+	podObj, ok := obj.(*v1.Pod)
+	if !ok {
+		return
+	}
 	if !pw.qualifies(podObj) {
 		return
 	}
@@ -332,7 +356,10 @@ func (pw *PodWorker) onDeletePod(obj interface{}) {
 }
 
 func (pw *PodWorker) onUpdatePod(objOld interface{}, objNew interface{}) {
-	podObj := objNew.(*v1.Pod)
+	podObj, ok := objNew.(*v1.Pod)
+	if !ok {
+		return
+	}
 	if !pw.qualifies(podObj) {
 		return
 	}
@@ -478,6 +505,14 @@ func (pw *PodWorker) buildAppDMetrics() {
 	pw.clonePVCCache()
 	pw.cloneRQCache()
 
+	//get updated EP cache
+	updatedEPs := pw.EndpointWatcher.GetUpdated()
+	epList := []m.EpSchema{}
+	for _, ep := range updatedEPs {
+		epSchema := m.NewEpSchema(&ep)
+		epList = append(epList, epSchema)
+	}
+
 	dash := make(map[string]m.DashboardBag)
 	fmt.Printf("Deployments configured for dashboarding: %s \n", bag.DeploysToDashboard)
 
@@ -487,6 +522,11 @@ func (pw *PodWorker) buildAppDMetrics() {
 		podObject := obj.(*v1.Pod)
 		podSchema, _ := pw.processObject(podObject, nil)
 		pw.summarize(&podSchema)
+		//endpoints
+		for _, ep := range epList {
+			ep.MatchPod(&podSchema)
+		}
+		//heat map
 		heatNode := m.NewHeatNode(podSchema)
 		heatMapData = append(heatMapData, heatNode)
 		count++
@@ -508,12 +548,14 @@ func (pw *PodWorker) buildAppDMetrics() {
 			dash[key] = dashBag
 		}
 	}
-	fmt.Printf("Unique metrics: %d\n", count)
+	fmt.Printf("Unique pod metrics: %d\n", count)
 
 	ml := pw.builAppDMetricsList()
 
-	fmt.Printf("Ready to push %d metrics\n", len(ml.Items))
+	//	fmt.Println("Updating endpoint records...")
+	pw.postEPBatchRecords(&epList)
 
+	fmt.Printf("Ready to push %d metrics\n", len(ml.Items))
 	pw.AppdController.PostMetrics(ml)
 	pw.AppdController.StopBT(bth)
 
@@ -578,6 +620,7 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 	if !okSum {
 		summary = m.NewClusterPodMetrics(bag, m.ALL, m.ALL)
 		summary.ServiceCount = int64(len(pw.ServiceCache))
+		fmt.Printf("Summary services: %d\n", summary.ServiceCount)
 		for _, svc := range pw.ServiceCache {
 			if svc.HasExternalService {
 				summary.ExtServiceCount++
@@ -1137,22 +1180,6 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 				containerObj := findContainer(&podObject, st.Name)
 				pw.updateConatainerStatus(&podObject, containerObj, st)
 			}
-
-			//determine start time
-			for _, c := range podObject.Containers {
-				if c.StartTime != nil {
-					podObject.RunningStartTime = c.StartTime
-					podObject.RunningStartTimeMillis = podObject.RunningStartTime.UnixNano() / 1000000
-
-					if c.LastTerminationTime != nil {
-						podObject.BreakPointMillis = c.LastTerminationTime.UnixNano() / 1000000
-					} else {
-						podObject.BreakPointMillis = podObject.StartTimeMillis
-					}
-					break
-				}
-			}
-
 		}
 
 		if p.Status.InitContainerStatuses != nil {
@@ -1160,6 +1187,21 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 			for _, st := range p.Status.InitContainerStatuses {
 				containerObj := findInitContainer(&podObject, st.Name)
 				pw.updateConatainerStatus(&podObject, containerObj, st)
+			}
+		}
+
+		//determine start time
+		for _, c := range podObject.Containers {
+			if c.StartTime != nil {
+				podObject.RunningStartTime = c.StartTime
+				podObject.RunningStartTimeMillis = podObject.RunningStartTime.UnixNano() / 1000000
+
+				if c.LastTerminationTime != nil {
+					podObject.BreakPointMillis = c.LastTerminationTime.UnixNano() / 1000000
+				} else {
+					podObject.BreakPointMillis = podObject.StartTimeMillis
+				}
+				break
 			}
 		}
 
@@ -1175,9 +1217,9 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 				}
 			} else {
 				now := time.Now().UnixNano() / 1000000
-				podObject.PendingTime = now - podObject.BreakPointMillis
+				podObject.PendingTime = now - podObject.StartTimeMillis
 			}
-			//			fmt.Printf("Pending time: %d.\n", podObject.PendingTime)
+			fmt.Printf("Pending time: %s/%s %d. StartTimeMillis: %d, RunningStartTimeMillis: %d, TerminationTimeMillis: %d BreakPointMillis: %d\n", podObject.Namespace, podObject.Name, podObject.PendingTime, podObject.StartTimeMillis, podObject.RunningStartTimeMillis, podObject.TerminationTimeMillis, podObject.BreakPointMillis)
 		}
 
 		//metrics

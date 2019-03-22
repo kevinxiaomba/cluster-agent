@@ -66,9 +66,9 @@ func (nw *NodesWorker) initNodeInformer(client *kubernetes.Clientset) cache.Shar
 
 func (pw *NodesWorker) qualifies(p *v1.Node) bool {
 	bag := (*pw.ConfigManager).Get()
-	return (len(bag.IncludeNodesToInstrument) == 0 ||
-		utils.StringInSlice(p.Name, bag.IncludeNodesToInstrument)) &&
-		!utils.StringInSlice(p.Name, bag.ExcludeNodesToInstrument)
+	return (len(bag.NodesToMonitor) == 0 ||
+		utils.StringInSlice(p.Name, bag.NodesToMonitor)) &&
+		!utils.StringInSlice(p.Name, bag.NodesToMonitorExclude)
 }
 
 func (nw *NodesWorker) onNewNode(obj interface{}) {

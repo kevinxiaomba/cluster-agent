@@ -65,9 +65,9 @@ func (ew *EventWorker) initInformer(client *kubernetes.Clientset) cache.SharedIn
 
 func (pw *EventWorker) qualifies(p *v1.Event) bool {
 	bag := (*pw.ConfigManager).Get()
-	return (len(bag.IncludeNsToInstrument) == 0 ||
-		utils.StringInSlice(p.Namespace, bag.IncludeNsToInstrument)) &&
-		!utils.StringInSlice(p.Namespace, bag.ExcludeNsToInstrument)
+	return (len(bag.NsToMonitor) == 0 ||
+		utils.StringInSlice(p.Namespace, bag.NsToMonitor)) &&
+		!utils.StringInSlice(p.Namespace, bag.NsToMonitorExclude)
 }
 
 func (ew *EventWorker) onNewEvent(obj interface{}) {

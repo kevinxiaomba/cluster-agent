@@ -45,7 +45,7 @@ func buildParams() Flags {
 	flag.StringVar(&params.Bag.AccessKey, "access-key", getAccessKey(), "AppD Controller Access Key")
 	flag.StringVar(&params.Bag.EventKey, "event-key", getEventKey(), "Event API Key")
 	flag.StringVar(&params.Bag.RestAPICred, "rest-api-creds", getRestAPICred(), "Rest API Credentials")
-	flag.BoolVar(&params.Bag.SSLEnabled, "use-ssl", false, "Controller uses SSL connection")
+	flag.BoolVar(&params.Bag.SSLEnabled, "use-ssl", getSslEnabled(), "Controller uses SSL connection")
 	flag.StringVar(&params.Bag.PodSchemaName, "schema-pods", "kube_pod_snapshots", "Pod schema name")
 	flag.StringVar(&params.Bag.NodeSchemaName, "schema-nodes", "kube_node_snapshots", "Node schema name")
 	flag.StringVar(&params.Bag.EventSchemaName, "schema-events", "kube_event_snapshots", "Event schema name")
@@ -54,12 +54,13 @@ func buildParams() Flags {
 	flag.StringVar(&params.Bag.DaemonSchemaName, "schema-daemon", "kube_daemon_snapshots", "Daemon set schema name")
 	flag.StringVar(&params.Bag.ContainerSchemaName, "schema-containers", "kube_container_snapshots", "Container schema name")
 	flag.StringVar(&params.Bag.LogSchemaName, "schema-logs", "kube_logs", "Log schema name")
+	flag.StringVar(&params.Bag.EpSchemaName, "schema-ep", "kube_endpoints", "Endpoint schema name")
 	flag.StringVar(&params.Bag.DashboardTemplatePath, "template-path", getTemplatePath(), "Dashboard template path")
 	flag.StringVar(&params.Bag.DashboardSuffix, "dash-name", getDashboardSuffix(), "Dashboard name")
 	flag.IntVar(&params.Bag.DashboardDelayMin, "dash-delay", getDashboardDelayMin(), "Dashboard delay (min)")
-	flag.IntVar(&params.Bag.EventAPILimit, "event-batch-size", 100, "Max number of AppD events record to send in a batch")
-	flag.IntVar(&params.Bag.MetricsSyncInterval, "metrics-sync-interval", 60, "Frequency of metrics pushes to the controller, sec")
-	flag.IntVar(&params.Bag.SnapshotSyncInterval, "snapshot-sync-interval", 15, "Frequency of snapshot pushes to events api, sec")
+	flag.IntVar(&params.Bag.EventAPILimit, "event-batch-size", getBatchSize(), "Max number of AppD events record to send in a batch")
+	flag.IntVar(&params.Bag.MetricsSyncInterval, "metrics-sync-interval", getMetricSyncInterval(), "Frequency of metrics pushes to the controller, sec")
+	flag.IntVar(&params.Bag.SnapshotSyncInterval, "snapshot-sync-interval", getEventSyncInterval(), "Frequency of snapshot pushes to events api, sec")
 	flag.StringVar(&params.Bag.JavaAgentVersion, "java-agent-version", getJavaAgentVersion(), "AppD Java Agent Version")
 	flag.StringVar(&params.Bag.AppDJavaAttachImage, "java-attach-image", getJavaAttachImage(), "Java Attach Image")
 	flag.StringVar(&params.Bag.AppDDotNetAttachImage, "dotnet-attach-image", getDotNetAttachImage(), "DotNet Attach Image")
@@ -73,7 +74,7 @@ func buildParams() Flags {
 	flag.StringVar(&params.Bag.AgentMountName, "agent-mount-name", "appd-agent-repo", "AppD Agent Mount Name")
 	flag.StringVar(&params.Bag.AgentMountPath, "mount-path", "/opt/appd", "AppD Agent Mount Path")
 	flag.StringVar(&params.Bag.JDKMountName, "jdkmount-name", "jdk-repo", "JDK Mount Name")
-	flag.IntVar(&params.Bag.AgentServerPort, "ws-port", 8989, "Agent Web Server port number")
+	flag.IntVar(&params.Bag.AgentServerPort, "ws-port", getServerPort(), "Agent Web Server port number")
 	flag.StringVar(&params.Bag.JDKMountPath, "jdkmount-path", "$JAVA_HOME/lib", "JDK Mount Path")
 	flag.StringVar(&params.Bag.NodeNamePrefix, "node-prefix", params.Bag.TierName, "Node name prefix. Used when node reuse is set to true")
 	flag.StringVar(&params.Bag.AnalyticsAgentUrl, "analytics-agent-url", getAnalyticsAgentUrl(), "Analytics Agent Url")
@@ -83,9 +84,48 @@ func buildParams() Flags {
 	flag.StringVar(&method, "appd-instrument-method", getAgentInstrumentationMethod(), "AppD Agent Instrumentation Method (copy, mount)")
 	params.Bag.InstrumentationMethod = m.InstrumentationMethod(method)
 	flag.StringVar(&params.Bag.InitContainerDir, "init-container-dir", "/opt/temp/.", "Directory with artifacts in the init container")
+
+	var nsToMonitor string
+	flag.StringVar(&nsToMonitor, "ns-to-monitor", getNSToMonitor(), "List of namespaces to monitor")
+	if nsToMonitor != "" {
+		params.Bag.NsToMonitor = strings.Split(nsToMonitor, ",")
+	}
+
+	var nsToMonitorExclude string
+	flag.StringVar(&nsToMonitorExclude, "ns-to-monitor-exc", getNSToMonitorExclude(), "List of namespaces to exclude from monitoring")
+	if nsToMonitorExclude != "" {
+		params.Bag.NsToMonitorExclude = strings.Split(nsToMonitorExclude, ",")
+	}
+
+	var nodeToMonitor string
+	flag.StringVar(&nodeToMonitor, "nodes-to-monitor", getNodesToMonitor(), "List of nodes to monitor")
+	if nodeToMonitor != "" {
+		params.Bag.NsToMonitor = strings.Split(nodeToMonitor, ",")
+	}
+
+	var nodeToMonitorExclude string
+	flag.StringVar(&nodeToMonitorExclude, "nodes-to-monitor-exc", getNodesToMonitorExclude(), "List of nodes to exclude from monitoring")
+	if nodeToMonitorExclude != "" {
+		params.Bag.NsToMonitorExclude = strings.Split(nodeToMonitorExclude, ",")
+	}
+
+	var nsToInstrument string
+	flag.StringVar(&nsToInstrument, "ns-to-instrument", getNSToIntrument(), "List of namespaces to instrument")
+	if nsToInstrument != "" {
+		params.Bag.NsToInstrument = strings.Split(nsToInstrument, ",")
+	}
+
+	var nsToInstrumentExclude string
+	flag.StringVar(&nsToInstrumentExclude, "ns-to-instrument-exc", getNSToIntrumentExclude(), "List of namespaces to exclude from instrumentation")
+	if nsToInstrumentExclude != "" {
+		params.Bag.NsToInstrumentExclude = strings.Split(nsToInstrumentExclude, ",")
+	}
+
 	var dash string
 	flag.StringVar(&dash, "deploys-to-dash", getDeploysToDashboard(), "List of deployments to dashboard")
-	params.Bag.DeploysToDashboard = strings.Split(dash, ",")
+	if dash != "" {
+		params.Bag.DeploysToDashboard = strings.Split(dash, ",")
+	}
 	var tempPort uint
 	flag.UintVar(&tempPort, "controller-port", getControllerPort(), "Controller Port")
 	params.Bag.ControllerPort = uint16(tempPort)
@@ -180,55 +220,55 @@ func getKubeConfigPath() string {
 }
 
 func getAccountName() string {
-	return os.Getenv("ACCOUNT_NAME")
+	return os.Getenv("APPDYNAMICS_AGENT_ACCOUNT_NAME")
 }
 
 func getGLobalAccountName() string {
-	return os.Getenv("GLOBAL_ACCOUNT_NAME")
+	return os.Getenv("APPDYNAMICS_GLOBAL_ACCOUNT_NAME")
 }
 
 func getAppName() string {
-	return os.Getenv("APPLICATION_NAME")
+	return os.Getenv("APPDYNAMICS_AGENT_APPLICATION_NAME")
 }
 
 func getTierName() string {
-	return os.Getenv("TIER_NAME")
+	return os.Getenv("APPDYNAMICS_AGENT_TIER_NAME")
 }
 
 func getNodeName() string {
-	return os.Getenv("NODE_NAME")
+	return os.Getenv("APPDYNAMICS_AGENT_NODE_NAME")
 }
 
 func getControllerUrl() string {
-	return os.Getenv("CONTROLLER_URL")
+	return os.Getenv("APPDYNAMICS_CONTROLLER_URL")
 }
 
 func getAccessKey() string {
-	return os.Getenv("ACCESS_KEY")
+	return os.Getenv("APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY")
 }
 
 func getRestAPICred() string {
-	return os.Getenv("REST_API_CREDENTIALS")
+	return os.Getenv("APPDYNAMICS_REST_API_CREDENTIALS")
 }
 
 func getEventServiceURL() string {
-	return os.Getenv("EVENTS_API_URL")
+	return os.Getenv("APPDYNAMICS_EVENTS_API_URL")
 }
 
 func getEventKey() string {
-	return os.Getenv("EVENT_ACCESS_KEY")
+	return os.Getenv("APPDYNAMICS_EVENT_ACCESS_KEY")
 }
 
 func getSystemSSL() string {
-	return os.Getenv("SYSTEM_SSL")
+	return os.Getenv("APPDYNAMICS_SYSTEM_SSL")
 }
 
 func getAgentSSL() string {
-	return os.Getenv("AGENT_SSL")
+	return os.Getenv("APPDYNAMICS_AGENT_SSL")
 }
 
 func getDashboardSuffix() string {
-	dn := os.Getenv("DASH_NAME")
+	dn := os.Getenv("APPDYNAMICS_DASH_SUFFIX")
 	if dn == "" {
 		dn = "SUMMARY"
 	}
@@ -236,8 +276,23 @@ func getDashboardSuffix() string {
 	return dn
 }
 
+func getServerPort() int {
+	def := 8989
+	port := os.Getenv("APPDYNAMICS_WS_PORT")
+	if port == "" {
+		return def
+	} else {
+		d, err := strconv.Atoi(port)
+		if err != nil {
+			return def
+		}
+
+		return d
+	}
+}
+
 func getDashboardDelayMin() int {
-	delay := os.Getenv("DASH_DELAY")
+	delay := os.Getenv("APPDYNAMICS_DASH_DELAY")
 	if delay == "" {
 		return 0
 	} else {
@@ -250,28 +305,83 @@ func getDashboardDelayMin() int {
 	}
 }
 
+func getBatchSize() int {
+	def := 100
+	batch := os.Getenv("APPDYNAMICS_BATCH_SIZE")
+	if batch == "" {
+		return def
+	} else {
+		v, err := strconv.Atoi(batch)
+		if err != nil {
+			return def
+		}
+
+		return v
+	}
+}
+
+func getMetricSyncInterval() int {
+	def := 60
+	sync := os.Getenv("APPDYNAMICS_METRIC_SYNC_SEC")
+	if sync == "" {
+		return def
+	} else {
+		v, err := strconv.Atoi(sync)
+		if err != nil {
+			return def
+		}
+
+		return v
+	}
+}
+
+func getEventSyncInterval() int {
+	def := 15
+	sync := os.Getenv("APPDYNAMICS_EVENT_SYNC_SEC")
+	if sync == "" {
+		return def
+	} else {
+		v, err := strconv.Atoi(sync)
+		if err != nil {
+			return def
+		}
+
+		return v
+	}
+}
+
+func getSslEnabled() bool {
+	enabled := os.Getenv("APPDYNAMICS_CONTROLLER_SSL_ENABLED")
+	sslenabled, err := strconv.ParseBool(enabled)
+	if err != nil {
+		sslenabled = false
+	}
+
+	return sslenabled
+}
+
 func getAgentNamespace() string {
-	return os.Getenv("AGENT_NAMESPACE")
+	return os.Getenv("APPDYNAMICS_AGENT_NAMESPACE")
 }
 
 func getJavaAgentVersion() string {
-	return os.Getenv("JAVA_AGENT_VERSION")
+	return os.Getenv("APPDYNAMICS_JAVA_AGENT_VERSION")
 }
 
 func getAnalyticsAgentUrl() string {
-	return os.Getenv("ANALYTICS_AGENT_URL")
+	return os.Getenv("APPDYNAMICS_ANALYTICS_AGENT_URL")
 }
 
 func getAnalyticsAgentImage() string {
-	return os.Getenv("ANALYTICS_AGENT_IMAGE")
+	return os.Getenv("APPDYNAMICS_ANALYTICS_AGENT_IMAGE")
 }
 
 func getDotNetAttachImage() string {
-	return os.Getenv("DOTNET_ATTACH_IMAGE")
+	return os.Getenv("APPDYNAMICS_DOTNET_ATTACH_IMAGE")
 }
 
 func getAgentInstrumentationMethod() string {
-	method := os.Getenv("AGENT_INSTRUMENTATION_METHOD")
+	method := os.Getenv("APPDYNAMICS_AGENT_INSTRUMENTATION_METHOD")
 	if method == "" {
 		method = string(m.Copy)
 	}
@@ -279,20 +389,44 @@ func getAgentInstrumentationMethod() string {
 }
 
 func getAgentEnvvar() string {
-	envvar := os.Getenv("APPD_AGENT_ENV_VAR")
+	envvar := os.Getenv("APPDYNAMICS_JAVA_AGENT_ENV_VAR")
 	if envvar == "" {
-		envvar = "$JAVA_OPTS"
+		envvar = "JAVA_OPTS"
 	}
 
 	return envvar
 }
 
 func getJavaAttachImage() string {
-	return os.Getenv("JAVA_ATTACH_IMAGE")
+	return os.Getenv("APPDYNAMICS_JAVA_ATTACH_IMAGE")
 }
 
 func getDeploysToDashboard() string {
-	return os.Getenv("DEPLOYS_TO_DASH")
+	return os.Getenv("APPDYNAMICS_DEPLOYS_TO_DASH")
+}
+
+func getNSToMonitor() string {
+	return os.Getenv("NS_TO_MONITOR")
+}
+
+func getNSToIntrument() string {
+	return os.Getenv("NS_TO_INSTRUMENT")
+}
+
+func getNSToMonitorExclude() string {
+	return os.Getenv("NS_TO_MONITOR_EXC")
+}
+
+func getNSToIntrumentExclude() string {
+	return os.Getenv("NS_TO_INSTRUMENT_EXC")
+}
+
+func getNodesToMonitor() string {
+	return os.Getenv("NODES_TO_MONITOR")
+}
+
+func getNodesToMonitorExclude() string {
+	return os.Getenv("NODES_TO_MONITOR_EXC")
 }
 
 func getTemplatePath() string {

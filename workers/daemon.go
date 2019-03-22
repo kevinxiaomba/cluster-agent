@@ -84,9 +84,9 @@ func (dw *DaemonWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 }
 
 func (pw *DaemonWorker) qualifies(p *appsv1.DaemonSet) bool {
-	return (len((*pw.ConfigManager).Get().IncludeNsToInstrument) == 0 ||
-		utils.StringInSlice(p.Namespace, (*pw.ConfigManager).Get().IncludeNsToInstrument)) &&
-		!utils.StringInSlice(p.Namespace, (*pw.ConfigManager).Get().ExcludeNsToInstrument)
+	return (len((*pw.ConfigManager).Get().NsToMonitor) == 0 ||
+		utils.StringInSlice(p.Namespace, (*pw.ConfigManager).Get().NsToMonitor)) &&
+		!utils.StringInSlice(p.Namespace, (*pw.ConfigManager).Get().NsToMonitorExclude)
 }
 
 func (dw *DaemonWorker) onNewDaemonSet(obj interface{}) {

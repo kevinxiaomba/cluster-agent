@@ -5,6 +5,10 @@ import (
 	"fmt"
 )
 
+type AppDSchemaInterface interface {
+	Unwrap() *map[string]interface{}
+}
+
 type AppDMetricInterface interface {
 	ShouldExcludeField(fieldName string) bool
 	GetPath() string

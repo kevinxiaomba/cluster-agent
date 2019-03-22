@@ -29,12 +29,11 @@ func NewPVCWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager) 
 }
 
 func (pw *PVCWatcher) qualifies(p *v1.PersistentVolumeClaim) bool {
-	return (len((*pw.ConfManager).Get().IncludeNsToInstrument) == 0 ||
-		utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().IncludeNsToInstrument)) &&
-		!utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().ExcludeNsToInstrument)
+	return (len((*pw.ConfManager).Get().NsToMonitor) == 0 ||
+		utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().NsToMonitor)) &&
+		!utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().NsToMonitorExclude)
 }
 
-//PVCs
 func (pw PVCWatcher) WatchPVC() {
 	api := pw.Client.CoreV1()
 	listOptions := metav1.ListOptions{}
@@ -49,7 +48,6 @@ func (pw PVCWatcher) WatchPVC() {
 
 	for ev := range ch {
 		pvc, ok := ev.Object.(*v1.PersistentVolumeClaim)
-		//		quant := pvc.Spec.Resources.Requests[v1.ResourceStorage]
 		if !ok {
 			fmt.Printf("Expected PVC, but received an object of an unknown type. ")
 			continue

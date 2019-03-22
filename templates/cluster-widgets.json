@@ -5992,7 +5992,7 @@
         "width": 77,
         "minHeight": 0,
         "minWidth": 0,
-        "x": 350,
+        "x": 375,
         "y": 34,
         "label": null,
         "description": null,
@@ -9098,7 +9098,7 @@
                         }
                     },
                     "rollupMetricData": true,
-                    "expressionString": "{pressure}/({workers}+{masters})/100",
+                    "expressionString": "{pressure}/({workers}+{masters})*100",
                     "metricDisplayNameStyle": "DISPLAY_STYLE_CUSTOM",
                     "metricDisplayNameCustomFormat": null,
                     "metricDataFilter": {
@@ -9386,7 +9386,7 @@
                         }
                     },
                     "rollupMetricData": true,
-                    "expressionString": "{pressure}/({workers}+{masters})/100",
+                    "expressionString": "{pressure}/({workers}+{masters})*100",
                     "metricDisplayNameStyle": "DISPLAY_STYLE_CUSTOM",
                     "metricDisplayNameCustomFormat": null,
                     "metricDataFilter": {

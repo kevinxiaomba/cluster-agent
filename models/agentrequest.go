@@ -16,14 +16,18 @@ const (
 type InstrumentationMethod string
 
 const (
-	Copy  InstrumentationMethod = "copy"
-	Mount InstrumentationMethod = "mount"
+	None     InstrumentationMethod = ""
+	Copy     InstrumentationMethod = "copy"
+	Mount    InstrumentationMethod = "mount"
+	MountEnv InstrumentationMethod = "mountEnv"
 )
 
 type AgentRequest struct {
 	Tech          TechnologyName
 	ContainerName string
 	Version       string
+	MatchString   string //string matched against deployment names and labels, supports regex
+	Method        InstrumentationMethod
 }
 
 type AgentRequestList struct {
@@ -33,7 +37,7 @@ type AgentRequestList struct {
 }
 
 func NewAgentRequest(appdAgentLabel string) AgentRequest {
-	agentRequest := AgentRequest{}
+	agentRequest := AgentRequest{Method: None}
 	if appdAgentLabel != "" {
 		ar := strings.Split(appdAgentLabel, "_")
 		if len(ar) > 0 {
@@ -47,6 +51,36 @@ func NewAgentRequest(appdAgentLabel string) AgentRequest {
 		}
 	}
 	return agentRequest
+}
+
+func NewAgentRequestListFromArray(ar []AgentRequest) *AgentRequestList {
+	list := AgentRequestList{}
+	for _, r := range ar {
+		list.Items = append(list.Items, r)
+	}
+
+	return &list
+}
+
+func NewAgentRequestListDetail(appName string, tierName string, method InstrumentationMethod, tech TechnologyName, contList *[]string) AgentRequestList {
+	list := AgentRequestList{AppName: appName, TierName: tierName}
+
+	if contList == nil {
+		def := getDefaultAgentRequest()
+		def.Tech = tech
+		def.Method = method
+		list.Items = append(list.Items, def)
+		return list
+	}
+
+	for _, c := range *contList {
+		r := AgentRequest{Method: None}
+		r.ContainerName = c
+		r.Method = method
+		r.Tech = tech
+	}
+
+	return list
 }
 
 func NewAgentRequestList(appdAgentLabel string, appName string, tierName string) AgentRequestList {
@@ -70,7 +104,32 @@ func NewAgentRequestList(appdAgentLabel string, appName string, tierName string)
 }
 
 func getDefaultAgentRequest() AgentRequest {
-	return AgentRequest{Tech: Java}
+	return AgentRequest{Tech: Java, Method: None}
+}
+
+func (al *AgentRequestList) ApplyInstrumentationMethod(m InstrumentationMethod) {
+
+	for _, r := range al.Items {
+		if r.Method == None {
+			r.Method = m
+		}
+	}
+
+}
+
+func (al *AgentRequestList) GetRequest(cname string) AgentRequest {
+	var ar *AgentRequest = nil
+	for _, r := range al.Items {
+		if r.ContainerName == cname {
+			ar = &r
+			break
+		}
+	}
+	if ar != nil {
+		return *ar
+	}
+
+	return getDefaultAgentRequest()
 }
 
 func (al *AgentRequestList) GetFirstRequest() AgentRequest {

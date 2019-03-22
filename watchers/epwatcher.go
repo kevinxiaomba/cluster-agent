@@ -18,20 +18,22 @@ import (
 type EndpointWatcher struct {
 	Client        *kubernetes.Clientset
 	EndpointCache map[string]v1.Endpoints
+	UpdatedCache  map[string]v1.Endpoints
 	ConfManager   *config.MutexConfigManager
 }
 
 var lockEP = sync.RWMutex{}
+var lockUpdated = sync.RWMutex{}
 
 func NewEndpointWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager) *EndpointWatcher {
-	epw := EndpointWatcher{Client: client, EndpointCache: make(map[string]v1.Endpoints), ConfManager: cm}
+	epw := EndpointWatcher{Client: client, EndpointCache: make(map[string]v1.Endpoints), UpdatedCache: make(map[string]v1.Endpoints),
+		ConfManager: cm}
 	return &epw
 }
 
 func (pw *EndpointWatcher) qualifies(p *v1.Endpoints) bool {
-	return (len((*pw.ConfManager).Get().IncludeNsToInstrument) == 0 ||
-		utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().IncludeNsToInstrument)) &&
-		!utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().ExcludeNsToInstrument)
+	bag := (*pw.ConfManager).Get()
+	return utils.NSQualifiesForMonitoring(p.Namespace, bag)
 }
 
 //end points
@@ -73,9 +75,11 @@ func (pw EndpointWatcher) WatchEndpoints() {
 
 func (pw EndpointWatcher) onNewEndpoint(ep *v1.Endpoints) {
 	if !pw.qualifies(ep) {
+		fmt.Printf("EP %s/%s is not qualified\n", ep.Name, ep.Namespace)
 		return
 	}
 	pw.updateMap(ep)
+	pw.updateChanged(ep)
 }
 
 func (pw EndpointWatcher) onDeleteEndpoint(ep *v1.Endpoints) {
@@ -95,6 +99,7 @@ func (pw EndpointWatcher) onUpdateEndpoint(ep *v1.Endpoints) {
 		return
 	}
 	pw.updateMap(ep)
+	pw.updateChanged(ep)
 }
 
 func (pw EndpointWatcher) updateMap(ep *v1.Endpoints) {
@@ -103,6 +108,11 @@ func (pw EndpointWatcher) updateMap(ep *v1.Endpoints) {
 	pw.EndpointCache[utils.GetEndpointKey(ep)] = *ep
 }
 
+func (pw EndpointWatcher) updateChanged(ep *v1.Endpoints) {
+	lockUpdated.Lock()
+	defer lockUpdated.Unlock()
+	pw.UpdatedCache[utils.GetEndpointKey(ep)] = *ep
+}
 func (pw EndpointWatcher) CloneMap() map[string]v1.Endpoints {
 	lockEP.RLock()
 	defer lockEP.RUnlock()
@@ -110,6 +120,24 @@ func (pw EndpointWatcher) CloneMap() map[string]v1.Endpoints {
 	for key, val := range pw.EndpointCache {
 		m[key] = val
 	}
-
+	fmt.Printf("Cloned %d endpoints\n", len(m))
 	return m
+}
+
+func (pw EndpointWatcher) GetUpdated() map[string]v1.Endpoints {
+	lockUpdated.RLock()
+	defer lockUpdated.RUnlock()
+	m := make(map[string]v1.Endpoints)
+	for key, val := range pw.UpdatedCache {
+		m[key] = val
+	}
+	pw.UpdatedCache = make(map[string]v1.Endpoints)
+	return m
+}
+
+func (pw EndpointWatcher) ResetUpdatedCache() {
+	//reset
+	lockUpdated.Lock()
+	defer lockUpdated.Unlock()
+	pw.UpdatedCache = make(map[string]v1.Endpoints)
 }

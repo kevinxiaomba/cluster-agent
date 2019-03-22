@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	m "github.com/sjeltuhin/clusterAgent/models"
@@ -87,4 +88,70 @@ func CloneMap(source map[string]interface{}) (map[string]interface{}, error) {
 		return nil, err
 	}
 	return dest, nil
+}
+
+func MapContainsNocase(m map[string]interface{}, key string) (interface{}, bool) {
+	for k, v := range m {
+		if strings.ToLower(key) == strings.ToLower(k) {
+			return v, true
+		}
+	}
+	return nil, false
+}
+
+func NSQualifiesForMonitoring(ns string, bag *m.AppDBag) bool {
+	return (len(bag.NsToMonitor) == 0 ||
+		StringInSlice(ns, bag.NsToMonitor)) &&
+		!StringInSlice(ns, bag.NsToMonitorExclude)
+}
+
+func NSQualifiesForInstrumentation(ns string, bag *m.AppDBag) bool {
+	return (len(bag.NsToInstrument) == 0 ||
+		StringInSlice(ns, bag.NsToInstrument)) &&
+		!StringInSlice(ns, bag.NsToInstrumentExclude)
+}
+
+func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag) *m.AgentRequestList {
+	var list *m.AgentRequestList = nil
+	if rules, ok := bag.NSInstrumentRule[deploy.Namespace]; ok {
+		list = m.NewAgentRequestListFromArray(rules)
+	}
+
+	return list
+}
+
+func DeployQualifiesForInstrumentation(deploy *appsv1.Deployment, bag *m.AppDBag) bool {
+	if rules, ok := bag.NSInstrumentRule[deploy.Namespace]; ok {
+		for _, r := range rules {
+			reg, _ := regexp.Compile(r.MatchString)
+			if reg.MatchString(deploy.Name) {
+				return true
+			}
+			for _, v := range deploy.Labels {
+				if reg.MatchString(v) {
+					return true
+				}
+			}
+		}
+	}
+	if bag.InstrumentMatchString != "" {
+		globReg, _ := regexp.Compile(bag.InstrumentMatchString)
+		if globReg.MatchString(deploy.Name) {
+			return true
+		}
+
+		for _, v := range deploy.Labels {
+			if globReg.MatchString(v) {
+				return true
+			}
+		}
+	}
+
+	return NSQualifiesForInstrumentation(deploy.Namespace, bag)
+}
+
+func NodeQualifiesForMonitoring(name string, bag *m.AppDBag) bool {
+	return (len(bag.NodesToMonitor) == 0 ||
+		StringInSlice(name, bag.NodesToMonitor)) &&
+		!StringInSlice(name, bag.NodesToMonitorExclude)
 }

@@ -30,6 +30,8 @@ const (
 	APPD_NODENAME                string = "appd-nodename"
 	MAX_INSTRUMENTATION_ATTEMPTS int    = 1
 	ANNOTATION_UPDATE_ERROR      string = "ANNOTATION-UPDATE-FAILURE"
+	APPD_SECRET_NAME             string = "appd-secret"
+	APPD_SECRET_KEY_NAME         string = "appd-secret_key_name"
 )
 
 type AgentInjector struct {
@@ -65,6 +67,25 @@ func AgentInitExists(podSpec *v1.PodSpec, bag *m.AppDBag) bool {
 		}
 	}
 	return exists
+}
+
+func AgentInitEnvExists(pod *v1.Pod, bag *m.AppDBag) bool {
+	exists := false
+
+	for _, c := range pod.Spec.InitContainers {
+		if c.Name == bag.AppDInitContainerName {
+			exists = true
+			break
+		}
+	}
+	if exists {
+		for k, v := range pod.Labels {
+			if k == bag.AgentEnvVar && strings.Contains(v, "Dappdynamics") {
+				return exists
+			}
+		}
+	}
+	return false
 }
 
 func IsPodInstrumented(podObj *v1.Pod) bool {
@@ -103,15 +124,49 @@ func (ai AgentInjector) EnsureInstrumentation(statusChanel chan m.AttachStatus, 
 			biQDeploymentOption = m.BiQDeploymentOption(v)
 		}
 	}
+	//	var method m.InstrumentationMethod
+	//	var tech m.TechnologyName
+	//	var containerList *[]string = nil
+	//	for ak, av := range podObj.Annotations {
+	//		if ak == "appd-instr-method" {
+	//			method = m.InstrumentationMethod(av)
+	//		}
+	//		if ak == "appd-tech" {
+	//			tech = m.TechnologyName(av)
+	//		}
+	//		if ak == "appd-container-list" {
+	//			arr := strings.Split(av, ",")
+	//			containerList = &arr
+	//		}
+	//	}
 
 	//if the instrumentation is not requested at the deployment level, check the cluster agent config
 	//namespace and/or label selector rules
 
 	if appName != "" {
 		fmt.Println("Instrumentation requested. Checking for necessary components...")
+		agentRequests := m.NewAgentRequestList(appAgent, appName, tierName)
+		agentRequests.ApplyInstrumentationMethod(ai.Bag.InstrumentationMethod)
+
+		//		if appAgent != "" {
+		//			agentRequests = m.NewAgentRequestList(appAgent, appName, tierName)
+		//			agentRequests.ApplyInstrumentationMethod(ai.Bag.InstrumentationMethod)
+		//		} else {
+		//			agentRequests = m.NewAgentRequestListDetail(appName, tierName, method, tech, containerList)
+		//		}
+
+		agentRequest := agentRequests.GetFirstRequest()
+		if agentRequest.Method == m.None {
+			agentRequest.Method = ai.Bag.InstrumentationMethod
+		}
 
 		//when mounting, init container is needed
-		if ai.Bag.InstrumentationMethod == m.Mount && !AgentInitExists(&podObj.Spec, ai.Bag) {
+		if agentRequest.Method == m.Mount && !AgentInitExists(&podObj.Spec, ai.Bag) {
+			fmt.Printf("Deployment of pod %s needs to be updated with init container. Skipping instrumentation until the deployment update is complete...\n", podObj.Name)
+			statusChanel <- ai.buildAttachStatus(podObj, nil, true)
+			return nil
+		}
+		if agentRequest.Method == m.MountEnv && !AgentInitEnvExists(podObj, ai.Bag) {
 			fmt.Printf("Deployment of pod %s needs to be updated with init container. Skipping instrumentation until the deployment update is complete...\n", podObj.Name)
 			statusChanel <- ai.buildAttachStatus(podObj, nil, true)
 			return nil
@@ -127,9 +182,7 @@ func (ai AgentInjector) EnsureInstrumentation(statusChanel chan m.AttachStatus, 
 			tierName = podSchema.Owner
 		}
 
-		agentRequests := m.NewAgentRequestList(appAgent, appName, tierName)
-
-		if agentRequests.GetFirstRequest().Tech == m.DotNet {
+		if agentRequest.Tech == m.DotNet || agentRequest.Method == m.MountEnv {
 			fmt.Println("DotNet workloads do not require special attachment. Annotating and aborting...")
 			podObj.Annotations[ATTACHED_ANNOTATION] = time.Now().String()
 			_, updateErr := ai.ClientSet.Core().Pods(podObj.Namespace).Update(podObj)

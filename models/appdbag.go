@@ -28,6 +28,7 @@ type AppDBag struct {
 	DaemonSchemaName            string
 	EventSchemaName             string
 	ContainerSchemaName         string
+	EpSchemaName                string
 	JobSchemaName               string
 	LogSchemaName               string
 	DashboardTemplatePath       string
@@ -61,9 +62,14 @@ type AppDBag struct {
 	MetricsSyncInterval         int // Frequency of metrics pushes to the controller, sec
 	SnapshotSyncInterval        int // Frequency of snapshot pushes to events api, sec
 	AgentServerPort             int
-	IncludeNsToInstrument       []string
-	ExcludeNsToInstrument       []string
+	NsToMonitor                 []string
+	NsToMonitorExclude          []string
 	DeploysToDashboard          []string
-	IncludeNodesToInstrument    []string
-	ExcludeNodesToInstrument    []string
+	NodesToMonitor              []string
+	NodesToMonitorExclude       []string
+	NsToInstrument              []string
+	NsToInstrumentExclude       []string
+	InstrumentMatchString       string
+	NSInstrumentRule            map[string][]AgentRequest
+	SchemaUpdateCache           []string
 }

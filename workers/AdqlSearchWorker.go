@@ -32,22 +32,13 @@ func (aw *AdqlSearchWorker) GetSearch(metricPath string) string {
 	if searchObj, ok := aw.SearchCache[metricPath]; ok {
 		search = fmt.Sprintf(DRILL_DOWN_URL_TEMPLATE, aw.Bag.RestAPIUrl, searchObj.ID)
 	} else {
-		if query, ok := aw.getQueryMap()[metricPath]; ok {
-			arr := strings.Split(metricPath, "|")
-			if len(arr) > 0 {
-				sObj := m.AdqlSearch{}
-				sObj.SearchName = arr[len(arr)-1]
-				sObj.Query = query
-				obj, err := aw.CreateSearch(&sObj)
-				if err != nil {
-					aw.Logger.Printf("Unable to save search object. %V", err)
-				} else {
-					aw.SearchCache[metricPath] = *obj
-					search = fmt.Sprintf(DRILL_DOWN_URL_TEMPLATE, aw.Bag.RestAPIUrl, obj.ID)
-				}
-
+		if sObj, ok := aw.getQueryMap()[metricPath]; ok {
+			obj, err := aw.CreateSearch(&sObj)
+			if err != nil {
+				aw.Logger.Printf("Unable to save search object. %V", err)
 			} else {
-				aw.Logger.Printf("Unable to get search object. Metric path %s is invalid", metricPath)
+				aw.SearchCache[metricPath] = *obj
+				search = fmt.Sprintf(DRILL_DOWN_URL_TEMPLATE, aw.Bag.RestAPIUrl, obj.ID)
 			}
 		}
 		//if not in the queryMap, no search is necessary
@@ -82,7 +73,13 @@ func (aw *AdqlSearchWorker) CacheSearches() error {
 
 func (aw *AdqlSearchWorker) CreateSearch(searchObj *m.AdqlSearch) (*m.AdqlSearch, error) {
 	name := uuid.New().String()
-	jsonStr := fmt.Sprintf(`{"name":"%s","adqlQueries":["%s"],"searchType":"SINGLE","searchMode":"ADVANCED","viewMode":"DATA","visualization":"TABLE","selectedFields":[],"widgets":[],"searchName":"%s"}`, name, searchObj.Query, searchObj.SearchName)
+	schemaWrapper := searchObj.SchemaDef.Unwrap()
+	schemaDef := (*schemaWrapper)["schema"].(map[string]interface{})
+	cols := []string{}
+	for col, _ := range schemaDef {
+		cols = append(cols, col)
+	}
+	jsonStr := fmt.Sprintf(`{"name":"%s","adqlQueries":["%s"],"searchType":"SINGLE","searchMode":"ADVANCED","viewMode":"DATA","visualization":"TABLE","selectedFields":[%s],"widgets":[],"searchName":"%s"}`, name, searchObj.Query, strings.Join(cols, ","), searchObj.SearchName)
 
 	body, err := json.Marshal(jsonStr)
 	if err != nil {
@@ -104,9 +101,10 @@ func (aw *AdqlSearchWorker) CreateSearch(searchObj *m.AdqlSearch) (*m.AdqlSearch
 	return &obj, nil
 }
 
-func (aw *AdqlSearchWorker) getQueryMap() map[string]string {
-	var queryMap = map[string]string{
-		BASE_PATH + "EventsCount": fmt.Sprintf(`select * from %s where clusterName = "%s" ORDER BY creationTimestamp DESC`, aw.Bag.EventSchemaName, aw.Bag.AppName),
+func (aw *AdqlSearchWorker) getQueryMap() map[string]m.AdqlSearch {
+	var queryMap = map[string]m.AdqlSearch{
+		BASE_PATH + "EventsCount": m.AdqlSearch{SchemaDef: m.EventSchemaDefWrapper{}, SearchName: "EventsCount", SchemaName: aw.Bag.EventSchemaName,
+			Query: fmt.Sprintf(`select * from %s where clusterName = "%s" ORDER BY creationTimestamp DESC`, aw.Bag.EventSchemaName, aw.Bag.AppName)},
 	}
 
 	return queryMap

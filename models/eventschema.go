@@ -4,10 +4,17 @@ import (
 	"fmt"
 	"reflect"
 	"time"
+
+	"github.com/fatih/structs"
 )
 
 type EventSchemaDefWrapper struct {
 	Schema EventSchemaDef `json:"schema"`
+}
+
+func (sd EventSchemaDefWrapper) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(sd)
+	return &objMap
 }
 
 type EventSchemaDef struct {

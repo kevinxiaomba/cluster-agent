@@ -58,7 +58,16 @@ func (self *MutexConfigManager) onConfigUpdate() {
 
 func (self *MutexConfigManager) Set(conf *m.AppDBag) {
 	self.Mutex.Lock()
+	if self.Conf != nil && self.Conf.SchemaUpdateCache != nil {
+		conf.SchemaUpdateCache = self.Conf.SchemaUpdateCache
+	}
 	self.Conf = conf
+	if self.Conf.NSInstrumentRule == nil {
+		self.Conf.NSInstrumentRule = make(map[string][]m.AgentRequest)
+	}
+	if self.Conf.SchemaUpdateCache == nil {
+		self.Conf.SchemaUpdateCache = []string{}
+	}
 	self.Mutex.Unlock()
 }
 

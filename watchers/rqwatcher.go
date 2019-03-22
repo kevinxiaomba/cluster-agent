@@ -29,9 +29,9 @@ func NewRQWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager) *
 }
 
 func (pw *RQWatcher) qualifies(p *v1.ResourceQuota) bool {
-	return (len((*pw.ConfManager).Get().IncludeNsToInstrument) == 0 ||
-		utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().IncludeNsToInstrument)) &&
-		!utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().ExcludeNsToInstrument)
+	return (len((*pw.ConfManager).Get().NsToMonitor) == 0 ||
+		utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().NsToMonitor)) &&
+		!utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().NsToMonitorExclude)
 }
 
 //quotas

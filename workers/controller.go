@@ -152,18 +152,6 @@ func (c *MainController) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	//	<-stopCh
 }
 
-func nsWorker(finished chan *v1.NamespaceList, client *kubernetes.Clientset, wg *sync.WaitGroup) {
-	defer wg.Done()
-	fmt.Println("Namepace Worker: Started")
-	api := client.CoreV1()
-	ns, err := api.Namespaces().List(metav1.ListOptions{})
-	if err != nil {
-		fmt.Printf("Issues getting namespaces %s\n", err)
-	}
-	fmt.Println("Namepace Worker: Finished")
-	finished <- ns
-}
-
 func (c *MainController) startPodsWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
 	fmt.Println("Starting Pods worker")
 	defer wg.Done()
@@ -199,7 +187,7 @@ func (c *MainController) startRsWorker(stopCh <-chan struct{}, client *kubernete
 }
 
 func (c *MainController) startEventsWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
-	fmt.Println("Starting events worker")
+	fmt.Println("Starting Events worker")
 	defer wg.Done()
 	ew := NewEventWorker(client, c.ConfManager, appdController, c.PodsWorker)
 	ew.Observe(stopCh, wg)
@@ -213,7 +201,7 @@ func (c *MainController) startJobsWorker(stopCh <-chan struct{}, client *kuberne
 }
 
 func (c *MainController) startNodeWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
-	fmt.Println("Starting nodes worker")
+	fmt.Println("Starting Nodes worker")
 	defer wg.Done()
 	ew := NewNodesWorker(client, c.ConfManager, appdController)
 	ew.Observe(stopCh, wg)

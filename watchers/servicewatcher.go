@@ -64,14 +64,14 @@ func (pw ServiceWatcher) WatchServices() {
 	fmt.Println("Exiting svc watcher.")
 }
 
-func (pw *ServiceWatcher) qualifies(p *v1.Service) bool {
-	return (len((*pw.ConfManager).Get().IncludeNsToInstrument) == 0 ||
-		utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().IncludeNsToInstrument)) &&
-		!utils.StringInSlice(p.Namespace, (*pw.ConfManager).Get().ExcludeNsToInstrument)
+func (pw *ServiceWatcher) qualifies(svc *v1.Service) bool {
+	bag := pw.ConfManager.Get()
+	return utils.NSQualifiesForMonitoring(svc.Namespace, bag)
 }
 
 func (pw ServiceWatcher) onNewService(svc *v1.Service) {
 	if !pw.qualifies(svc) {
+		fmt.Printf("Service %s/%s is not qualified\n", svc.Name, svc.Namespace)
 		return
 	}
 	pw.updateMap(svc)
@@ -109,6 +109,6 @@ func (pw ServiceWatcher) CloneMap() map[string]v1.Service {
 	for key, val := range pw.SvcCache {
 		m[key] = val
 	}
-
+	fmt.Printf("Cloned %d services\n", len(m))
 	return m
 }

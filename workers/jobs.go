@@ -78,9 +78,9 @@ func (nw *JobsWorker) initJobInformer(client *kubernetes.Clientset) cache.Shared
 
 func (pw *JobsWorker) qualifies(p *batchTypes.Job) bool {
 	bag := (*pw.ConfigManager).Get()
-	return (len(bag.IncludeNsToInstrument) == 0 ||
-		utils.StringInSlice(p.Namespace, bag.IncludeNsToInstrument)) &&
-		!utils.StringInSlice(p.Namespace, bag.ExcludeNsToInstrument)
+	return (len(bag.NsToMonitor) == 0 ||
+		utils.StringInSlice(p.Namespace, bag.NsToMonitor)) &&
+		!utils.StringInSlice(p.Namespace, bag.NsToMonitorExclude)
 }
 
 func (nw *JobsWorker) onNewJob(obj interface{}) {
@@ -303,7 +303,7 @@ func (pw *JobsWorker) flushQueue() {
 	bag := (*pw.ConfigManager).Get()
 	bth := pw.AppdController.StartBT("FlushJobEventsQueue")
 	count := pw.WQ.Len()
-	fmt.Printf("Flushing the queue of %d records", count)
+	fmt.Printf("Flushing the queue of %d records\n", count)
 	if count == 0 {
 		return
 	}

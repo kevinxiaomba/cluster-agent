@@ -6,7 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 
-	//	"math"
+	"math"
 	"os"
 	"path/filepath"
 
@@ -145,7 +145,7 @@ func (dw *DashboardWorker) loadDashboard(dashName string) (*m.Dashboard, error) 
 
 	for _, d := range list {
 		if d.Name == dashName {
-			fmt.Printf("Dashaboard %s exists. No action required\n", dashName)
+			fmt.Printf("Dashaboard %s exists.\n", dashName)
 			theDash = &d
 			break
 		}
@@ -383,11 +383,22 @@ func (dw *DashboardWorker) updateClusterOverview(bag *m.DashboardBag) error {
 			return fmt.Errorf("Cluster overview template exists, but cannot be loaded. %v", err)
 		}
 		dashboard.Name = dashName
-		dashboard, err = dw.createDashboard(dashboard)
-		fmt.Printf("Create dashboard result. Error: %v, \n", err)
-		if err != nil {
-			return err
+		if existing == nil {
+			newDash, err := dw.createDashboard(dashboard)
+			fmt.Printf("Create dashboard result. Error: %v, \n", err)
+			if err != nil {
+				//agent restart, no template left, but the dashboard exists, attempt to load by name
+				existing, err := dw.loadDashboard(dashName)
+				if err != nil {
+					return fmt.Errorf("Unable to load dashboard %s. %v", dashName, err)
+				} else {
+					dashboard.ID = existing.ID
+				}
+			} else {
+				dashboard = newDash
+			}
 		}
+
 		//by this time we should have dashboard object with id
 		//load the template with all static widgets
 		widgetList, err, exists := dw.loadWidgetTemplate(CLUSTER_WIDGETS)
@@ -473,16 +484,17 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 	width := 10
 	height := 10
 
-	//	numPods := len(bag.HeatNodes)
-	//	availableArea := (backWidth-2*nodeMargin)*backHeight - (startLine - backTop)
-	//	areaPerNode := math.Round(float64(availableArea / numPods))
-	//	side := areaPerNode / 2
-	//	if side > float64(minSize+nodeMargin) {
-	//		nodeMargin = int(math.Round(side / 2))
-	//		width = nodeMargin
-	//		height = nodeMargin
-	//	}
-	rightMargin := backWidth - nodeMargin - minSize
+	numPods := len(bag.HeatNodes)
+	availableArea := (backWidth - 2*nodeMargin) * (backHeight - (startLine - backTop))
+	areaPerNode := math.Round(float64(availableArea / numPods))
+	side := math.Sqrt(areaPerNode)
+	if side > float64(minSize+nodeMargin) {
+		nodeMargin = int(math.Round(side / 2))
+		width = nodeMargin
+		height = nodeMargin
+	}
+
+	rightMargin := backWidth - nodeMargin
 	lastLine := backTop + backHeight - nodeMargin - height
 
 	//	//heat background
@@ -526,6 +538,7 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 			colorCode = 39168 //
 		} else if hn.State == "Pending" {
 			colorCode = 16605970
+			dot["description"] = fmt.Sprintf("%s\nPending time: %s", dot["description"], hn.FormatPendingTime())
 		} else if hn.State == "Failed" {
 			colorCode = 13369344
 		}
@@ -759,7 +772,7 @@ func (dw *DashboardWorker) updateMetricName(expTemplate map[string]interface{}, 
 
 	//update drilldown if cluster level dash
 	if dashBag.Type == m.Cluster {
-		searchPath := "" //dw.AdqlWorker.GetSearch(rawPath)
+		searchPath := dw.AdqlWorker.GetSearch(rawPath)
 		if searchPath != "" && (*parentWidget)["drillDownUrl"] == "" {
 			(*parentWidget)["drillDownUrl"] = searchPath
 			(*parentWidget)["useMetricBrowserAsDrillDown"] = false
@@ -833,4 +846,19 @@ func (dw *DashboardWorker) GetEntityInfo(widget *map[string]interface{}, dashBag
 		tierName = dashBag.TierName
 	}
 	return appName, tierName
+}
+
+func (dw *DashboardWorker) DeleteDashboard(id int) error {
+	path := "restui/dashboards/deleteDashboards"
+	arr := []int{id}
+	data, err := json.Marshal(arr)
+	if err != nil {
+		return fmt.Errorf("Unable to serialize data to delete dashboard %d. %v", id, err)
+	}
+	rc := app.NewRestClient(dw.Bag, dw.Logger)
+	_, errDel := rc.CallAppDController(path, "POST", data)
+	if errDel != nil {
+		return fmt.Errorf("Unable to delete dashboard %d. %v\n", id, errDel)
+	}
+	return nil
 }

@@ -85,9 +85,9 @@ func (dw *RsWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 }
 
 func (pw *RsWorker) qualifies(p *appsv1.ReplicaSet) bool {
-	return (len((*pw.ConfigManager).Get().IncludeNsToInstrument) == 0 ||
-		utils.StringInSlice(p.Namespace, (*pw.ConfigManager).Get().IncludeNsToInstrument)) &&
-		!utils.StringInSlice(p.Namespace, (*pw.ConfigManager).Get().ExcludeNsToInstrument)
+	return (len((*pw.ConfigManager).Get().NsToMonitor) == 0 ||
+		utils.StringInSlice(p.Namespace, (*pw.ConfigManager).Get().NsToMonitor)) &&
+		!utils.StringInSlice(p.Namespace, (*pw.ConfigManager).Get().NsToMonitorExclude)
 }
 
 func (dw *RsWorker) onNewReplicaSet(obj interface{}) {

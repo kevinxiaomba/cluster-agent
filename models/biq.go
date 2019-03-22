@@ -3,7 +3,7 @@ package models
 type BiQDeploymentOption string
 
 const (
-	None    BiQDeploymentOption = "none"
+	NoBiq   BiQDeploymentOption = "none"
 	Sidecar BiQDeploymentOption = "sidecar"
 	Remote  BiQDeploymentOption = "remote"
 )
