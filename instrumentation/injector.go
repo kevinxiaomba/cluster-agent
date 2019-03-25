@@ -69,25 +69,6 @@ func AgentInitExists(podSpec *v1.PodSpec, bag *m.AppDBag) bool {
 	return exists
 }
 
-func AgentInitEnvExists(pod *v1.Pod, bag *m.AppDBag) bool {
-	exists := false
-
-	for _, c := range pod.Spec.InitContainers {
-		if c.Name == bag.AppDInitContainerName {
-			exists = true
-			break
-		}
-	}
-	if exists {
-		for k, v := range pod.Labels {
-			if k == bag.AgentEnvVar && strings.Contains(v, "Dappdynamics") {
-				return exists
-			}
-		}
-	}
-	return false
-}
-
 func IsPodInstrumented(podObj *v1.Pod) bool {
 	for k, v := range podObj.Annotations {
 		if k == ATTACHED_ANNOTATION && v != "" {
@@ -161,16 +142,12 @@ func (ai AgentInjector) EnsureInstrumentation(statusChanel chan m.AttachStatus, 
 		}
 
 		//when mounting, init container is needed
-		if agentRequest.Method == m.Mount && !AgentInitExists(&podObj.Spec, ai.Bag) {
+		if (agentRequest.Method == m.Mount || agentRequest.Method == m.MountEnv) && !AgentInitExists(&podObj.Spec, ai.Bag) {
 			fmt.Printf("Deployment of pod %s needs to be updated with init container. Skipping instrumentation until the deployment update is complete...\n", podObj.Name)
 			statusChanel <- ai.buildAttachStatus(podObj, nil, true)
 			return nil
 		}
-		if agentRequest.Method == m.MountEnv && !AgentInitEnvExists(podObj, ai.Bag) {
-			fmt.Printf("Deployment of pod %s needs to be updated with init container. Skipping instrumentation until the deployment update is complete...\n", podObj.Name)
-			statusChanel <- ai.buildAttachStatus(podObj, nil, true)
-			return nil
-		}
+
 		//if biq requested, make sure side car is in the spec
 		if biQDeploymentOption == m.Sidecar && !AnalyticsAgentExists(&podObj.Spec, ai.Bag) {
 			fmt.Printf("Deployment of pod %s needs to be updated. Skipping instrumentation until the deployment update is complete...\n", podObj.Name)
@@ -182,18 +159,6 @@ func (ai AgentInjector) EnsureInstrumentation(statusChanel chan m.AttachStatus, 
 			tierName = podSchema.Owner
 		}
 
-		if agentRequest.Tech == m.DotNet || agentRequest.Method == m.MountEnv {
-			fmt.Println("DotNet workloads do not require special attachment. Annotating and aborting...")
-			podObj.Annotations[ATTACHED_ANNOTATION] = time.Now().String()
-			_, updateErr := ai.ClientSet.Core().Pods(podObj.Namespace).Update(podObj)
-			if updateErr != nil {
-				statusChanel <- ai.buildAttachStatus(podObj, fmt.Errorf("%s, Error: %v\n", ANNOTATION_UPDATE_ERROR, updateErr), false)
-			} else {
-				statusChanel <- ai.buildAttachStatus(podObj, nil, false)
-			}
-			return nil
-		}
-
 		containersToInstrument := agentRequests.GetContainerNames()
 
 		found := false
@@ -202,16 +167,25 @@ func (ai AgentInjector) EnsureInstrumentation(statusChanel chan m.AttachStatus, 
 			if containersToInstrument == nil {
 				found = true
 				//instrument first container
-				fmt.Printf("No specific requests. Instrumenting first container %s\n", c.Name)
-				err := ai.instrumentContainer(appName, tierName, &c, podObj, biQDeploymentOption)
-				statusChanel <- ai.buildAttachStatus(podObj, err, false)
+				if agentRequest.Tech == m.DotNet || agentRequest.Method == m.MountEnv {
+					ai.finilizeAttach(statusChanel, podObj, &agentRequest, appName, tierName, c.Name)
+				} else {
+					fmt.Printf("No specific requests. Instrumenting first container %s\n", c.Name)
+					err := ai.instrumentContainer(appName, tierName, &c, podObj, biQDeploymentOption, &agentRequest)
+					statusChanel <- ai.buildAttachStatus(podObj, err, false)
+				}
 				break
 			} else {
 				if utils.StringInSlice(c.Name, *containersToInstrument) {
 					found = true
-					fmt.Printf("Container %s requested. Instrumenting...\n", c.Name)
-					err := ai.instrumentContainer(appName, tierName, &c, podObj, biQDeploymentOption)
-					statusChanel <- ai.buildAttachStatus(podObj, err, false)
+					if agentRequest.Tech == m.DotNet || agentRequest.Method == m.MountEnv {
+						ai.finilizeAttach(statusChanel, podObj, &agentRequest, appName, tierName, c.Name)
+					} else {
+
+						fmt.Printf("Container %s requested. Instrumenting...\n", c.Name)
+						err := ai.instrumentContainer(appName, tierName, &c, podObj, biQDeploymentOption, &agentRequest)
+						statusChanel <- ai.buildAttachStatus(podObj, err, false)
+					}
 				}
 			}
 		}
@@ -227,6 +201,19 @@ func (ai AgentInjector) EnsureInstrumentation(statusChanel chan m.AttachStatus, 
 
 }
 
+func (ai AgentInjector) finilizeAttach(statusChanel chan m.AttachStatus, podObj *v1.Pod, agentRequest *m.AgentRequest, appName string, tierName string, containerName string) {
+	if agentRequest.Tech == m.DotNet || agentRequest.Method == m.MountEnv {
+		fmt.Printf("Finilizing instrumentation for container %s...\n", containerName)
+		exec := NewExecutor(ai.ClientSet, ai.K8sConfig)
+		updateErr := ai.associate(podObj, appName, tierName, ai.Bag.AgentMountPath, &exec, containerName, agentRequest)
+		if updateErr != nil {
+			statusChanel <- ai.buildAttachStatus(podObj, fmt.Errorf("%s, Error: %v\n", ANNOTATION_UPDATE_ERROR, updateErr), false)
+		} else {
+			statusChanel <- ai.buildAttachStatus(podObj, nil, false)
+		}
+	}
+}
+
 func (ai AgentInjector) buildAttachStatus(podObj *v1.Pod, err error, skip bool) m.AttachStatus {
 	if err == nil {
 		return m.AttachStatus{Key: utils.GetPodKey(podObj), Success: !skip}
@@ -239,7 +226,7 @@ func (ai AgentInjector) buildAttachStatus(podObj *v1.Pod, err error, skip bool) 
 	return st
 }
 
-func (ai AgentInjector) instrumentContainer(appName string, tierName string, container *v1.Container, podObj *v1.Pod, biQDeploymentOption m.BiQDeploymentOption) error {
+func (ai AgentInjector) instrumentContainer(appName string, tierName string, container *v1.Container, podObj *v1.Pod, biQDeploymentOption m.BiQDeploymentOption, agentRequest *m.AgentRequest) error {
 	var procName, args string
 	var procID int = 0
 	exec := NewExecutor(ai.ClientSet, ai.K8sConfig)
@@ -284,7 +271,7 @@ func (ai AgentInjector) instrumentContainer(appName string, tierName string, con
 		}
 		if legit && procID > 0 {
 			fmt.Printf("Instrumenting process %d\n", procID)
-			return ai.instrument(podObj, procID, appName, tierName, container.Name, &exec, biQDeploymentOption)
+			return ai.instrument(podObj, procID, appName, tierName, container.Name, &exec, biQDeploymentOption, agentRequest)
 		} else {
 			return fmt.Errorf("Enable to determine process to instrument")
 		}
@@ -358,7 +345,7 @@ func (ai AgentInjector) copyFile(ok chan bool, wg *sync.WaitGroup, exec *Executo
 	ok <- true
 }
 
-func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tierName string, containerName string, exec *Executor, biQDeploymentOption m.BiQDeploymentOption) error {
+func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tierName string, containerName string, exec *Executor, biQDeploymentOption m.BiQDeploymentOption, agentRequest *m.AgentRequest) error {
 	jdkPath := ai.Bag.AgentMountPath
 	jarPath := ai.Bag.AgentMountPath
 	if ai.Bag.InstrumentationMethod == m.Copy {
@@ -380,14 +367,36 @@ func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tier
 	code, output, err := exec.RunCommandInPod(podObj.Name, podObj.Namespace, containerName, "", cmd)
 	if code == 0 {
 		fmt.Printf("AppD agent attached. Output: %s. Error: %v\n", output, err)
-
-		//annotate pod
-		if podObj.Annotations == nil {
-			podObj.Annotations = make(map[string]string)
+		errA := ai.associate(podObj, appName, tierName, jarPath, exec, containerName, agentRequest)
+		if errA != nil {
+			return fmt.Errorf("Unable to annotate and associate the attached pod %v\n", errA)
 		}
-		//annotate pod
-		podObj.Annotations[ATTACHED_ANNOTATION] = time.Now().String()
 
+	} else {
+		return fmt.Errorf("Unable to attach Java agent. Error code = %d. Output: %s, Error: %v\n", code, output, err)
+	}
+	ai.AppdController.StopBT(bth)
+	return nil
+}
+
+func (ai AgentInjector) associate(podObj *v1.Pod, appName string, tierName string, jarPath string, exec *Executor, containerName string, agentRequest *m.AgentRequest) error {
+	//annotate pod
+	if podObj.Annotations == nil {
+		podObj.Annotations = make(map[string]string)
+	}
+	//annotate pod
+	podObj.Annotations[ATTACHED_ANNOTATION] = time.Now().String()
+
+	if agentRequest.Tech == m.DotNet {
+		//associate with the tier
+		appID, tierID, _, errAppd := ai.AppdController.DetermineNodeID(appName, tierName, "")
+		if errAppd == nil {
+			podObj.Annotations[APPD_APPID] = strconv.Itoa(appID)
+			podObj.Annotations[APPD_TIERID] = strconv.Itoa(tierID)
+		}
+	}
+
+	if agentRequest.Tech == m.Java {
 		//determine the AppD node name
 		findVerCmd := fmt.Sprintf("find %s/ -maxdepth 1 -type d -name '*ver*' -printf %%f -quit", jarPath)
 		cVer, verFolderName, errVer := exec.RunCommandInPod(podObj.Name, podObj.Namespace, containerName, "", findVerCmd)
@@ -404,18 +413,21 @@ func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tier
 					podObj.Annotations[APPD_APPID] = strconv.Itoa(appID)
 					podObj.Annotations[APPD_TIERID] = strconv.Itoa(tierID)
 					podObj.Annotations[APPD_NODEID] = strconv.Itoa(nodeID)
-
 					//if analytics was intstrumented, queue up to enable the app for analytics
+				}
+			} else {
+				//try to associate with the tier
+				appID, tierID, _, errAppd := ai.AppdController.DetermineNodeID(appName, tierName, "")
+				if errAppd == nil {
+					podObj.Annotations[APPD_APPID] = strconv.Itoa(appID)
+					podObj.Annotations[APPD_TIERID] = strconv.Itoa(tierID)
 				}
 			}
 		}
-		_, updateErr := ai.ClientSet.Core().Pods(podObj.Namespace).Update(podObj)
-		if updateErr != nil {
-			return fmt.Errorf("%s, Error: %v\n", ANNOTATION_UPDATE_ERROR, err)
-		}
-	} else {
-		return fmt.Errorf("Unable to attach Java agent. Error code = %d. Output: %s, Error: %v\n", code, output, err)
 	}
-	ai.AppdController.StopBT(bth)
+	_, updateErr := ai.ClientSet.Core().Pods(podObj.Namespace).Update(podObj)
+	if updateErr != nil {
+		return fmt.Errorf("%s, Error: %v\n", ANNOTATION_UPDATE_ERROR, updateErr)
+	}
 	return nil
 }

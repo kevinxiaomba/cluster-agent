@@ -256,6 +256,9 @@ func (c *ControllerClient) FindNodeID(appID int, tierName string, nodeName strin
 					continue
 				}
 				tierID = int(tier["id"].(float64))
+				if nodeName == "" {
+					return tierID, 0, nil
+				}
 				for k, prop := range tier {
 					if k == "children" {
 						for _, node := range prop.([]interface{}) {

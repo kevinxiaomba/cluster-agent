@@ -75,7 +75,7 @@ func (ew *EventWorker) onNewEvent(obj interface{}) {
 	if !ew.qualifies(eventObj) {
 		return
 	}
-	fmt.Printf("Received event: %s %s %s\n", eventObj.Namespace, eventObj.Message, eventObj.Reason)
+	//	fmt.Printf("Received event: %s %s %s\n", eventObj.Namespace, eventObj.Message, eventObj.Reason)
 	eventRecord := ew.processObject(eventObj)
 	ew.WQ.Add(&eventRecord)
 }
@@ -317,16 +317,16 @@ func buildTierKeyForEvent(namespace, tierName string) string {
 
 func (ew *EventWorker) summarize(eventObject *m.EventSchema) {
 	bag := (*ew.ConfigManager).Get()
-	var err error = nil
+	//	var err error = nil
 	var tierName string = ""
 	var tierKey string = ""
 	if ew.PodsWorker != nil && eventObject.ObjectKind == "Pod" {
-		_, tierName, err = ew.PodsWorker.GetCachedPod(eventObject.ObjectNamespace, eventObject.ObjectName)
-		if err != nil {
-			fmt.Printf("Unable to lookup Pod %s for event. %v\n", eventObject.ObjectName, err)
-		} else {
-			fmt.Printf("Found Pod %s for event. %s\n", eventObject.ObjectName, eventObject.Reason)
-		}
+		_, tierName, _ = ew.PodsWorker.GetCachedPod(eventObject.ObjectNamespace, eventObject.ObjectName)
+		//		if err != nil {
+		//			fmt.Printf("Unable to lookup Pod %s for event. %v\n", eventObject.ObjectName, err)
+		//		} else {
+		//			fmt.Printf("Found Pod %s for event. %s\n", eventObject.ObjectName, eventObject.Reason)
+		//		}
 	}
 	//global metrics
 	summary, okSum := ew.SummaryMap[m.ALL]

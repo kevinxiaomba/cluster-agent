@@ -16,6 +16,8 @@ import (
 	"github.com/sjeltuhin/clusterAgent/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
@@ -443,12 +445,12 @@ func (dw *DeployWorker) shouldUpdate(deployObj *appsv1.Deployment) (bool, bool, 
 		return false, false, nil
 	}
 
-	//check Failed cache not to exceed failuer limit
-	//	status, ok := dw.FailedCache[utils.GetDeployKey(deployObj)]
-	//	if ok && status.Count >= instr.MAX_INSTRUMENTATION_ATTEMPTS {
-	//		fmt.Printf("Deployment %s exceeded the max number of failed instrumentation attempts. Skipping...\n", deployObj.Name)
-	//		return false, false, nil
-	//	}
+	//	check Failed cache not to exceed failuer limit
+	status, ok := dw.FailedCache[utils.GetDeployKey(deployObj)]
+	if ok && status.Count >= instr.MAX_INSTRUMENTATION_ATTEMPTS {
+		fmt.Printf("Deployment %s exceeded the max number of failed instrumentation attempts. Skipping...\n", deployObj.Name)
+		return false, false, nil
+	}
 
 	biq := biQDeploymentOption == m.Sidecar && !instr.AnalyticsAgentExists(&deployObj.Spec.Template.Spec, (*dw.ConfigManager).Get())
 
@@ -489,13 +491,14 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 		if init {
 			fmt.Println("Adding init container...")
 
-			//			//check if appd-secret exists
-			//			//if not copy into the namespace
-			//			fmt.Println("Ensuring secret...")
-			//			errSecret := dw.ensureSecret(deployObj.Namespace)
-			//			if errSecret != nil {
-			//				return fmt.Errorf("Failed to ensure secret in namespace %s: %v", deployObj.Namespace, getErr)
-			//			}
+			//check if appd-secret exists
+			//if not copy into the namespace
+			fmt.Println("Ensuring secret...")
+			errSecret := dw.ensureSecret(deployObj.Namespace)
+			if errSecret != nil {
+				fmt.Printf("Failed to ensure secret in namespace %s: %v", deployObj.Namespace, errSecret)
+				return fmt.Errorf("Failed to ensure secret in namespace %s: %v", deployObj.Namespace, errSecret)
+			}
 			//add volume and mounts for agent binaries
 			dw.updateSpec(result, (*dw.ConfigManager).Get().AgentMountName, (*dw.ConfigManager).Get().AgentMountPath, agentRequests, true)
 			//add init container for agent attach
@@ -608,9 +611,9 @@ func (dw *DeployWorker) updateSpec(result *appsv1.Deployment, volName string, vo
 			fmt.Printf("instrument method =  %s\n", m.MountEnv)
 			if tech == m.Java && ar.Method == m.MountEnv {
 				fmt.Printf("Requested env var update for java container %s\n", c.Name)
-				optsExist := false //$(APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY)
-				javaOptsVal := fmt.Sprintf(` -Dappdynamics.agent.accountAccessKey=%s -Dappdynamics.controller.hostName=%s -Dappdynamics.controller.port=%d -Dappdynamics.controller.ssl.enabled=%t -Dappdynamics.agent.accountName=%s -Dappdynamics.agent.applicationName=%s -Dappdynamics.agent.tierName=%s -Dappdynamics.agent.reuse.nodeName=true -Dappdynamics.agent.reuse.nodeName.prefix=%s -javaagent:%s/javaagent.jar `,
-					bag.AccessKey, bag.ControllerUrl, bag.ControllerPort, bag.SSLEnabled, bag.Account, agentRequests.AppName, agentRequests.TierName, agentRequests.TierName, bag.AgentMountPath)
+				optsExist := false
+				javaOptsVal := fmt.Sprintf(` -Dappdynamics.agent.accountAccessKey=$(APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY) -Dappdynamics.controller.hostName=%s -Dappdynamics.controller.port=%d -Dappdynamics.controller.ssl.enabled=%t -Dappdynamics.agent.accountName=%s -Dappdynamics.agent.applicationName=%s -Dappdynamics.agent.tierName=%s -Dappdynamics.agent.reuse.nodeName=true -Dappdynamics.agent.reuse.nodeName.prefix=%s -javaagent:%s/javaagent.jar `,
+					bag.ControllerUrl, bag.ControllerPort, bag.SSLEnabled, bag.Account, agentRequests.AppName, agentRequests.TierName, agentRequests.TierName, bag.AgentMountPath)
 				if c.Env == nil {
 					c.Env = []v1.EnvVar{}
 				} else {
@@ -622,16 +625,16 @@ func (dw *DeployWorker) updateSpec(result *appsv1.Deployment, volName string, vo
 						}
 					}
 				}
-				//				//key reference
-				//				keyRef := v1.SecretKeySelector{Key: instr.APPD_SECRET_KEY_NAME, LocalObjectReference: v1.LocalObjectReference{
-				//					Name: instr.APPD_SECRET_NAME}}
-				//				envVarKey := v1.EnvVar{Name: "APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY", ValueFrom: &v1.EnvVarSource{SecretKeyRef: &keyRef}}
+				//key reference
+				keyRef := v1.SecretKeySelector{Key: instr.APPD_SECRET_KEY_NAME, LocalObjectReference: v1.LocalObjectReference{
+					Name: instr.APPD_SECRET_NAME}}
+				envVarKey := v1.EnvVar{Name: "APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY", ValueFrom: &v1.EnvVarSource{SecretKeyRef: &keyRef}}
 				if !optsExist {
 					envJavaOpts := v1.EnvVar{Name: bag.AgentEnvVar, Value: javaOptsVal}
 					c.Env = append(c.Env, envJavaOpts)
 				}
 				//prepend the secret ref
-				//				c.Env = append([]v1.EnvVar{envVarKey}, c.Env...)
+				c.Env = append([]v1.EnvVar{envVarKey}, c.Env...)
 			}
 
 		}
@@ -648,30 +651,34 @@ func (dw *DeployWorker) ensureSecret(ns string) error {
 	bag := (*dw.ConfigManager).Get()
 	var secret *v1.Secret
 
-	s, errGet := dw.Client.CoreV1().Secrets(ns).Get(instr.APPD_SECRET_NAME, metav1.GetOptions{})
-	if errGet != nil {
+	_, errGet := dw.Client.CoreV1().Secrets(ns).Get(instr.APPD_SECRET_NAME, metav1.GetOptions{})
+	if errGet != nil && !errors.IsNotFound(errGet) {
 		return errGet
 	}
 
-	if s != nil {
-		//secret exists
-		return nil
+	if errors.IsNotFound(errGet) {
+		secret = &v1.Secret{
+			Type: v1.SecretTypeOpaque,
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      instr.APPD_SECRET_NAME,
+				Namespace: ns,
+			},
+		}
+		fmt.Printf("Secret %s does not exist in namespace %s. Creating...\n", secret.Name, ns)
+
+		secret.StringData = make(map[string]string)
+		secret.StringData[instr.APPD_SECRET_KEY_NAME] = bag.AccessKey
+
+		_, err := dw.Client.CoreV1().Secrets(ns).Create(secret)
+		fmt.Printf("Secret %s. %v\n", secret.Name, err)
+		if err != nil {
+			fmt.Printf("Unable to create secret. %v\n", err)
+		}
+		return err
 	}
+	fmt.Printf("Secret %s exists. No action required\n", instr.APPD_SECRET_NAME)
 
-	secret = &v1.Secret{
-		Type: v1.SecretTypeOpaque,
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      instr.APPD_SECRET_NAME,
-			Namespace: ns,
-		},
-	}
-
-	secret.StringData = make(map[string]string)
-	secret.StringData[instr.APPD_SECRET_KEY_NAME] = bag.AccessKey
-
-	_, err := dw.Client.CoreV1().Secrets(ns).Create(secret)
-
-	return err
+	return nil
 }
 
 func (dw *DeployWorker) buildInitContainer(agentrequest *m.AgentRequest) v1.Container {
@@ -681,8 +688,18 @@ func (dw *DeployWorker) buildInitContainer(agentrequest *m.AgentRequest) v1.Cont
 	mounts := []v1.VolumeMount{volumeMount}
 
 	cmd := []string{"cp", "-ra", (*dw.ConfigManager).Get().InitContainerDir, (*dw.ConfigManager).Get().AgentMountPath}
+
+	resRequest := v1.ResourceList{}
+	resRequest[v1.ResourceCPU] = resource.MustParse("0.1")
+	resRequest[v1.ResourceMemory] = resource.MustParse("50M")
+
+	resLimit := v1.ResourceList{}
+	resLimit[v1.ResourceCPU] = resource.MustParse("0.15")
+	resLimit[v1.ResourceMemory] = resource.MustParse("75M")
+	reqs := v1.ResourceRequirements{Requests: resRequest, Limits: resLimit}
+
 	cont := v1.Container{Name: (*dw.ConfigManager).Get().AppDInitContainerName, Image: agentrequest.GetAgentImageName((*dw.ConfigManager).Get()), ImagePullPolicy: v1.PullIfNotPresent,
-		VolumeMounts: mounts, Command: cmd}
+		VolumeMounts: mounts, Command: cmd, Resources: reqs}
 
 	return cont
 }
@@ -708,8 +725,17 @@ func (dw *DeployWorker) buildBiqSideCar() v1.Container {
 	volumeMount := v1.VolumeMount{Name: (*dw.ConfigManager).Get().AppLogMountName, MountPath: (*dw.ConfigManager).Get().AppLogMountPath}
 	mounts := []v1.VolumeMount{volumeMount}
 
+	resRequest := v1.ResourceList{}
+	resRequest[v1.ResourceCPU] = resource.MustParse("0.1")
+	resRequest[v1.ResourceMemory] = resource.MustParse("50M")
+
+	resLimit := v1.ResourceList{}
+	resLimit[v1.ResourceCPU] = resource.MustParse("0.2")
+	resLimit[v1.ResourceMemory] = resource.MustParse("100M")
+	reqs := v1.ResourceRequirements{Requests: resRequest, Limits: resLimit}
+
 	cont := v1.Container{Name: (*dw.ConfigManager).Get().AnalyticsAgentContainerName, Image: (*dw.ConfigManager).Get().AnalyticsAgentImage, ImagePullPolicy: v1.PullIfNotPresent,
-		Ports: ports, EnvFrom: envFrom, Env: env, VolumeMounts: mounts}
+		Ports: ports, EnvFrom: envFrom, Env: env, VolumeMounts: mounts, Resources: reqs}
 
 	return cont
 }

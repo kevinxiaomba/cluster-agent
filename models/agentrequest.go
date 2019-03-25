@@ -23,6 +23,8 @@ const (
 )
 
 type AgentRequest struct {
+	AppDAppLabel  string
+	AppDTierLabel string
 	Tech          TechnologyName
 	ContainerName string
 	Version       string

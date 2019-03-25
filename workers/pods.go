@@ -134,7 +134,7 @@ func (pw *PodWorker) onNewPod(obj interface{}) {
 
 func (pw *PodWorker) instrument(statusChannel chan m.AttachStatus, podObj *v1.Pod, podSchema *m.PodSchema) {
 	bag := (*pw.ConfManager).Get()
-	//	fmt.Println("Attempting instrumentation...")
+	fmt.Printf("Attempting instrumentation %s...\n", podObj.Name)
 	injector := instr.NewAgentInjector(pw.Client, pw.K8sConfig, bag, pw.AppdController)
 	injector.EnsureInstrumentation(statusChannel, podObj, podSchema)
 }
@@ -377,6 +377,7 @@ func (pw *PodWorker) onUpdatePod(objOld interface{}, objNew interface{}) {
 
 func (pw *PodWorker) checkForInstrumentation(podObj *v1.Pod, podSchema *m.PodSchema) {
 	//check if already instrumented
+	fmt.Printf("Checking updated pods %s for instrumentation...\n", podObj.Name)
 	if instr.IsPodInstrumented(podObj) {
 		pw.PendingCache = utils.RemoveFromSlice(utils.GetPodKey(podObj), pw.PendingCache)
 		fmt.Printf("Pod %s already instrumented. Skipping...\n", podObj.Name)
@@ -1219,7 +1220,7 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 				now := time.Now().UnixNano() / 1000000
 				podObject.PendingTime = now - podObject.StartTimeMillis
 			}
-			fmt.Printf("Pending time: %s/%s %d. StartTimeMillis: %d, RunningStartTimeMillis: %d, TerminationTimeMillis: %d BreakPointMillis: %d\n", podObject.Namespace, podObject.Name, podObject.PendingTime, podObject.StartTimeMillis, podObject.RunningStartTimeMillis, podObject.TerminationTimeMillis, podObject.BreakPointMillis)
+			//			fmt.Printf("Pending time: %s/%s %d. StartTimeMillis: %d, RunningStartTimeMillis: %d, TerminationTimeMillis: %d BreakPointMillis: %d\n", podObject.Namespace, podObject.Name, podObject.PendingTime, podObject.StartTimeMillis, podObject.RunningStartTimeMillis, podObject.TerminationTimeMillis, podObject.BreakPointMillis)
 		}
 
 		//metrics
