@@ -23,8 +23,8 @@ type PVCWatcher struct {
 
 var lockPVC = sync.RWMutex{}
 
-func NewPVCWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager) *PVCWatcher {
-	epw := PVCWatcher{Client: client, PVCCache: make(map[string]v1.PersistentVolumeClaim), ConfManager: cm}
+func NewPVCWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]v1.PersistentVolumeClaim) *PVCWatcher {
+	epw := PVCWatcher{Client: client, PVCCache: *cache, ConfManager: cm}
 	return &epw
 }
 

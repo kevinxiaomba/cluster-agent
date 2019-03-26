@@ -3,6 +3,8 @@ package models
 import (
 	"fmt"
 	"time"
+
+	"github.com/fatih/structs"
 )
 
 type ContainerSchemaDefWrapper struct {
@@ -38,6 +40,9 @@ type ContainerSchemaDef struct {
 	TermReason        string `json:"termReason"`
 	TerminationTime   string `json:"terminationTime"`
 	Mounts            string `json:"mounts"`
+	MissingConfigs    string `json:"missingConfigs"`
+	MissingSecrets    string `json:"missingSecrets"`
+	MissingServices   string `json:"missingServices"`
 }
 
 func NewContainerSchemaDefWrapper() ContainerSchemaDefWrapper {
@@ -46,10 +51,16 @@ func NewContainerSchemaDefWrapper() ContainerSchemaDefWrapper {
 	return wrapper
 }
 
+func (sd ContainerSchemaDefWrapper) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(sd)
+	return &objMap
+}
+
 func NewContainerSchemaDef() ContainerSchemaDef {
 	pdsd := ContainerSchemaDef{Name: "string", Init: "boolean", Namespace: "string", ClusterName: "string", NodeName: "string", PodName: "string", PodInitTime: "date", StartTime: "date", LiveProbes: "integer", ReadyProbes: "integer", Restarts: "integer",
 		Privileged: "integer", Ports: "string", MemRequest: "float", CpuRequest: "float", CpuLimit: "float", MemLimit: "float", PodStorageRequest: "float", PodStorageLimit: "float", StorageRequest: "float", StorageCapacity: "float", CpuUse: "float", MemUse: "float",
-		Image: "string", WaitReason: "string", TermReason: "string", TerminationTime: "date", Mounts: "string"}
+		Image: "string", WaitReason: "string", TermReason: "string", TerminationTime: "date", Mounts: "string", MissingConfigs: "string",
+		MissingSecrets: "string", MissingServices: "string"}
 	return pdsd
 }
 
@@ -89,6 +100,9 @@ type ContainerSchema struct {
 	TermReason          string          `json:"termReason"`
 	TerminationTime     time.Time       `json:"terminationTime"`
 	Mounts              string          `json:"mounts"`
+	MissingConfigs      string          `json:"missingConfigs"`
+	MissingSecrets      string          `json:"missingSecrets"`
+	MissingServices     string          `json:"missingServices"`
 	Index               int8            `json:"-"`
 	ContainerPorts      []ContainerPort `json:"-"`
 	LastTerminationTime *time.Time      `json:"-"`
@@ -117,6 +131,14 @@ func (p ContainerSchema) ToString() string {
 		p.PodName, p.PodInitTime, p.StartTime.String(), p.LiveProbes, p.ReadyProbes,
 		p.Restarts, p.Privileged, p.Ports, p.MemRequest, p.CpuRequest, p.CpuLimit, p.MemLimit, p.CpuUse, p.MemUse,
 		p.Image, p.WaitReason, p.TermReason, p.TerminationTime.String(), p.Mounts)
+}
+
+func (p *ContainerSchema) HasMissingDependencies() bool {
+	return p.MissingConfigs != "" || p.MissingSecrets != ""
+}
+
+func (p *ContainerSchema) NoConnectivity() bool {
+	return p.MissingServices != ""
 }
 
 func (l ContainerObjList) AddItem(obj ContainerSchema) []ContainerSchema {

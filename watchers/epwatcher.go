@@ -25,8 +25,8 @@ type EndpointWatcher struct {
 var lockEP = sync.RWMutex{}
 var lockUpdated = sync.RWMutex{}
 
-func NewEndpointWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager) *EndpointWatcher {
-	epw := EndpointWatcher{Client: client, EndpointCache: make(map[string]v1.Endpoints), UpdatedCache: make(map[string]v1.Endpoints),
+func NewEndpointWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]v1.Endpoints) *EndpointWatcher {
+	epw := EndpointWatcher{Client: client, EndpointCache: *cache, UpdatedCache: make(map[string]v1.Endpoints),
 		ConfManager: cm}
 	return &epw
 }

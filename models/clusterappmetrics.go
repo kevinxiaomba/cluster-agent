@@ -7,33 +7,35 @@ import (
 )
 
 type ClusterAppMetrics struct {
-	Path               string
-	Metadata           map[string]AppDMetricMetadata
-	Namespace          string
-	TierName           string
-	PodCount           int64
-	Privileged         int64
-	Evictions          int64
-	PodRestarts        int64
-	PodRunning         int64
-	PodFailed          int64
-	PodPending         int64
-	PendingTime        int64
-	UpTime             int64
-	ContainerCount     int64
-	InitContainerCount int64
-	RequestCpu         int64
-	RequestMemory      int64
-	LimitCpu           int64
-	LimitMemory        int64
-	UseCpu             int64
-	UseMemory          int64
-	NoLimits           int64
-	NoReadinessProbe   int64
-	NoLivenessProbe    int64
-	Services           []ClusterServiceMetrics
-	QuotasSpec         RQFields
-	QuotasUsed         RQFields
+	Path                string
+	Metadata            map[string]AppDMetricMetadata
+	Namespace           string
+	TierName            string
+	PodCount            int64
+	Privileged          int64
+	Evictions           int64
+	PodRestarts         int64
+	PodRunning          int64
+	PodFailed           int64
+	PodPending          int64
+	PendingTime         int64
+	UpTime              int64
+	ContainerCount      int64
+	InitContainerCount  int64
+	RequestCpu          int64
+	RequestMemory       int64
+	LimitCpu            int64
+	LimitMemory         int64
+	UseCpu              int64
+	UseMemory           int64
+	NoLimits            int64
+	NoReadinessProbe    int64
+	NoLivenessProbe     int64
+	MissingDependencies int64
+	NoConnectivity      int64
+	Services            []ClusterServiceMetrics
+	QuotasSpec          RQFields
+	QuotasUsed          RQFields
 }
 
 type ClusterServiceMetrics struct {
@@ -132,7 +134,7 @@ func NewClusterAppMetrics(bag *AppDBag, podObject *PodSchema) ClusterAppMetrics 
 	appMetrics := ClusterAppMetrics{Namespace: podObject.Namespace, TierName: podObject.Owner, Privileged: 0, PodCount: 0, Evictions: 0,
 		PodRestarts: 0, PodRunning: 0, PodFailed: 0, PodPending: 0, PendingTime: 0, UpTime: 0, ContainerCount: 0, InitContainerCount: 0,
 		RequestCpu: 0, RequestMemory: 0, LimitCpu: 0, LimitMemory: 0, UseCpu: 0, UseMemory: 0, NoLimits: 0, NoReadinessProbe: 0, NoLivenessProbe: 0,
-		QuotasSpec: NewRQFields(), QuotasUsed: NewRQFields(), Path: p}
+		MissingDependencies: 0, NoConnectivity: 0, QuotasSpec: NewRQFields(), QuotasUsed: NewRQFields(), Path: p}
 
 	for _, svc := range podObject.Services {
 		svcMetrics := NewClusterServiceMetrics(bag, podObject.Namespace, podObject.Owner, &svc)

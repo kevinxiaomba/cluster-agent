@@ -384,6 +384,7 @@ func (pw DeployWorker) addMetricToList(objMap map[string]interface{}, metric m.A
 //instrumentation
 func (dw *DeployWorker) shouldUpdate(deployObj *appsv1.Deployment) (bool, bool, *m.AgentRequestList) {
 	bag := (*dw.ConfigManager).Get()
+
 	var appName, tierName, appAgent string
 	var biqRequested = false
 	var agentRequests *m.AgentRequestList = nil

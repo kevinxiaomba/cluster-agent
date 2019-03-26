@@ -23,8 +23,8 @@ type RQWatcher struct {
 	ConfManager *config.MutexConfigManager
 }
 
-func NewRQWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager) *RQWatcher {
-	epw := RQWatcher{Client: client, RQCache: make(map[string]v1.ResourceQuota), ConfManager: cm}
+func NewRQWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]v1.ResourceQuota) *RQWatcher {
+	epw := RQWatcher{Client: client, RQCache: *cache, ConfManager: cm}
 	return &epw
 }
 

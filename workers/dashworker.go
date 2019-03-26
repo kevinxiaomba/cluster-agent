@@ -466,14 +466,11 @@ func (dw *DashboardWorker) updateClusterOverview(bag *m.DashboardBag) error {
 }
 
 func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.DashboardBag) (*m.Dashboard, error) {
-	//w/h:1103 x 235
-	//pos: 14 x 429
-	//min size: 10/10
-	//start: 26 x 466
-	backWidth := 1103
-	backTop := 429
-	startLine := 466
-	backHeight := 235
+
+	backWidth := 1468
+	backTop := 517
+	startLine := 540
+	backHeight := 148
 	minSize := 10
 	leftMargin := 26
 	nodeMargin := minSize
@@ -535,7 +532,7 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 		//color
 		colorCode := 0
 		if hn.State == "Running" {
-			colorCode = 39168 //
+			colorCode = 34021 //34021  39168
 		} else if hn.State == "Pending" {
 			colorCode = 16605970
 			dot["description"] = fmt.Sprintf("%s\nPending time: %s", dot["description"], hn.FormatPendingTime())

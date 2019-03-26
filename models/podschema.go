@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/fatih/structs"
 	"k8s.io/api/core/v1"
 )
 
@@ -68,6 +69,11 @@ func NewPodSchemaDefWrapper() PodSchemaDefWrapper {
 	schema := NewPodSchemaDef()
 	wrapper := PodSchemaDefWrapper{Schema: schema}
 	return wrapper
+}
+
+func (sd PodSchemaDefWrapper) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(sd)
+	return &objMap
 }
 
 func NewPodSchemaDef() PodSchemaDef {
@@ -151,6 +157,8 @@ type PodSchema struct {
 	TerminationTimeMillis         int64                      `json:"-"`
 	UpTimeMillis                  int64                      `json:"-"`
 	BreakPointMillis              int64                      `json:"-"` //time when a container exited
+	MissingDependencies           bool                       `json:"-"`
+	NoConnectivity                bool                       `json:"-"`
 }
 
 type PodObjList struct {

@@ -385,6 +385,19 @@ func (c *ControllerClient) EnableAppAnalytics(appID int, appName string) error {
 
 }
 
+func (c *ControllerClient) DeleteAppDNode(nodeID int) error {
+	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
+	path := fmt.Sprintf("restui/nodeUiService/deleteNode/%d", nodeID)
+
+	rc := NewRestClient((*c.ConfManager).Get(), logger)
+	_, err := rc.CallAppDController(path, "DELETE", nil)
+	if err != nil {
+		return fmt.Errorf("Unable to delete node %d. %v", nodeID, err)
+	}
+
+	return nil
+}
+
 // enable analytics
 // POST controller/restui/analyticsConfigTxnAnalyticsUiService/enableAnalyticsForApplication?enabled=true
 // appId: 12

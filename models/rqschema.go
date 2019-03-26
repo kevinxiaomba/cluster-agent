@@ -51,7 +51,7 @@ func (cpm RQFields) Unwrap() *map[string]interface{} {
 	return &objMap
 }
 
-func (self RQFields) Increment(rqVals *RQFields) {
+func (self *RQFields) Increment(rqVals *RQFields) {
 	self.RequestCpu += rqVals.RequestCpu
 	self.RequestMemory += rqVals.RequestMemory
 	self.LimitCpu += rqVals.LimitCpu
@@ -60,6 +60,17 @@ func (self RQFields) Increment(rqVals *RQFields) {
 	self.Storage += rqVals.Storage
 	self.PVC += rqVals.PVC
 	self.Pods += rqVals.Pods
+}
+
+func (self *RQFields) Copy(rqVals *RQFields) {
+	self.RequestCpu = rqVals.RequestCpu
+	self.RequestMemory = rqVals.RequestMemory
+	self.LimitCpu = rqVals.LimitCpu
+	self.LimitMemory = rqVals.LimitMemory
+	self.StoragePod = rqVals.StoragePod
+	self.Storage = rqVals.Storage
+	self.PVC = rqVals.PVC
+	self.Pods = rqVals.Pods
 }
 
 func NewRQ(rq *v1.ResourceQuota) RQSchema {
@@ -83,7 +94,7 @@ func NewRQ(rq *v1.ResourceQuota) RQSchema {
 	}
 
 	if rq.Spec.Hard.Pods() != nil {
-		rqSchema.Spec.Pods = rq.Spec.Hard.Pods().MilliValue()
+		rqSchema.Spec.Pods, _ = rq.Spec.Hard.Pods().AsInt64()
 	}
 
 	if rq.Spec.Hard.StorageEphemeral() != nil {
@@ -126,7 +137,7 @@ func NewRQ(rq *v1.ResourceQuota) RQSchema {
 	}
 
 	if rq.Status.Used.Pods() != nil {
-		rqSchema.Used.Pods = rq.Status.Used.Pods().MilliValue()
+		rqSchema.Used.Pods, _ = rq.Status.Used.Pods().AsInt64()
 	}
 
 	if rq.Status.Used.StorageEphemeral() != nil {
@@ -168,9 +179,13 @@ func (rq *RQSchema) AppliesToPod(podObject *PodSchema) bool {
 	return check
 }
 
+func (rq *RQSchema) AppliesToNamespace(ns string) bool {
+	return rq.Namespace == ns
+}
+
 func (rq *RQSchema) AddQuotaStatsToNamespaceMetrics(metrics *ClusterPodMetrics) {
-	metrics.QuotasSpec = rq.Spec
-	metrics.QuotasUsed = rq.Used
+	metrics.QuotasSpec.Copy(&rq.Spec)
+	metrics.QuotasUsed.Copy(&rq.Used)
 }
 
 func (rq *RQSchema) IncrementQuotaStatsClusterMetrics(metrics *ClusterPodMetrics) {
@@ -179,6 +194,6 @@ func (rq *RQSchema) IncrementQuotaStatsClusterMetrics(metrics *ClusterPodMetrics
 }
 
 func (rq *RQSchema) AddQuotaStatsToAppMetrics(metrics *ClusterAppMetrics) {
-	metrics.QuotasSpec = rq.Spec
-	metrics.QuotasUsed = rq.Used
+	metrics.QuotasSpec.Copy(&rq.Spec)
+	metrics.QuotasUsed.Copy(&rq.Used)
 }

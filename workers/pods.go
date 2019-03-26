@@ -57,12 +57,16 @@ type PodWorker struct {
 	EndpointCache       map[string]v1.Endpoints
 	RQCache             map[string]v1.ResourceQuota
 	PVCCache            map[string]v1.PersistentVolumeClaim
+	CMCache             map[string]v1.ConfigMap
+	SecretCache         map[string]v1.Secret
 	OwnerMap            map[string]string
 	NamespaceMap        map[string]string
 	ServiceWatcher      *w.ServiceWatcher
 	EndpointWatcher     *w.EndpointWatcher
 	PVCWatcher          *w.PVCWatcher
 	RQWatcher           *w.RQWatcher
+	CMWatcher           *w.ConfigWatcher
+	SecretWatcher       *w.SecretWathcer
 	DashboardCache      map[string]m.PodSchema
 	DelayDashboard      bool
 }
@@ -77,12 +81,15 @@ func NewPodWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, c
 		WQ: queue, AppdController: controller, K8sConfig: config, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus),
 		ServiceCache: make(map[string]m.ServiceSchema), EndpointCache: make(map[string]v1.Endpoints),
 		OwnerMap: make(map[string]string), NamespaceMap: make(map[string]string),
-		RQCache: make(map[string]v1.ResourceQuota), PVCCache: make(map[string]v1.PersistentVolumeClaim), DashboardCache: make(map[string]m.PodSchema)}
+		RQCache: make(map[string]v1.ResourceQuota), PVCCache: make(map[string]v1.PersistentVolumeClaim),
+		CMCache: make(map[string]v1.ConfigMap), SecretCache: make(map[string]v1.Secret), DashboardCache: make(map[string]m.PodSchema)}
 	pw.initPodInformer(client)
-	pw.ServiceWatcher = w.NewServiceWatcher(client, cm)
-	pw.EndpointWatcher = w.NewEndpointWatcher(client, cm)
-	pw.PVCWatcher = w.NewPVCWatcher(client, cm)
-	pw.RQWatcher = w.NewRQWatcher(client, cm)
+	pw.ServiceWatcher = w.NewServiceWatcher(client, cm, &pw.ServiceCache, nil)
+	pw.EndpointWatcher = w.NewEndpointWatcher(client, cm, &pw.EndpointCache)
+	pw.PVCWatcher = w.NewPVCWatcher(client, cm, &pw.PVCCache)
+	pw.RQWatcher = w.NewRQWatcher(client, cm, &pw.RQCache)
+	pw.CMWatcher = w.NewConfigWatcher(client, cm, &pw.CMCache, pw)
+	pw.SecretWatcher = w.NewSecretWathcer(client, cm, &pw.SecretCache, nil)
 	pw.DelayDashboard = true
 	return pw
 }
@@ -199,6 +206,7 @@ func (pw *PodWorker) startEventQueueWorker(stopCh <-chan struct{}) {
 }
 
 func (pw *PodWorker) flushQueue() {
+	pw.updateServiceCache()
 	bag := (*pw.ConfManager).Get()
 	bth := pw.AppdController.StartBT("FlushPodDataQueue")
 	count := pw.WQ.Len()
@@ -260,53 +268,36 @@ func (pw *PodWorker) postContainerBatchRecords(objList *[]m.ContainerSchema) {
 	bag := (*pw.ConfManager).Get()
 	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
 	rc := app.NewRestClient(bag, logger)
-	data, err := json.Marshal(objList)
-	schemaDefObj := m.NewContainerSchemaDefWrapper()
-	schemaDef, e := json.Marshal(schemaDefObj)
-	//	fmt.Printf("Schema def: %s\n", string(schemaDef))
-	if err == nil && e == nil {
-		if rc.SchemaExists(bag.ContainerSchemaName) == false {
-			fmt.Printf("Creating Container schema. %s\n", bag.ContainerSchemaName)
-			schemaObj, err := rc.CreateSchema(bag.ContainerSchemaName, schemaDef)
-			if err != nil {
-				return
-			} else if schemaObj != nil {
-				fmt.Printf("Schema %s created\n", bag.ContainerSchemaName)
-			} else {
-				fmt.Printf("Schema %s exists\n", bag.ContainerSchemaName)
-			}
-		}
 
-		rc.PostAppDEvents(bag.ContainerSchemaName, data)
+	schemaDefObj := m.NewContainerSchemaDefWrapper()
+	err := rc.EnsureSchema(bag.ContainerSchemaName, &schemaDefObj)
+	if err != nil {
+		fmt.Printf("Issues when ensuring %s schema. %v\n", bag.ContainerSchemaName, err)
 	} else {
-		fmt.Printf("Problems when serializing array of container schemas. %v", err)
+		data, err := json.Marshal(objList)
+		if err != nil {
+			fmt.Printf("Problems when serializing array of container schemas. %v", err)
+		}
+		rc.PostAppDEvents(bag.ContainerSchemaName, data)
 	}
+
 }
 
 func (pw *PodWorker) postPodRecords(objList *[]m.PodSchema) {
 	bag := (*pw.ConfManager).Get()
 	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
 	rc := app.NewRestClient(bag, logger)
-	data, err := json.Marshal(objList)
 	schemaDefObj := m.NewPodSchemaDefWrapper()
-	schemaDef, e := json.Marshal(schemaDefObj)
-	//	fmt.Printf("Schema def: %s\n", string(schemaDef))
-	if err == nil && e == nil {
-		if rc.SchemaExists(bag.PodSchemaName) == false {
-			fmt.Printf("Creating schema. %s\n", bag.PodSchemaName)
-			schemaObj, err := rc.CreateSchema(bag.PodSchemaName, schemaDef)
-			if err != nil {
-				return
-			} else if schemaObj != nil {
-				fmt.Printf("Schema %s created\n", bag.PodSchemaName)
-			} else {
-				fmt.Printf("Schema %s exists\n", bag.PodSchemaName)
-			}
-		}
-		fmt.Println("About to post records")
-		rc.PostAppDEvents(bag.PodSchemaName, data)
+
+	err := rc.EnsureSchema(bag.PodSchemaName, &schemaDefObj)
+	if err != nil {
+		fmt.Printf("Issues when ensuring %s schema. %v\n", bag.PodSchemaName, err)
 	} else {
-		fmt.Printf("Problems when serializing array of pod schemas. %v\n", err)
+		data, err := json.Marshal(objList)
+		if err != nil {
+			fmt.Printf("Problems when serializing array of pod schemas. %v", err)
+		}
+		rc.PostAppDEvents(bag.PodSchemaName, data)
 	}
 }
 
@@ -353,6 +344,10 @@ func (pw *PodWorker) onDeletePod(obj interface{}) {
 	fmt.Printf("Deleted Pod: %s %s\n", podObj.Namespace, podObj.Name)
 	podRecord, _ := pw.processObject(podObj, nil)
 	pw.WQ.Add(&podRecord)
+	if podRecord.NodeID > 0 {
+		//delete node
+		pw.AppdController.DeleteAppDNode(podRecord.NodeID)
+	}
 }
 
 func (pw *PodWorker) onUpdatePod(objOld interface{}, objNew interface{}) {
@@ -448,6 +443,10 @@ func (pw PodWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 
 	go pw.PVCWatcher.WatchPVC()
 
+	go pw.CMWatcher.WatchConfigs()
+
+	go pw.SecretWatcher.WatchSecrets()
+
 	//dashbard timer
 	bag := (*pw.ConfManager).Get()
 	dashTimer := time.NewTimer(time.Minute * time.Duration(bag.DashboardDelayMin))
@@ -493,6 +492,17 @@ func (pw *PodWorker) eventQueueTicker(stop <-chan struct{}, ticker *time.Ticker)
 		}
 	}
 }
+func (pw PodWorker) CacheUpdated(namespace string) {
+	fmt.Printf("CacheUpdated called for namespace %s\n", namespace)
+	//queue up pod records of the namespace to update
+	for _, obj := range pw.informer.GetStore().List() {
+		podObject := obj.(*v1.Pod)
+		if podObject.Namespace == namespace {
+			podSchema, _ := pw.processObject(podObject, nil)
+			pw.WQ.Add(&podSchema)
+		}
+	}
+}
 
 func (pw *PodWorker) buildAppDMetrics() {
 	bag := (*pw.ConfManager).Get()
@@ -502,9 +512,6 @@ func (pw *PodWorker) buildAppDMetrics() {
 	pw.ContainerSummaryMap = make(map[string]m.ClusterContainerMetrics)
 	pw.InstanceSummaryMap = make(map[string]m.ClusterInstanceMetrics)
 	pw.updateServiceCache()
-	pw.cloneEPCache()
-	pw.clonePVCCache()
-	pw.cloneRQCache()
 
 	//get updated EP cache
 	updatedEPs := pw.EndpointWatcher.GetUpdated()
@@ -571,47 +578,11 @@ func (pw *PodWorker) buildAppDMetrics() {
 		fmt.Printf("Number of dashboards to be updated %d\n", len(dash))
 		go pw.buildDashboards(dash)
 	}
-}
 
-func (pw *PodWorker) cloneEPCache() {
-	//clone watchers cache
-	pw.EndpointCache = pw.EndpointWatcher.CloneMap()
-}
-
-func (pw *PodWorker) clonePVCCache() {
-	//clone watchers cache
-	pw.PVCCache = pw.PVCWatcher.CloneMap()
-}
-
-func (pw *PodWorker) cloneRQCache() {
-	//clone watchers cache
-	pw.RQCache = pw.RQWatcher.CloneMap()
 }
 
 func (pw *PodWorker) updateServiceCache() {
-	mapSvc := pw.ServiceWatcher.CloneMap()
-	external := make(map[string]m.ServiceSchema)
-	for key, svc := range mapSvc {
-		svcSchema := m.NewServiceSchema(&svc)
-		if svcSchema.HasExternalService {
-			external[key] = *svcSchema
-		}
-		pw.ServiceCache[key] = *svcSchema
-	}
-
-	//check validity of external services
-	for k, headless := range external {
-		for kk, svcObj := range pw.ServiceCache {
-			path := fmt.Sprintf("%s.%s", svcObj.Name, svcObj.Namespace)
-			if strings.Contains(headless.ExternalName, path) {
-				headless.ExternalSvcValid = true
-				pw.ServiceCache[k] = headless
-				svcObj.ExternallyReferenced(true)
-				pw.ServiceCache[kk] = svcObj
-				break
-			}
-		}
-	}
+	pw.ServiceWatcher.UpdateServiceCache()
 }
 
 func (pw *PodWorker) summarize(podObject *m.PodSchema) {
@@ -672,6 +643,17 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 		}
 		pw.SummaryMap[podObject.Namespace] = summaryNS
 		summary.NamespaceCount++
+		rqExists := false
+		for _, rq := range pw.RQCache {
+			if rq.Namespace == podObject.Namespace {
+				rqExists = true
+				break
+			}
+		}
+		if !rqExists {
+			summary.NamespaceNoQuotas++
+			//log namespace schema
+		}
 	}
 
 	//app/tier metrics
@@ -727,6 +709,18 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 	summaryNS.NoReadinessProbe += int64(podObject.ReadyProbes)
 	summaryNode.NoReadinessProbe += int64(podObject.ReadyProbes)
 	summaryApp.NoReadinessProbe += int64(podObject.ReadyProbes)
+
+	if podObject.MissingDependencies {
+		summary.MissingDependencies++
+		summaryNS.MissingDependencies++
+		summaryApp.MissingDependencies++
+	}
+
+	if podObject.NoConnectivity {
+		summary.NoConnectivity++
+		summaryNS.NoConnectivity++
+		summaryApp.NoConnectivity++
+	}
 
 	summary.LimitCpu += int64(podObject.CpuLimit)
 	summaryNS.LimitCpu += int64(podObject.CpuLimit)
@@ -1028,6 +1022,8 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 
 			podObject.Containers[c.Name] = containerObj
 			podObject.LimitsDefined = limitsDefined
+			podObject.MissingDependencies = containerObj.HasMissingDependencies()
+			podObject.NoConnectivity = containerObj.NoConnectivity()
 		}
 
 		for _, c := range p.Spec.InitContainers {
@@ -1346,6 +1342,9 @@ func (pw PodWorker) processContainer(podObj *v1.Pod, podSchema *m.PodSchema, c v
 	for _, p := range c.Ports {
 		cp := pw.CheckPort(&p, podObj, podSchema)
 		containerObj.ContainerPorts = append(containerObj.ContainerPorts, *cp)
+		if !cp.Mapped {
+			containerObj.MissingServices += fmt.Sprintf("%s;", strconv.Itoa(int(cp.PortNumber)))
+		}
 	}
 
 	if c.ReadinessProbe == nil {
@@ -1397,6 +1396,39 @@ func (pw PodWorker) processContainer(podObj *v1.Pod, podSchema *m.PodSchema, c v
 		limitsDefined = true
 	}
 
+	//check missing dependencies
+	for _, ev := range c.Env {
+		if ev.ValueFrom != nil && ev.ValueFrom.ConfigMapKeyRef != nil {
+			cmKey := utils.GetKey(podObj.Namespace, ev.ValueFrom.ConfigMapKeyRef.Name)
+			if _, okCM := pw.CMCache[cmKey]; !okCM {
+				fmt.Printf("CM with key %s not found\n", cmKey)
+				containerObj.MissingConfigs += fmt.Sprintf("%s;", ev.ValueFrom.ConfigMapKeyRef.Name)
+			}
+		}
+		if ev.ValueFrom != nil && ev.ValueFrom.SecretKeyRef != nil {
+			sKey := utils.GetKey(podObj.Namespace, ev.ValueFrom.SecretKeyRef.Name)
+			if _, okS := pw.SecretCache[sKey]; !okS {
+				containerObj.MissingSecrets += fmt.Sprintf("%s;", ev.ValueFrom.SecretKeyRef.Name)
+			}
+		}
+	}
+
+	for _, evf := range c.EnvFrom {
+		if evf.ConfigMapRef != nil {
+			cmKey := utils.GetKey(podObj.Namespace, evf.ConfigMapRef.Name)
+			if _, okCM := pw.CMCache[cmKey]; !okCM {
+				containerObj.MissingConfigs += fmt.Sprintf("%s;", evf.ConfigMapRef.Name)
+			}
+		}
+
+		if evf.SecretRef != nil {
+			sKey := utils.GetKey(podObj.Namespace, evf.SecretRef.Name)
+			if _, okS := pw.SecretCache[sKey]; !okS {
+				containerObj.MissingSecrets += fmt.Sprintf("%s;", evf.SecretRef.Name)
+			}
+		}
+	}
+
 	if c.VolumeMounts != nil {
 		sb.Reset()
 		for _, vol := range c.VolumeMounts {
@@ -1420,6 +1452,19 @@ func (pw PodWorker) processContainer(podObj *v1.Pod, podSchema *m.PodSchema, c v
 							containerObj.StorageCapacity += pvcCapacity.MilliValue()
 							podSchema.StorageCapacity += pvcCapacity.MilliValue()
 						}
+					}
+				}
+				//check missing dependencies
+				if vm.ConfigMap != nil && vm.Name == vol.Name {
+					cmKey := utils.GetKey(podObj.Namespace, vm.ConfigMap.Name)
+					if _, okCM := pw.CMCache[cmKey]; !okCM {
+						containerObj.MissingConfigs += fmt.Sprintf("%s;", vm.ConfigMap.Name)
+					}
+				}
+				if vm.Secret != nil && vm.Name == vol.Name {
+					sKey := utils.GetKey(podObj.Namespace, vm.Secret.SecretName)
+					if _, okS := pw.SecretCache[sKey]; !okS {
+						containerObj.MissingSecrets += fmt.Sprintf("%s;", vm.Secret.SecretName)
 					}
 				}
 			}

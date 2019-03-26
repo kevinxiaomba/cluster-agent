@@ -36,6 +36,14 @@ func GetKey(namespace, podName string) string {
 	return fmt.Sprintf("%s/%s", namespace, podName)
 }
 
+func GetConfigMapKey(cm *v1.ConfigMap) string {
+	return fmt.Sprintf("%s/%s", cm.Namespace, cm.Name)
+}
+
+func GetSecretKey(secret *v1.Secret) string {
+	return fmt.Sprintf("%s/%s", secret.Namespace, secret.Name)
+}
+
 func GetPodSchemaKey(podObj *m.PodSchema) string {
 	return GetKey(podObj.Namespace, podObj.Name)
 }
@@ -105,8 +113,15 @@ func NSQualifiesForMonitoring(ns string, bag *m.AppDBag) bool {
 		!StringInSlice(ns, bag.NsToMonitorExclude)
 }
 
+func IsSystemNamespace(namespace string) bool {
+	if strings.Contains(namespace, "kube") || strings.Contains(namespace, "openshift") {
+		return true
+	}
+	return false
+}
+
 func NSQualifiesForInstrumentation(ns string, bag *m.AppDBag) bool {
-	return (len(bag.NsToInstrument) == 0 ||
+	return !IsSystemNamespace(ns) && (len(bag.NsToInstrument) == 0 ||
 		StringInSlice(ns, bag.NsToInstrument)) &&
 		!StringInSlice(ns, bag.NsToInstrumentExclude)
 }
