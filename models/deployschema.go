@@ -23,7 +23,7 @@ type DeploySchemaDef struct {
 	Name                  string `json:"name"`
 	ClusterName           string `json:"clusterName"`
 	Namespace             string `json:"namespace"`
-	ObjectUid             string `json:"object_uid"`
+	ObjectUid             string `json:"objectUid"`
 	CreationTimestamp     string `json:"creationTimestamp"`
 	DeletionTimestamp     string `json:"deletionTimestamp"`
 	Labels                string `json:"labels"`
@@ -61,7 +61,7 @@ type DeploySchema struct {
 	Name                  string    `json:"name"`
 	ClusterName           string    `json:"clusterName"`
 	Namespace             string    `json:"namespace"`
-	ObjectUid             string    `json:"object_uid"`
+	ObjectUid             string    `json:"objectUid"`
 	CreationTimestamp     time.Time `json:"creationTimestamp"`
 	DeletionTimestamp     time.Time `json:"deletionTimestamp"`
 	Labels                string    `json:"labels"`

@@ -22,7 +22,7 @@ type DaemonSchemaDef struct {
 	Name                   string `json:"name"`
 	ClusterName            string `json:"clusterName"`
 	Namespace              string `json:"namespace"`
-	ObjectUid              string `json:"object_uid"`
+	ObjectUid              string `json:"objectUid"`
 	CreationTimestamp      string `json:"creationTimestamp"`
 	DeletionTimestamp      string `json:"deletionTimestamp"`
 	MinReadySecs           string `json:"minReadySecs"`
@@ -56,7 +56,7 @@ type DaemonSchema struct {
 	Name                   string    `json:"name"`
 	ClusterName            string    `json:"clusterName"`
 	Namespace              string    `json:"namespace"`
-	ObjectUid              string    `json:"object_uid"`
+	ObjectUid              string    `json:"objectUid"`
 	CreationTimestamp      time.Time `json:"creationTimestamp"`
 	DeletionTimestamp      time.Time `json:"deletionTimestamp"`
 	MinReadySecs           int32     `json:"minReadySecs"`

@@ -101,6 +101,7 @@ func CloneMap(source map[string]interface{}) (map[string]interface{}, error) {
 func MapContainsNocase(m map[string]interface{}, key string) (interface{}, bool) {
 	for k, v := range m {
 		if strings.ToLower(key) == strings.ToLower(k) {
+
 			return v, true
 		}
 	}

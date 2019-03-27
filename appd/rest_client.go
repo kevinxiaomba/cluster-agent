@@ -158,12 +158,14 @@ func (rc *RestClient) EnsureSchema(schemaName string, current m.AppDSchemaInterf
 		delete(schemaObj, "eventTimestamp")
 
 		if len(currentObj) != len(schemaObj) {
+			fmt.Printf("Schema %s has changed, %d vs %d fields...\n", schemaName, len(currentObj), len(schemaObj))
 			equal = false
 		}
 		if equal {
 			for k, v := range currentObj {
 				currentVal, okCur := utils.MapContainsNocase(schemaObj, k)
 				if !okCur || currentVal != v {
+					fmt.Printf("Schema %s has descrepancy in field %s: %v != %v ...\n", schemaName, k, currentVal, v)
 					equal = false
 					break
 				}
@@ -271,7 +273,9 @@ func (rc *RestClient) PostAppDEvents(schemaName string, data []byte) []byte {
 		defer resp.Body.Close()
 		fmt.Println("PostAppDEvents Status:", resp.Status)
 		body, _ := ioutil.ReadAll(resp.Body)
-		//	fmt.Println("PostAppDEvents Body:", string(body))
+		if resp.StatusCode < 200 || resp.StatusCode > 204 {
+			fmt.Println("PostAppDEvents Body:", string(body))
+		}
 		return body
 	}
 	return nil

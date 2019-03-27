@@ -634,6 +634,7 @@ func (pw *PodWorker) processNamespaces() {
 		if len(updated) > 0 {
 			go pw.postNSBatchRecords(&updated)
 		}
+		pw.SummaryMap[m.ALL] = summary
 	}
 }
 

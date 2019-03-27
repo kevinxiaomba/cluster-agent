@@ -22,15 +22,15 @@ type RsSchemaDef struct {
 	Name                  string `json:"name"`
 	ClusterName           string `json:"clusterName"`
 	Namespace             string `json:"namespace"`
-	ObjectUid             string `json:"object_uid"`
+	ObjectUid             string `json:"objectUid"`
 	CreationTimestamp     string `json:"creationTimestamp"`
 	DeletionTimestamp     string `json:"deletionTimestamp"`
 	MinReadySecs          string `json:"minReadySecs"`
-	RsReplicas            string `json:"rsreplicas"`
-	RsReplicasAvailable   string `json:"rsreplicasAvailable"`
+	RsReplicas            string `json:"rsReplicas"`
+	RsReplicasAvailable   string `json:"rsReplicasAvailable"`
 	RsReplicasUnAvailable string `json:"rsReplicasUnAvailable"`
 	RsReplicasLabeled     string `json:"rsReplicasLabeled"`
-	RsReplicasReady       string `json:"replicasReady"`
+	RsReplicasReady       string `json:"rsReplicasReady"`
 }
 
 func NewRsSchemaDefWrapper() RsSchemaDefWrapper {
@@ -51,15 +51,15 @@ type RsSchema struct {
 	Name                  string    `json:"name"`
 	ClusterName           string    `json:"clusterName"`
 	Namespace             string    `json:"namespace"`
-	ObjectUid             string    `json:"object_uid"`
+	ObjectUid             string    `json:"objectUid"`
 	CreationTimestamp     time.Time `json:"creationTimestamp"`
 	DeletionTimestamp     time.Time `json:"deletionTimestamp"`
 	MinReadySecs          int32     `json:"minReadySecs"`
-	RsReplicas            int32     `json:"rsreplicas"`
-	RsReplicasAvailable   int32     `json:"rsreplicasAvailable"`
+	RsReplicas            int32     `json:"rsReplicas"`
+	RsReplicasAvailable   int32     `json:"rsReplicasAvailable"`
 	RsReplicasUnAvailable int32     `json:"rsReplicasUnAvailable"`
 	RsReplicasLabeled     int32     `json:"rsReplicasLabeled"`
-	RsReplicasReady       int32     `json:"replicasReady"`
+	RsReplicasReady       int32     `json:"rsReplicasReady"`
 }
 
 type RsObjList struct {

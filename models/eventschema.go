@@ -18,12 +18,12 @@ func (sd EventSchemaDefWrapper) Unwrap() *map[string]interface{} {
 }
 
 type EventSchemaDef struct {
-	ObjectKind            string `json:"object_kind"`
-	ObjectName            string `json:"object_name"`
+	ObjectKind            string `json:"objectKind"`
+	ObjectName            string `json:"objectName"`
 	ClusterName           string `json:"clusterName"`
-	ObjectNamespace       string `json:"object_namespace"`
-	ObjectResourceVersion string `json:"object_resourceVersion"`
-	ObjectUid             string `json:"object_uid"`
+	ObjectNamespace       string `json:"objectNamespace"`
+	ObjectResourceVersion string `json:"objectResourceVersion"`
+	ObjectUid             string `json:"objectUid"`
 	LastTimestamp         string `json:"lastTimestamp"`
 	Message               string `json:"message"`
 	CreationTimestamp     string `json:"creationTimestamp"`
@@ -37,8 +37,8 @@ type EventSchemaDef struct {
 	SelfLink              string `json:"selfLink"`
 	Type                  string `json:"type"`
 	Count                 string `json:"count"`
-	SourceComponent       string `json:"source_component"`
-	SourceHost            string `json:"source_host"`
+	SourceComponent       string `json:"sourceComponent"`
+	SourceHost            string `json:"sourceHost"`
 	Reason                string `json:"reason"`
 }
 
@@ -57,12 +57,12 @@ func NewEventSchemaDef() EventSchemaDef {
 }
 
 type EventSchema struct {
-	ObjectKind            string    `json:"object_kind"`
-	ObjectName            string    `json:"object_name"`
+	ObjectKind            string    `json:"objectKind"`
+	ObjectName            string    `json:"objectName"`
 	ClusterName           string    `json:"clusterName"`
-	ObjectNamespace       string    `json:"object_namespace"`
-	ObjectResourceVersion string    `json:"object_resourceVersion"`
-	ObjectUid             string    `json:"object_uid"`
+	ObjectNamespace       string    `json:"objectNamespace"`
+	ObjectResourceVersion string    `json:"objectResourceVersion"`
+	ObjectUid             string    `json:"objectUid"`
 	LastTimestamp         time.Time `json:"lastTimestamp"`
 	Message               string    `json:"message"`
 	CreationTimestamp     time.Time `json:"creationTimestamp"`
@@ -76,8 +76,8 @@ type EventSchema struct {
 	SelfLink              string    `json:"selfLink"`
 	Type                  string    `json:"type"`
 	Count                 int32     `json:"count"`
-	SourceComponent       string    `json:"source_component"`
-	SourceHost            string    `json:"source_host"`
+	SourceComponent       string    `json:"sourceComponent"`
+	SourceHost            string    `json:"sourceHost"`
 	Reason                string    `json:"reason"`
 }
 
