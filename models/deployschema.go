@@ -5,11 +5,18 @@ import (
 
 	"time"
 
+	"github.com/fatih/structs"
+
 	appsv1 "k8s.io/api/apps/v1"
 )
 
 type DeploySchemaDefWrapper struct {
 	Schema DeploySchemaDef `json:"schema"`
+}
+
+func (sd DeploySchemaDefWrapper) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(sd)
+	return &objMap
 }
 
 type DeploySchemaDef struct {

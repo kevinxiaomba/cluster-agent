@@ -42,7 +42,7 @@ func (pw SecretWathcer) WatchSecrets() {
 	go func() {
 		<-dashTimer.C
 		pw.UpdateDelay = false
-		fmt.Println("Svc UpdateDelay lifted.")
+		fmt.Println("Secret UpdateDelay lifted.")
 	}()
 
 	watcher, err := api.Secrets(metav1.NamespaceAll).Watch(listOptions)

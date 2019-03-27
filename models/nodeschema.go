@@ -6,11 +6,17 @@ import (
 	"strings"
 
 	//	"time"
+	"github.com/fatih/structs"
 	"k8s.io/api/core/v1"
 )
 
 type NodeSchemaDefWrapper struct {
 	Schema NodeSchemaDef `json:"schema"`
+}
+
+func (sd NodeSchemaDefWrapper) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(sd)
+	return &objMap
 }
 
 type NodeSchemaDef struct {

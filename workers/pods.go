@@ -59,6 +59,7 @@ type PodWorker struct {
 	PVCCache            map[string]v1.PersistentVolumeClaim
 	CMCache             map[string]v1.ConfigMap
 	SecretCache         map[string]v1.Secret
+	NSCache             map[string]m.NsSchema
 	OwnerMap            map[string]string
 	NamespaceMap        map[string]string
 	ServiceWatcher      *w.ServiceWatcher
@@ -66,6 +67,7 @@ type PodWorker struct {
 	PVCWatcher          *w.PVCWatcher
 	RQWatcher           *w.RQWatcher
 	CMWatcher           *w.ConfigWatcher
+	NSWatcher           *w.NSWatcher
 	SecretWatcher       *w.SecretWathcer
 	DashboardCache      map[string]m.PodSchema
 	DelayDashboard      bool
@@ -73,6 +75,7 @@ type PodWorker struct {
 
 var lockOwnerMap = sync.RWMutex{}
 var lockDashboards = sync.RWMutex{}
+var lockNS = sync.RWMutex{}
 
 func NewPodWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient, config *rest.Config, l *log.Logger) PodWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
@@ -82,7 +85,7 @@ func NewPodWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, c
 		ServiceCache: make(map[string]m.ServiceSchema), EndpointCache: make(map[string]v1.Endpoints),
 		OwnerMap: make(map[string]string), NamespaceMap: make(map[string]string),
 		RQCache: make(map[string]v1.ResourceQuota), PVCCache: make(map[string]v1.PersistentVolumeClaim),
-		CMCache: make(map[string]v1.ConfigMap), SecretCache: make(map[string]v1.Secret), DashboardCache: make(map[string]m.PodSchema)}
+		CMCache: make(map[string]v1.ConfigMap), SecretCache: make(map[string]v1.Secret), NSCache: make(map[string]m.NsSchema), DashboardCache: make(map[string]m.PodSchema)}
 	pw.initPodInformer(client)
 	pw.ServiceWatcher = w.NewServiceWatcher(client, cm, &pw.ServiceCache, nil)
 	pw.EndpointWatcher = w.NewEndpointWatcher(client, cm, &pw.EndpointCache)
@@ -90,6 +93,7 @@ func NewPodWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, c
 	pw.RQWatcher = w.NewRQWatcher(client, cm, &pw.RQCache)
 	pw.CMWatcher = w.NewConfigWatcher(client, cm, &pw.CMCache, pw)
 	pw.SecretWatcher = w.NewSecretWathcer(client, cm, &pw.SecretCache, nil)
+	pw.NSWatcher = w.NewNSWatcher(client, cm, &pw.NSCache)
 	pw.DelayDashboard = true
 	return pw
 }
@@ -321,6 +325,26 @@ func (pw *PodWorker) postEPBatchRecords(objList *[]m.EpSchema) {
 
 }
 
+func (pw *PodWorker) postNSBatchRecords(objList *[]m.NsSchema) {
+	bag := (*pw.ConfManager).Get()
+	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
+	rc := app.NewRestClient(bag, logger)
+
+	schemaDefObj := m.NewNsSchemaDefWrapper()
+
+	err := rc.EnsureSchema(bag.NsSchemaName, &schemaDefObj)
+	if err != nil {
+		fmt.Printf("Issues when ensuring %s schema. %v\n", bag.NsSchemaName, err)
+	} else {
+		data, err := json.Marshal(objList)
+		if err != nil {
+			fmt.Printf("Problems when serializing array of namespace schemas. %v", err)
+		}
+		rc.PostAppDEvents(bag.NsSchemaName, data)
+	}
+
+}
+
 func (pw *PodWorker) getNextQueueItem() (*m.PodSchema, bool) {
 	podRecord, quit := pw.WQ.Get()
 
@@ -447,6 +471,8 @@ func (pw PodWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 
 	go pw.SecretWatcher.WatchSecrets()
 
+	go pw.NSWatcher.WatchNamespaces()
+
 	//dashbard timer
 	bag := (*pw.ConfManager).Get()
 	dashTimer := time.NewTimer(time.Minute * time.Duration(bag.DashboardDelayMin))
@@ -556,8 +582,10 @@ func (pw *PodWorker) buildAppDMetrics() {
 			dash[key] = dashBag
 		}
 	}
-	fmt.Printf("Unique pod metrics: %d\n", count)
 
+	pw.processNamespaces()
+
+	fmt.Printf("Unique pod metrics: %d\n", count)
 	ml := pw.builAppDMetricsList()
 
 	//	fmt.Println("Updating endpoint records...")
@@ -578,7 +606,35 @@ func (pw *PodWorker) buildAppDMetrics() {
 		fmt.Printf("Number of dashboards to be updated %d\n", len(dash))
 		go pw.buildDashboards(dash)
 	}
+}
 
+func (pw *PodWorker) processNamespaces() {
+	summary, okSum := pw.SummaryMap[m.ALL]
+	if okSum {
+		lockNS.Lock()
+		defer lockNS.Unlock()
+		updated := []m.NsSchema{}
+		summary.NamespaceCount = int64(len(pw.NSCache))
+		for k, ns := range pw.NSCache {
+			count := 0
+			for _, rq := range pw.RQCache {
+				if rq.Namespace == ns.Name {
+					count++
+				}
+			}
+			if count == 0 {
+				summary.NamespaceNoQuotas++
+			}
+			if ns.Quotas != count {
+				ns.Quotas = count
+				updated = append(updated, ns)
+				pw.NSCache[k] = ns
+			}
+		}
+		if len(updated) > 0 {
+			go pw.postNSBatchRecords(&updated)
+		}
+	}
 }
 
 func (pw *PodWorker) updateServiceCache() {
@@ -607,6 +663,7 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 				summary.OrphanEndpoint++
 			}
 		}
+
 		pw.SummaryMap[m.ALL] = summary
 	}
 
@@ -642,18 +699,6 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 			}
 		}
 		pw.SummaryMap[podObject.Namespace] = summaryNS
-		summary.NamespaceCount++
-		rqExists := false
-		for _, rq := range pw.RQCache {
-			if rq.Namespace == podObject.Namespace {
-				rqExists = true
-				break
-			}
-		}
-		if !rqExists {
-			summary.NamespaceNoQuotas++
-			//log namespace schema
-		}
 	}
 
 	//app/tier metrics
@@ -665,7 +710,7 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 		summaryApp.InitContainerCount = int64(podObject.InitContainerCount)
 
 		//get quotas that apply to the Tier/Deployment
-		var theQuota *m.RQSchema = nil
+		var theQuota *m.RQSchemaObj = nil
 		for _, rq := range pw.RQCache {
 			rqSchema := m.NewRQ(&rq)
 			if rqSchema.AppliesToPod(podObject) {

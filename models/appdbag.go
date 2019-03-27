@@ -29,6 +29,8 @@ type AppDBag struct {
 	EventSchemaName             string
 	ContainerSchemaName         string
 	EpSchemaName                string
+	NsSchemaName                string
+	RqSchemaName                string
 	JobSchemaName               string
 	LogSchemaName               string
 	DashboardTemplatePath       string

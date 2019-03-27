@@ -2,7 +2,6 @@ package models
 
 import (
 	"fmt"
-	"time"
 )
 
 type HeatNode struct {
@@ -20,13 +19,16 @@ func NewHeatNode(podSchema PodSchema) HeatNode {
 }
 
 func (hn HeatNode) FormatPendingTime() string {
-	val := hn.PendingTime * 1000000
-	d := time.Duration(val)
+	val := hn.PendingTime
+	seconds := (val / 1000) % 60
+	minutes := ((val / (1000 * 60)) % 60)
+	hours := (int)((val / (1000 * 60 * 60)) % 24)
+
 	var output = ""
-	if d.Minutes() > 59 {
-		output = fmt.Sprintf("%v:%v:%v", d.Hours(), d.Minutes(), d.Seconds())
+	if minutes > 59 {
+		output = fmt.Sprintf("%d:%d:%d", hours, minutes, seconds)
 	} else {
-		output = fmt.Sprintf("%v:%v", d.Minutes(), d.Seconds())
+		output = fmt.Sprintf("%d:%d", minutes, seconds)
 	}
 	fmt.Printf("Pending time: %s\n", output)
 	return output

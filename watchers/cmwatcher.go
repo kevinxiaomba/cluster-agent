@@ -81,9 +81,7 @@ func (pw *ConfigWatcher) qualifies(cm *v1.ConfigMap) bool {
 }
 
 func (pw *ConfigWatcher) notifyListener(namespace string) {
-	fmt.Printf("NotifyListener is active:  %t\n", pw.Listener != nil)
 	if pw.Listener != nil && !pw.UpdateDelay {
-		fmt.Printf("Sending update for namespace %s\n", namespace)
 		(*pw.Listener).CacheUpdated(namespace)
 	}
 }

@@ -195,25 +195,18 @@ func (pw *RsWorker) postRsRecords(objList *[]m.RsSchema) {
 	bag := (*pw.ConfigManager).Get()
 	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
 	rc := app.NewRestClient(bag, logger)
-	data, err := json.Marshal(objList)
+
 	schemaDefObj := m.NewRsSchemaDefWrapper()
-	schemaDef, e := json.Marshal(schemaDefObj)
-	if err == nil && e == nil {
-		if rc.SchemaExists(bag.RSSchemaName) == false {
-			fmt.Printf("Creating schema. %s\n", bag.RSSchemaName)
-			schemaObj, err := rc.CreateSchema(bag.RSSchemaName, schemaDef)
-			if err != nil {
-				return
-			} else if schemaObj != nil {
-				fmt.Printf("Schema %s created\n", bag.RSSchemaName)
-			} else {
-				fmt.Printf("Schema %s exists\n", bag.RSSchemaName)
-			}
-		}
-		fmt.Println("About to post records")
-		rc.PostAppDEvents(bag.RSSchemaName, data)
+
+	err := rc.EnsureSchema(bag.RSSchemaName, &schemaDefObj)
+	if err != nil {
+		fmt.Printf("Issues when ensuring %s schema. %v\n", bag.RSSchemaName, err)
 	} else {
-		fmt.Printf("Problems when serializing array of pod schemas. %v\n", err)
+		data, err := json.Marshal(objList)
+		if err != nil {
+			fmt.Printf("Problems when serializing array of rs schemas. %v", err)
+		}
+		rc.PostAppDEvents(bag.RSSchemaName, data)
 	}
 }
 

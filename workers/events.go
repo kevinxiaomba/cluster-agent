@@ -179,25 +179,18 @@ func (ew *EventWorker) postEventRecords(objList *[]m.EventSchema) {
 	bag := (*ew.ConfigManager).Get()
 	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
 	rc := app.NewRestClient(bag, logger)
-	data, err := json.Marshal(objList)
+
 	schemaDefObj := m.NewEventSchemaDefWrapper()
-	schemaDef, e := json.Marshal(schemaDefObj)
-	if err == nil && e == nil {
-		if rc.SchemaExists(bag.EventSchemaName) == false {
-			fmt.Printf("Creating schema. %s\n", bag.EventSchemaName)
-			schemaObj, err := rc.CreateSchema(bag.EventSchemaName, schemaDef)
-			if err != nil {
-				return
-			} else if schemaObj != nil {
-				fmt.Printf("Schema %s created\n", bag.EventSchemaName)
-			} else {
-				fmt.Printf("Schema %s exists\n", bag.EventSchemaName)
-			}
-		}
-		fmt.Println("About to post event records")
-		rc.PostAppDEvents(bag.EventSchemaName, data)
+
+	err := rc.EnsureSchema(bag.EventSchemaName, &schemaDefObj)
+	if err != nil {
+		fmt.Printf("Issues when ensuring %s schema. %v\n", bag.EventSchemaName, err)
 	} else {
-		fmt.Printf("Problems when serializing array of event schemas. %v\n", err)
+		data, err := json.Marshal(objList)
+		if err != nil {
+			fmt.Printf("Problems when serializing array of event schemas. %v", err)
+		}
+		rc.PostAppDEvents(bag.EventSchemaName, data)
 	}
 }
 

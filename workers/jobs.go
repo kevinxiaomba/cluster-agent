@@ -334,27 +334,20 @@ func (pw *JobsWorker) postJobRecords(objList *[]m.JobSchema) {
 	bag := (*pw.ConfigManager).Get()
 	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
 	rc := app.NewRestClient(bag, logger)
-	data, err := json.Marshal(objList)
-	schemaDefObj := m.NewPodSchemaDefWrapper()
-	schemaDef, e := json.Marshal(schemaDefObj)
-	fmt.Printf("Schema def: %s\n", string(schemaDef))
-	if err == nil && e == nil {
-		if rc.SchemaExists(bag.JobSchemaName) == false {
-			fmt.Printf("Creating schema. %s\n", bag.JobSchemaName)
-			schemaObj, err := rc.CreateSchema(bag.JobSchemaName, schemaDef)
-			if err != nil {
-				return
-			} else if schemaObj != nil {
-				fmt.Printf("Schema %s created\n", bag.JobSchemaName)
-			} else {
-				fmt.Printf("Schema %s exists\n", bag.JobSchemaName)
-			}
-		}
-		fmt.Println("About to post records")
-		rc.PostAppDEvents(bag.JobSchemaName, data)
+
+	schemaDefObj := m.NewJobSchemaDefWrapper()
+
+	err := rc.EnsureSchema(bag.JobSchemaName, &schemaDefObj)
+	if err != nil {
+		fmt.Printf("Issues when ensuring %s schema. %v\n", bag.JobSchemaName, err)
 	} else {
-		fmt.Printf("Problems when serializing array of pod schemas. %v", err)
+		data, err := json.Marshal(objList)
+		if err != nil {
+			fmt.Printf("Problems when serializing array of job schemas. %v", err)
+		}
+		rc.PostAppDEvents(bag.JobSchemaName, data)
 	}
+
 }
 
 func (pw *JobsWorker) getNextQueueItem() (*m.JobSchema, bool) {

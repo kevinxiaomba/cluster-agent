@@ -194,25 +194,18 @@ func (pw *DaemonWorker) postDaemonRecords(objList *[]m.DaemonSchema) {
 	bag := (*pw.ConfigManager).Get()
 	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
 	rc := app.NewRestClient(bag, logger)
-	data, err := json.Marshal(objList)
+
 	schemaDefObj := m.NewDaemonSchemaDefWrapper()
-	schemaDef, e := json.Marshal(schemaDefObj)
-	if err == nil && e == nil {
-		if rc.SchemaExists(bag.DaemonSchemaName) == false {
-			fmt.Printf("Creating schema. %s\n", bag.DaemonSchemaName)
-			schemaObj, err := rc.CreateSchema(bag.DaemonSchemaName, schemaDef)
-			if err != nil {
-				return
-			} else if schemaObj != nil {
-				fmt.Printf("Schema %s created\n", bag.DaemonSchemaName)
-			} else {
-				fmt.Printf("Schema %s exists\n", bag.DaemonSchemaName)
-			}
-		}
-		fmt.Println("About to post records")
-		rc.PostAppDEvents(bag.DaemonSchemaName, data)
+
+	err := rc.EnsureSchema(bag.DaemonSchemaName, &schemaDefObj)
+	if err != nil {
+		fmt.Printf("Issues when ensuring %s schema. %v\n", bag.DaemonSchemaName, err)
 	} else {
-		fmt.Printf("Problems when serializing array of pod schemas. %v\n", err)
+		data, err := json.Marshal(objList)
+		if err != nil {
+			fmt.Printf("Problems when serializing array of daemon schemas. %v", err)
+		}
+		rc.PostAppDEvents(bag.DaemonSchemaName, data)
 	}
 }
 

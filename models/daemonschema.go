@@ -5,11 +5,17 @@ import (
 
 	"time"
 
+	"github.com/fatih/structs"
 	appsv1 "k8s.io/api/apps/v1"
 )
 
 type DaemonSchemaDefWrapper struct {
 	Schema DaemonSchemaDef `json:"schema"`
+}
+
+func (sd DaemonSchemaDefWrapper) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(sd)
+	return &objMap
 }
 
 type DaemonSchemaDef struct {

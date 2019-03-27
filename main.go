@@ -49,6 +49,8 @@ func buildParams() Flags {
 	flag.StringVar(&params.Bag.PodSchemaName, "schema-pods", "kube_pod_snapshots", "Pod schema name")
 	flag.StringVar(&params.Bag.NodeSchemaName, "schema-nodes", "kube_node_snapshots", "Node schema name")
 	flag.StringVar(&params.Bag.EventSchemaName, "schema-events", "kube_event_snapshots", "Event schema name")
+	flag.StringVar(&params.Bag.NsSchemaName, "schema-ns", "kube_ns_snapshots", "Namespace schema name")
+	flag.StringVar(&params.Bag.RqSchemaName, "schema-rq", "kube_rq_snapshots", "Resource quota schema name")
 	flag.StringVar(&params.Bag.DeploySchemaName, "schema-deploys", "kube_deploy_snapshots", "Deployment schema name")
 	flag.StringVar(&params.Bag.RSSchemaName, "schema-rs", "kube_rs_snapshots", "Replica set schema name")
 	flag.StringVar(&params.Bag.DaemonSchemaName, "schema-daemon", "kube_daemon_snapshots", "Daemon set schema name")

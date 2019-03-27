@@ -5,7 +5,102 @@ import (
 	"k8s.io/api/core/v1"
 )
 
-type RQSchema struct {
+type RqSchemaDefWrapper struct {
+	Schema RqSchemaDef `json:"schema"`
+}
+
+type RqSchemaDef struct {
+	ClusterName       string `json:"clusterName"`
+	Name              string `json:"name"`
+	Namespace         string `json:"namespace"`
+	SpecRequestCpu    string `json:"specRequestCpu"`
+	SpecRequestMemory string `json:"specRequestMemory"`
+	SpecLimitCpu      string `json:"specLimitCpu"`
+	SpecLimitMemory   string `json:"specLimitMemory"`
+	SpecStoragePod    string `json:"specStoragePod"`
+	SpecStorage       string `json:"specStorage"`
+	SpecPVC           string `json:"specPVC"`
+	SpecPods          string `json:"specPods"`
+	UsedRequestCpu    string `json:"usedRequestCpu"`
+	UsedRequestMemory string `json:"usedRequestMemory"`
+	UsedLimitCpu      string `json:"usedLimitCpu"`
+	UsedLimitMemory   string `json:"usedLimitMemory"`
+	UsedStoragePod    string `json:"usedStoragePod"`
+	UsedStorage       string `json:"usedStorage"`
+	UsedPVC           string `json:"usedPVC"`
+	UsedPods          string `json:"usedPods"`
+}
+
+func (sd RqSchemaDefWrapper) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(sd)
+	return &objMap
+}
+
+func NewRqSchemaDefWrapper() RqSchemaDefWrapper {
+	schema := NewRqSchemaDef()
+	wrapper := RqSchemaDefWrapper{Schema: schema}
+	return wrapper
+}
+
+func NewRqSchemaDef() RqSchemaDef {
+	pdsd := RqSchemaDef{ClusterName: "string", Namespace: "string", Name: "string",
+		SpecRequestCpu: "integer", SpecRequestMemory: "integer", SpecLimitCpu: "integer", SpecLimitMemory: "integer",
+		SpecStoragePod: "integer", SpecStorage: "integer", SpecPVC: "integer", SpecPods: "integer", UsedRequestCpu: "integer",
+		UsedRequestMemory: "integer", UsedLimitCpu: "integer", UsedLimitMemory: "integer", UsedStoragePod: "integer", UsedStorage: "integer",
+		UsedPVC: "integer", UsedPods: "integer"}
+	return pdsd
+}
+
+type RqSchema struct {
+	ClusterName       string `json:"clusterName"`
+	Name              string `json:"name"`
+	Namespace         string `json:"namespace"`
+	SpecRequestCpu    int64  `json:"specRequestCpu"`
+	SpecRequestMemory int64  `json:"specRequestMemory"`
+	SpecLimitCpu      int64  `json:"specLimitCpu"`
+	SpecLimitMemory   int64  `json:"specLimitMemory"`
+	SpecStoragePod    int64  `json:"specStoragePod"`
+	SpecStorage       int64  `json:"specStorage"`
+	SpecPVC           int64  `json:"specPVC"`
+	SpecPods          int64  `json:"specPods"`
+	UsedRequestCpu    int64  `json:"usedRequestCpu"`
+	UsedRequestMemory int64  `json:"usedRequestMemory"`
+	UsedLimitCpu      int64  `json:"usedLimitCpu"`
+	UsedLimitMemory   int64  `json:"usedLimitMemory"`
+	UsedStoragePod    int64  `json:"usedStoragePod"`
+	UsedStorage       int64  `json:"usedStorage"`
+	UsedPVC           int64  `json:"usedPVC"`
+	UsedPods          int64  `json:"usedPods"`
+}
+
+func NewRQSchema(rq *v1.ResourceQuota) RqSchema {
+	obj := NewRQ(rq)
+	schema := RqSchema{}
+	schema.ClusterName = rq.ClusterName
+	schema.Name = obj.Name
+	schema.Namespace = obj.Namespace
+	schema.SpecLimitCpu = obj.Spec.LimitCpu
+	schema.SpecLimitMemory = obj.Spec.LimitMemory
+	schema.SpecPods = obj.Spec.Pods
+	schema.SpecPVC = obj.Spec.PVC
+	schema.SpecRequestCpu = obj.Spec.RequestCpu
+	schema.SpecRequestMemory = obj.Spec.RequestMemory
+	schema.SpecStorage = obj.Spec.Storage
+	schema.SpecStoragePod = obj.Spec.StoragePod
+
+	schema.UsedLimitCpu = obj.Used.LimitCpu
+	schema.UsedLimitMemory = obj.Used.LimitMemory
+	schema.UsedPods = obj.Used.Pods
+	schema.UsedPVC = obj.Used.PVC
+	schema.UsedRequestCpu = obj.Used.RequestCpu
+	schema.UsedRequestMemory = obj.Used.RequestMemory
+	schema.UsedStorage = obj.Used.Storage
+	schema.UsedStoragePod = obj.Used.StoragePod
+
+	return schema
+}
+
+type RQSchemaObj struct {
 	Name      string
 	Namespace string
 	Selector  string
@@ -73,8 +168,8 @@ func (self *RQFields) Copy(rqVals *RQFields) {
 	self.Pods = rqVals.Pods
 }
 
-func NewRQ(rq *v1.ResourceQuota) RQSchema {
-	rqSchema := RQSchema{}
+func NewRQ(rq *v1.ResourceQuota) RQSchemaObj {
+	rqSchema := RQSchemaObj{}
 	rqSchema.Name = rq.Name
 	rqSchema.Namespace = rq.Namespace
 	//TODO: incorporate scope selector
@@ -173,27 +268,27 @@ func NewRQ(rq *v1.ResourceQuota) RQSchema {
 	return rqSchema
 }
 
-func (rq *RQSchema) AppliesToPod(podObject *PodSchema) bool {
+func (rq *RQSchemaObj) AppliesToPod(podObject *PodSchema) bool {
 	check := !rq.PodsOnly && rq.Namespace == podObject.Namespace
 
 	return check
 }
 
-func (rq *RQSchema) AppliesToNamespace(ns string) bool {
+func (rq *RQSchemaObj) AppliesToNamespace(ns string) bool {
 	return rq.Namespace == ns
 }
 
-func (rq *RQSchema) AddQuotaStatsToNamespaceMetrics(metrics *ClusterPodMetrics) {
+func (rq *RQSchemaObj) AddQuotaStatsToNamespaceMetrics(metrics *ClusterPodMetrics) {
 	metrics.QuotasSpec.Copy(&rq.Spec)
 	metrics.QuotasUsed.Copy(&rq.Used)
 }
 
-func (rq *RQSchema) IncrementQuotaStatsClusterMetrics(metrics *ClusterPodMetrics) {
+func (rq *RQSchemaObj) IncrementQuotaStatsClusterMetrics(metrics *ClusterPodMetrics) {
 	metrics.QuotasSpec.Increment(&rq.Spec)
 	metrics.QuotasUsed.Increment(&rq.Used)
 }
 
-func (rq *RQSchema) AddQuotaStatsToAppMetrics(metrics *ClusterAppMetrics) {
+func (rq *RQSchemaObj) AddQuotaStatsToAppMetrics(metrics *ClusterAppMetrics) {
 	metrics.QuotasSpec.Copy(&rq.Spec)
 	metrics.QuotasUsed.Copy(&rq.Used)
 }

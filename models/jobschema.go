@@ -4,10 +4,17 @@ import (
 	"fmt"
 	"reflect"
 	"time"
+
+	"github.com/fatih/structs"
 )
 
 type JobSchemaDefWrapper struct {
 	Schema JobSchemaDef `json:"schema"`
+}
+
+func (sd JobSchemaDefWrapper) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(sd)
+	return &objMap
 }
 
 type JobSchemaDef struct {
