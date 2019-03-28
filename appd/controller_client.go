@@ -290,7 +290,6 @@ func (c *ControllerClient) GetMetricID(appID int, metricPath string) (float64, e
 	baseKey := fmt.Sprintf("%d_%s", appID, basePath)
 	mk := fmt.Sprintf("%s|%s", baseKey, metricName)
 	if id, ok := c.MetricsCache[mk]; ok {
-		fmt.Printf("Metrics ID from cache = %f\n", id)
 		return id, nil
 	} else {
 		fmt.Printf("Key %s does not exist in metrics cache\n", mk)
@@ -321,7 +320,7 @@ func (c *ControllerClient) GetMetricID(appID int, metricPath string) (float64, e
 		id, ok := metricObj["metricId"]
 		mn := metricObj["name"]
 		mp := fmt.Sprintf("%s|%s", baseKey, mn)
-		logger.Printf("Adding metric key %s\n", mp)
+		//		logger.Printf("Adding metric key %s\n", mp)
 		c.MetricsCache[mp] = id.(float64)
 		if ok && metricObj["name"] == metricName {
 			fmt.Printf("Metrics ID = %f \n", id.(float64))

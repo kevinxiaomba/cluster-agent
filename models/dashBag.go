@@ -17,6 +17,7 @@ type DashboardBag struct {
 	TierName      string
 	ClusterAppID  int
 	ClusterTierID int
+	ClusterNodeID int
 	AppID         int
 	TierID        int
 	NodeID        int

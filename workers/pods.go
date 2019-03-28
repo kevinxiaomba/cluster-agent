@@ -77,6 +77,8 @@ var lockOwnerMap = sync.RWMutex{}
 var lockDashboards = sync.RWMutex{}
 var lockNS = sync.RWMutex{}
 
+var lockServices = sync.RWMutex{}
+
 func NewPodWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient, config *rest.Config, l *log.Logger) PodWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 	pw := PodWorker{Client: client, ConfManager: cm, Logger: l, SummaryMap: make(map[string]m.ClusterPodMetrics), AppSummaryMap: make(map[string]m.ClusterAppMetrics),
@@ -574,6 +576,7 @@ func (pw *PodWorker) buildAppDMetrics() {
 				dashBag.ClusterName = podSchema.ClusterName
 				dashBag.ClusterAppID = bag.AppID
 				dashBag.ClusterTierID = bag.TierID
+				dashBag.ClusterNodeID = bag.NodeID
 				dashBag.AppID = podSchema.AppID
 				dashBag.TierID = podSchema.TierID
 				dashBag.NodeID = podSchema.NodeID
@@ -602,6 +605,8 @@ func (pw *PodWorker) buildAppDMetrics() {
 		clusterBag.ClusterName = bag.AppName
 		clusterBag.ClusterAppID = bag.AppID
 		clusterBag.ClusterTierID = bag.TierID
+		clusterBag.ClusterTierID = bag.TierID
+		clusterBag.ClusterNodeID = bag.NodeID
 		dash[bag.AppName] = clusterBag
 		fmt.Printf("Number of dashboards to be updated %d\n", len(dash))
 		go pw.buildDashboards(dash)
@@ -650,11 +655,15 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 		summary = m.NewClusterPodMetrics(bag, m.ALL, m.ALL)
 		summary.ServiceCount = int64(len(pw.ServiceCache))
 		fmt.Printf("Summary services: %d\n", summary.ServiceCount)
+
+		lockServices.RLock()
 		for _, svc := range pw.ServiceCache {
 			if svc.HasExternalService {
 				summary.ExtServiceCount++
 			}
 		}
+		lockServices.RUnlock()
+
 		for _, ep := range pw.EndpointCache {
 			summary.EndpointCount++
 			ready, notready, orphan := m.GetEPStats(&ep)
@@ -679,6 +688,8 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 	summaryNS, okNS := pw.SummaryMap[podObject.Namespace]
 	if !okNS {
 		summaryNS = m.NewClusterPodMetrics(bag, podObject.Namespace, m.ALL)
+
+		lockServices.RLock()
 		for _, svc := range pw.ServiceCache {
 			if svc.Namespace == podObject.Namespace {
 				summaryNS.ServiceCount++
@@ -687,6 +698,7 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 				}
 			}
 		}
+		lockServices.RUnlock()
 
 		for _, ep := range pw.EndpointCache {
 			if ep.Namespace == podObject.Namespace {
@@ -1039,11 +1051,13 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 		//find service
 		podLabels := labels.Set(p.Labels)
 		//check if service exists and routes to the ports
+		lockServices.RLock()
 		for _, svcSchema := range pw.ServiceCache {
 			if svcSchema.MatchesPod(p) {
 				podObject.Services = append(podObject.Services, svcSchema)
 			}
 		}
+		lockServices.RUnlock()
 
 		for _, ep := range pw.EndpointCache {
 			epSelector := labels.SelectorFromSet(ep.Labels)

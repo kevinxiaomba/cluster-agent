@@ -70,27 +70,32 @@ func (dw *DashboardWorker) createDashboard(dashboard *m.Dashboard) (*m.Dashboard
 
 	e := json.Unmarshal(saved, &dashObject)
 	if e != nil {
-		fmt.Printf("Unable to deserialize the new dashaboards %v\n", e)
+		fmt.Printf("Unable to deserialize the new dashaboard %v\n", e)
 		return dashObject, e
 	}
 
 	return dashObject, nil
 }
 
-func (dw *DashboardWorker) saveDashboard(dashboard *m.Dashboard) error {
-
+func (dw *DashboardWorker) saveDashboard(dashboard *m.Dashboard) (*m.Dashboard, error) {
+	var dashObject *m.Dashboard = nil
 	data, err := json.Marshal(dashboard)
 	if err != nil {
-		return fmt.Errorf("Unable to save dashboard %s. %v", dashboard.Name, err)
+		return nil, fmt.Errorf("Unable to save dashboard %s. %v", dashboard.Name, err)
 	}
 	rc := app.NewRestClient(dw.Bag, dw.Logger)
-	_, errSave := rc.CallAppDController("restui/dashboards/updateDashboard", "POST", data)
+	saved, errSave := rc.CallAppDController("restui/dashboards/updateDashboard", "POST", data)
 	if errSave != nil {
-
-		return fmt.Errorf("Unable to save dashaboard %s. %v\n", dashboard.Name, errSave)
+		return nil, fmt.Errorf("Unable to save dashaboard %s. %v\n", dashboard.Name, errSave)
 	}
 
-	return nil
+	e := json.Unmarshal(saved, &dashObject)
+	if e != nil {
+		fmt.Printf("Unable to deserialize the saved dashaboard %v\n", e)
+		return nil, e
+	}
+
+	return dashObject, nil
 }
 
 func (dw *DashboardWorker) updateWidget(widget *map[string]interface{}) error {
@@ -410,24 +415,35 @@ func (dw *DashboardWorker) updateClusterOverview(bag *m.DashboardBag) error {
 			return fmt.Errorf("Cluster widget template does not exist, skipping dashboard. %v\n", err)
 		}
 
+		if len(*widgetList) < 2 {
+			return fmt.Errorf("Cluster widget template is invalid. Must have at least 2 widget\n")
+		}
+
 		dashboard.Widgets = *widgetList
 
 		//replace metric references
 		for _, widget := range dashboard.Widgets {
 			widget["dashboardId"] = dashboard.ID
-			dsTemplates, ok := widget["widgetsMetricMatchCriterias"]
-			if ok && dsTemplates != nil {
-				for _, t := range dsTemplates.([]interface{}) {
-					if t != nil {
-						mt := t.(map[string]interface{})
-						mt["dashboardId"] = dashboard.ID
-						mm, ok := mt["metricMatchCriteria"]
-						if ok && mm != nil {
-							mmBlock := mm.(map[string]interface{})
-							mmBlock["applicationId"] = bag.ClusterAppID
-							exp, ok := mmBlock["metricExpression"]
-							if ok && exp != nil {
-								dw.updateMetricDefinition(exp.(map[string]interface{}), bag, &widget)
+			widgetGuid := uuid.New().String()
+			widget["guid"] = widgetGuid
+			if widget["type"] == "HEALTH_LIST" {
+				dw.updateHealthWidget(&widget, bag)
+			} else {
+				dsTemplates, ok := widget["widgetsMetricMatchCriterias"]
+				if ok && dsTemplates != nil {
+					for _, t := range dsTemplates.([]interface{}) {
+						if t != nil {
+							mt := t.(map[string]interface{})
+							mt["dashboardId"] = dashboard.ID
+							mt["widgetGuid"] = widgetGuid
+							mm, ok := mt["metricMatchCriteria"]
+							if ok && mm != nil {
+								mmBlock := mm.(map[string]interface{})
+								mmBlock["applicationId"] = bag.ClusterAppID
+								exp, ok := mmBlock["metricExpression"]
+								if ok && exp != nil {
+									dw.updateMetricDefinition(exp.(map[string]interface{}), bag, &widget)
+								}
 							}
 						}
 					}
@@ -435,18 +451,19 @@ func (dw *DashboardWorker) updateClusterOverview(bag *m.DashboardBag) error {
 			}
 		}
 
-		// save template for future use
-		_, errSave := dw.saveTemplate(dashboard, fileName)
-		if errSave != nil {
-			fmt.Printf("Issues when saving template for Cluster overview dashboard. %v\n", errSave)
-		}
-
 		//update dashboard with static widgets
-		errSaveDash := dw.saveDashboard(dashboard)
+		savedDash, errSaveDash := dw.saveDashboard(dashboard)
 		fmt.Printf("saveDashboard. %v\n", errSaveDash)
 		if errSaveDash != nil {
 			return errSaveDash
 		}
+
+		// save template for future use
+		_, errSave := dw.saveTemplate(savedDash, fileName)
+		if errSave != nil {
+			fmt.Printf("Issues when saving template for Cluster overview dashboard. %v\n", errSave)
+		}
+		dashboard = savedDash
 	}
 
 	if dashboard == nil {
@@ -460,7 +477,7 @@ func (dw *DashboardWorker) updateClusterOverview(bag *m.DashboardBag) error {
 		return heatErr
 	}
 
-	errSaveDash := dw.saveDashboard(hotdash)
+	_, errSaveDash := dw.saveDashboard(hotdash)
 	fmt.Printf("saveDashboard. %v\n", errSaveDash)
 
 	return nil
@@ -468,19 +485,20 @@ func (dw *DashboardWorker) updateClusterOverview(bag *m.DashboardBag) error {
 
 func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.DashboardBag) (*m.Dashboard, error) {
 
-	backWidth := 1468
+	backWidth := 1465
 	backTop := 517
 	startLine := 540
-	backHeight := 148
-	minSize := 10
+	backHeight := 159
+	minSize := 15
+	healthsize := 10
 	leftMargin := 26
 	nodeMargin := minSize
 
 	currentX := leftMargin
 	currentY := startLine
 
-	width := 10
-	height := 10
+	width := minSize
+	height := minSize
 
 	numPods := len(bag.HeatNodes)
 	availableArea := (backWidth - 2*nodeMargin) * (backHeight - (startLine - backTop))
@@ -495,20 +513,20 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 	rightMargin := backWidth - nodeMargin
 	lastLine := backTop + backHeight - nodeMargin - height
 
-	//	//heat background
-	//	bkwidgetList, err, exists := dw.loadWidgetTemplate(BACKGROUND)
+	//heat background  14: 506  1465x159 is the second widget of the widget array
+	//	bkwidgetList, err, exists := dw.loadWidgetTemplate(BACKGROUND_IMAGE)
 	//	if err != nil && exists {
 	//		return nil, fmt.Errorf("Background template exists, but cannot be loaded. %v\n", err)
 	//	}
 	//	if !exists {
 	//		return nil, fmt.Errorf("Background template does not exist, skipping cluster dashboard. %v\n", err)
 	//	}
-	//	backgroundWidet := (*bkwidgetList)[0]
-	//	backgroundWidet["dashboardId"] = dashboard.ID
-	//	backgroundWidet["height"] = backHeight
-	//	backgroundWidet["width"] = backWidth
-	//	backgroundWidet["x"] = 14
-	//	backgroundWidet["y"] = 429
+	backgroundWidet := dashboard.Widgets[1]
+	backgroundWidet["dashboardId"] = dashboard.ID
+	backgroundWidet["height"] = backHeight
+	backgroundWidet["width"] = backWidth
+	backgroundWidet["x"] = 14
+	backgroundWidet["y"] = 506
 
 	widgetList, err, exists := dw.loadWidgetTemplate(HEAT_MAP)
 	if err != nil && exists {
@@ -566,16 +584,15 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 
 		//if APM node add health widget
 		if apmID, hasNodeID := hn.GetAPMID(); apmID > 0 {
-			fmt.Printf("Building health rule dot for pod %s/%s\n", hn.Namespace, hn.Podname)
 			healthDot, err := utils.CloneMap(healthWidget)
 			if err != nil {
 				return nil, fmt.Errorf("Health widget template is invalid. %v\n", err)
 			}
 			healthDot["dashboardId"] = dashboard.ID
 			healthDot["guid"] = uuid.New().String()
-			healthDot["height"] = minSize
-			healthDot["width"] = minSize
-			healthDot["iconSize"] = minSize
+			healthDot["height"] = healthsize
+			healthDot["width"] = healthsize
+			healthDot["iconSize"] = healthsize
 			healthDot["applicationId"] = hn.AppID
 			healthDot["entityIds"] = []int{apmID}
 			healthDot["description"] = dot["description"].(string)
@@ -588,14 +605,13 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 				linkComponent = "node"
 			}
 
-			hwdX := currentX + width - minSize
-			hwdY := currentY //+ height/2 - minSize/2
+			hwdX := currentX + width - healthsize/2
+			hwdY := currentY - healthsize/2
 
 			healthDot["x"] = hwdX
 			healthDot["y"] = hwdY
 			dot["drillDownUrl"] = fmt.Sprintf("%s#/location=%s&timeRange=last_1_hour.BEFORE_NOW.-1.-1.60&application=%d&%s=%d&dashboardMode=force", dw.Bag.RestAPIUrl, linkLocation, hn.AppID, linkComponent, apmID)
 			hwdotArray = append(hwdotArray, healthDot)
-			fmt.Printf("Location health %dx%d. Location dot: %dx%d\n", hwdX, hwdY, currentX, currentY)
 		} else {
 			//link to pod list by phase
 			searchUrl := dw.AdqlWorker.GetSearch(searchPath)
@@ -612,13 +628,14 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 			currentY = currentY + minSize + nodeMargin
 			if currentY > lastLine {
 				//make the background taller
-				lastLine = lastLine + minSize + nodeMargin
-				//				backgroundWidet["height"] = lastLine + minSize + nodeMargin
+				lastLine = lastLine + height + nodeMargin
+				backgroundWidet["height"] = lastLine + minSize + nodeMargin
 			}
 		}
 
 	}
-	//	dashboard.Widgets = append(dashboard.Widgets, backgroundWidet)
+
+	//append widgets
 	for _, d := range dotArray {
 		dashboard.Widgets = append(dashboard.Widgets, d)
 	}
@@ -628,6 +645,23 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 	}
 
 	return dashboard, nil
+}
+
+func (dw *DashboardWorker) updateHealthWidget(widget *map[string]interface{}, bag *m.DashboardBag) {
+	//determin if the widget is for the agent or a different app
+	if (*widget)["label"] == "appd" {
+		(*widget)["applicationId"] = bag.ClusterAppID
+		(*widget)["entityIds"] = []int{bag.ClusterNodeID}
+	} else {
+		//specific apps
+		(*widget)["applicationId"] = bag.AppID
+		if (*widget)["entityType"] == "APPLICATION_COMPONENT_NODE" {
+			(*widget)["entityIds"] = []int{bag.NodeID}
+		} else {
+			(*widget)["entityIds"] = []int{bag.TierID}
+		}
+	}
+
 }
 
 //dynamic dashboard
@@ -682,7 +716,7 @@ func (dw *DashboardWorker) updateTierDashboard(bag *m.DashboardBag) error {
 	}
 	dw.saveTemplate(updated, fileName)
 	fmt.Printf("Saving dashboard %.0f, %s\n", updated.ID, updated.Name)
-	errSaveDash := dw.saveDashboard(updated)
+	_, errSaveDash := dw.saveDashboard(updated)
 	fmt.Printf("saveDashboard. %v\n", errSaveDash)
 
 	return errSaveDash
@@ -833,13 +867,9 @@ func (dw *DashboardWorker) updateMetricName(expTemplate map[string]interface{}, 
 	//update drilldown if cluster level dash
 	if dashBag.Type == m.Cluster {
 		searchPath := dw.AdqlWorker.GetSearch(rawPath)
-		fmt.Printf("Checking parent widget drillDownUrl: %v\n", (*parentWidget)["drillDownUrl"])
 		if searchPath != "" && ((*parentWidget)["drillDownUrl"] == "" || (*parentWidget)["drillDownUrl"] == nil) {
 			(*parentWidget)["drillDownUrl"] = searchPath
 			(*parentWidget)["useMetricBrowserAsDrillDown"] = false
-			fmt.Printf("Assigning drillDownUrl\n")
-		} else {
-			fmt.Printf(" drillDownUrl not found\n")
 		}
 	}
 }
