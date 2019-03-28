@@ -232,7 +232,7 @@ func (c *ControllerClient) FindNodeID(appID int, tierName string, nodeName strin
 	jsonData := fmt.Sprintf(`{"requestFilter": {"queryParams": {"applicationId": %d, "performanceDataFilter": "REPORTING"}, "filters": []}, "resultColumns": ["TIER_NAME"], "columnSorts": [{"column": "TIER_NAME", "direction": "ASC"}], "searchFilters": [], "limit": -1, "offset": 0}`, appID)
 	d := []byte(jsonData)
 
-	fmt.Printf("Node ID JSON data: %s", jsonData)
+	//	fmt.Printf("Node ID JSON data: %s", jsonData)
 
 	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
 	rc := NewRestClient((*c.ConfManager).Get(), logger)
@@ -297,7 +297,7 @@ func (c *ControllerClient) GetMetricID(appID int, metricPath string) (float64, e
 	}
 
 	arr = arr[:len(arr)-1]
-	logger.Printf("Asking for metrics with payload: %s\n", strings.Join(arr, ","))
+	//	logger.Printf("Asking for metrics with payload: %s\n", strings.Join(arr, ","))
 
 	body, eM := json.Marshal(arr)
 	if eM != nil {
@@ -305,7 +305,7 @@ func (c *ControllerClient) GetMetricID(appID int, metricPath string) (float64, e
 	}
 
 	rc := NewRestClient((*c.ConfManager).Get(), logger)
-	logger.Printf("Calling metrics update: %s. %s\n", path, string(body))
+	//	logger.Printf("Calling metrics update: %s. %s\n", path, string(body))
 	data, err := rc.CallAppDController(path, "POST", body)
 	if err != nil {
 		return 0, fmt.Errorf("Unable to find metric ID")

@@ -36,6 +36,8 @@ type EventSchemaDef struct {
 	ResourceVersion       string `json:"resourceVersion"`
 	SelfLink              string `json:"selfLink"`
 	Type                  string `json:"type"`
+	Category              string `json:"category"`
+	SubCategory           string `json:"subCategory"`
 	Count                 string `json:"count"`
 	SourceComponent       string `json:"sourceComponent"`
 	SourceHost            string `json:"sourceHost"`
@@ -51,9 +53,14 @@ func NewEventSchemaDefWrapper() EventSchemaDefWrapper {
 func NewEventSchemaDef() EventSchemaDef {
 	pdsd := EventSchemaDef{ObjectKind: "string", ObjectName: "string", ClusterName: "string", ObjectNamespace: "string", ObjectResourceVersion: "string",
 		ObjectUid: "string", LastTimestamp: "date", Message: "string", CreationTimestamp: "date", DeletionTimestamp: "date", GenerateName: "string", Generation: "integer",
-		Name: "string", Namespace: "string", OwnerReferences: "string", ResourceVersion: "string",
+		Name: "string", Namespace: "string", OwnerReferences: "string", ResourceVersion: "string", Category: "string", SubCategory: "string",
 		SelfLink: "string", Type: "string", Count: "integer", SourceComponent: "string", SourceHost: "string", Reason: "string"}
 	return pdsd
+}
+
+func (sd EventSchemaDef) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(sd)
+	return &objMap
 }
 
 type EventSchema struct {
@@ -75,6 +82,8 @@ type EventSchema struct {
 	ResourceVersion       string    `json:"resourceVersion"`
 	SelfLink              string    `json:"selfLink"`
 	Type                  string    `json:"type"`
+	Category              string    `json:"category"`
+	SubCategory           string    `json:"subCategory"`
 	Count                 int32     `json:"count"`
 	SourceComponent       string    `json:"sourceComponent"`
 	SourceHost            string    `json:"sourceHost"`

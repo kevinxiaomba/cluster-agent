@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"reflect"
 	"strings"
 
 	app "github.com/sjeltuhin/clusterAgent/appd"
@@ -24,24 +25,36 @@ type AdqlSearchWorker struct {
 }
 
 func NewAdqlSearchWorker(bag *m.AppDBag, l *log.Logger) AdqlSearchWorker {
-	return AdqlSearchWorker{Bag: bag, SearchCache: make(map[string]m.AdqlSearch), Logger: l}
+	aw := AdqlSearchWorker{Bag: bag, SearchCache: make(map[string]m.AdqlSearch), Logger: l}
+	aw.CacheSearches()
+	return aw
 }
 
 func (aw *AdqlSearchWorker) GetSearch(metricPath string) string {
 	search := ""
-	if searchObj, ok := aw.SearchCache[metricPath]; ok {
+	arr := strings.Split(metricPath, "|")
+	metricName := arr[len(arr)-1]
+	fullName := aw.buildFullMetricName(metricName)
+
+	if searchObj, ok := aw.SearchCache[fullName]; ok {
+		//		fmt.Printf("Search object is in the cache. ID %d\n", searchObj.ID)
 		search = fmt.Sprintf(DRILL_DOWN_URL_TEMPLATE, aw.Bag.RestAPIUrl, searchObj.ID)
 	} else {
+		//		fmt.Printf("Search object NOT in the cache. Checking map...\n")
 		if sObj, ok := aw.getQueryMap()[metricPath]; ok {
+			//			fmt.Printf("Search object found in map. Creating...\n")
 			obj, err := aw.CreateSearch(&sObj)
 			if err != nil {
-				aw.Logger.Printf("Unable to save search object. %V", err)
+				aw.Logger.Printf("Unable to save search object. %v\n", err)
 			} else {
-				aw.SearchCache[metricPath] = *obj
+				aw.SearchCache[fullName] = *obj
 				search = fmt.Sprintf(DRILL_DOWN_URL_TEMPLATE, aw.Bag.RestAPIUrl, obj.ID)
+				aw.Logger.Printf("Search object created and cached: %s\n", search)
 			}
+		} else {
+			//if not in the queryMap, no search is necessary
+			//			fmt.Printf("Search object not requested. Skipping...\n")
 		}
-		//if not in the queryMap, no search is necessary
 	}
 	return search
 }
@@ -73,18 +86,25 @@ func (aw *AdqlSearchWorker) CacheSearches() error {
 
 func (aw *AdqlSearchWorker) CreateSearch(searchObj *m.AdqlSearch) (*m.AdqlSearch, error) {
 	name := uuid.New().String()
-	schemaWrapper := searchObj.SchemaDef.Unwrap()
-	schemaDef := (*schemaWrapper)["schema"].(map[string]interface{})
-	cols := []string{}
-	for col, _ := range schemaDef {
-		cols = append(cols, col)
-	}
-	jsonStr := fmt.Sprintf(`{"name":"%s","adqlQueries":["%s"],"searchType":"SINGLE","searchMode":"ADVANCED","viewMode":"DATA","visualization":"TABLE","selectedFields":[%s],"widgets":[],"searchName":"%s"}`, name, searchObj.Query, strings.Join(cols, ","), searchObj.SearchName)
 
-	body, err := json.Marshal(jsonStr)
-	if err != nil {
-		return nil, fmt.Errorf("Unable to serialize create search request %s. %v", name, err)
+	cols := []string{}
+
+	val := reflect.ValueOf(searchObj.SchemaDef)
+	for i := 0; i < val.Type().NumField(); i++ {
+		t := val.Type().Field(i)
+		jsonTag := t.Tag.Get("json")
+
+		if jsonTag != "" && jsonTag != "-" {
+			wrap := fmt.Sprintf("\"%s\"", jsonTag)
+			cols = append(cols, wrap)
+
+		}
 	}
+
+	jsonStr := fmt.Sprintf(`{"name": "%s", "adqlQueries": ["%s"], "searchType": "SINGLE", "searchMode": "ADVANCED", "viewMode": "DATA", "visualization": "TABLE", "selectedFields": [%s], "widgets": [], "searchName": "%s"}`, name, searchObj.Query, strings.Join(cols, ","), searchObj.SearchName)
+	fmt.Printf("Create search body: %v\n", jsonStr)
+	body := []byte(jsonStr)
+
 	rc := app.NewRestClient(aw.Bag, aw.Logger)
 	data, errSave := rc.CallAppDController("restui/analyticsSavedSearches/createAnalyticsSavedSearch", "POST", body)
 	if errSave != nil {
@@ -101,11 +121,41 @@ func (aw *AdqlSearchWorker) CreateSearch(searchObj *m.AdqlSearch) (*m.AdqlSearch
 	return &obj, nil
 }
 
+func (aw *AdqlSearchWorker) DeleteSearch(searchID int) error {
+	arr := []int{searchID}
+	body, err := json.Marshal(arr)
+	if err != nil {
+		return fmt.Errorf("Unable to serialize delete search request %d. %v", searchID, err)
+	}
+
+	rc := app.NewRestClient(aw.Bag, aw.Logger)
+	_, errSave := rc.CallAppDController("restui/analyticsSavedSearches/deleteAnalyticsSavedSearches", "POST", body)
+	if errSave != nil {
+		return fmt.Errorf("Unable to delete search %d. %v\n", searchID, errSave)
+	}
+
+	return nil
+}
+
 func (aw *AdqlSearchWorker) getQueryMap() map[string]m.AdqlSearch {
 	var queryMap = map[string]m.AdqlSearch{
-		BASE_PATH + "EventsCount": m.AdqlSearch{SchemaDef: m.EventSchemaDefWrapper{}, SearchName: "EventsCount", SchemaName: aw.Bag.EventSchemaName,
-			Query: fmt.Sprintf(`select * from %s where clusterName = "%s" ORDER BY creationTimestamp DESC`, aw.Bag.EventSchemaName, aw.Bag.AppName)},
+		BASE_PATH + "EventCount": m.AdqlSearch{SchemaDef: m.EventSchemaDef{}, SearchName: fmt.Sprintf("%s. EventCount", aw.Bag.AppName), SchemaName: aw.Bag.EventSchemaName,
+			Query: fmt.Sprintf("select * from %s where clusterName = '%s' ORDER BY creationTimestamp DESC", aw.Bag.EventSchemaName, aw.Bag.AppName)},
+		BASE_PATH + "EvictionThreats": m.AdqlSearch{SchemaDef: m.EventSchemaDef{}, SearchName: aw.buildFullMetricName("EvictionThreats"), SchemaName: aw.Bag.EventSchemaName,
+			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and subCategory = 'eviction' ORDER BY creationTimestamp DESC", aw.Bag.EventSchemaName, aw.Bag.AppName)},
+		BASE_PATH + "PodRunning": m.AdqlSearch{SchemaDef: m.PodSchemaDef{}, SearchName: aw.buildFullMetricName("PodRunning"), SchemaName: aw.Bag.PodSchemaName,
+			Query: fmt.Sprintf("SELECT * FROM kube_pod_snapshots where phase = 'Running' ORDER BY pickupTimestamp DESC", aw.Bag.PodSchemaName, aw.Bag.AppName)},
+		BASE_PATH + "PodFailed": m.AdqlSearch{SchemaDef: m.PodSchemaDef{}, SearchName: aw.buildFullMetricName("PodFailed"), SchemaName: aw.Bag.PodSchemaName,
+			Query: fmt.Sprintf("SELECT * FROM kube_pod_snapshots where phase = 'Failed' ORDER BY pickupTimestamp DESC", aw.Bag.PodSchemaName, aw.Bag.AppName)},
+		BASE_PATH + "PodPending": m.AdqlSearch{SchemaDef: m.PodSchemaDef{}, SearchName: aw.buildFullMetricName("PodPending"), SchemaName: aw.Bag.PodSchemaName,
+			Query: fmt.Sprintf("SELECT * FROM kube_pod_snapshots where phase = 'Pending' ORDER BY pickupTimestamp DESC", aw.Bag.PodSchemaName, aw.Bag.AppName)},
+		BASE_PATH + "Evictions": m.AdqlSearch{SchemaDef: m.PodSchemaDef{}, SearchName: aw.buildFullMetricName("Evictions"), SchemaName: aw.Bag.PodSchemaName,
+			Query: fmt.Sprintf("SELECT * FROM kube_pod_snapshots where reason = 'Evicted' ORDER BY pickupTimestamp DESC", aw.Bag.PodSchemaName, aw.Bag.AppName)},
 	}
 
 	return queryMap
+}
+
+func (aw *AdqlSearchWorker) buildFullMetricName(metricName string) string {
+	return fmt.Sprintf("%s. %s", aw.Bag.AppName, metricName)
 }

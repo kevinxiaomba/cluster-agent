@@ -27,6 +27,7 @@ const (
 	TIER_SUMMARY    string  = "/tier_stats_widget.json"
 	BACKGROUND      string  = "/background.json"
 	HEAT_MAP        string  = "/heatnodetemplate.json"
+	HEAT_WIDGET     string  = "/healthwidget.json"
 )
 
 type DashboardWorker struct {
@@ -514,12 +515,25 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 		return nil, fmt.Errorf("Heatmap template exists, but cannot be loaded. %v\n", err)
 	}
 	if !exists {
-		return nil, fmt.Errorf("Heatmap template does not exist, skipping dashboard for deployment %s/%s. %v\n", bag.Namespace, bag.TierName, err)
+		return nil, fmt.Errorf("Heatmap template does not exist, skipping cluster dashboard. %v\n", err)
 	}
-	heatWidet := (*widgetList)[0]
+
+	//health widget for APM nodes
+	hwList, errHw, existsHw := dw.loadWidgetTemplate(HEAT_WIDGET)
+	if errHw != nil && existsHw {
+		return nil, fmt.Errorf("Health widget template exists, but cannot be loaded. %v\n", errHw)
+	}
+	if !existsHw {
+		return nil, fmt.Errorf("Health widget template does not exist, skipping cluster dashboard. %v\n", err)
+	}
+
+	heatWidget := (*widgetList)[0]
+	healthWidget := (*hwList)[0]
+
 	dotArray := []map[string]interface{}{}
+	hwdotArray := []map[string]interface{}{}
 	for _, hn := range bag.HeatNodes {
-		dot, err := utils.CloneMap(heatWidet)
+		dot, err := utils.CloneMap(heatWidget)
 		if err != nil {
 			return nil, fmt.Errorf("Heatmap template is invalid. %v\n", err)
 		}
@@ -531,13 +545,17 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 
 		//color
 		colorCode := 0
+		searchPath := fmt.Sprintf("%s%s", BASE_PATH, "Evictions")
 		if hn.State == "Running" {
 			colorCode = 34021 //34021  39168
+			searchPath = fmt.Sprintf("%s%s", BASE_PATH, "PodRunning")
 		} else if hn.State == "Pending" {
 			colorCode = 16605970
 			dot["description"] = fmt.Sprintf("%s\nPending time: %s", dot["description"], hn.FormatPendingTime())
+			searchPath = fmt.Sprintf("%s%s", BASE_PATH, "PodPending")
 		} else if hn.State == "Failed" {
 			colorCode = 13369344
+			searchPath = fmt.Sprintf("%s%s", BASE_PATH, "PodFailed")
 		}
 
 		dot["backgroundColor"] = colorCode
@@ -545,6 +563,48 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 		//position
 		dot["x"] = currentX
 		dot["y"] = currentY
+
+		//if APM node add health widget
+		if apmID, hasNodeID := hn.GetAPMID(); apmID > 0 {
+			fmt.Printf("Building health rule dot for pod %s/%s\n", hn.Namespace, hn.Podname)
+			healthDot, err := utils.CloneMap(healthWidget)
+			if err != nil {
+				return nil, fmt.Errorf("Health widget template is invalid. %v\n", err)
+			}
+			healthDot["dashboardId"] = dashboard.ID
+			healthDot["guid"] = uuid.New().String()
+			healthDot["height"] = minSize
+			healthDot["width"] = minSize
+			healthDot["iconSize"] = minSize
+			healthDot["applicationId"] = hn.AppID
+			healthDot["entityIds"] = []int{apmID}
+			healthDot["description"] = dot["description"].(string)
+
+			linkLocation := "APP_COMPONENT_MANAGER"
+			linkComponent := "component"
+			if hasNodeID {
+				healthDot["entityType"] = "APPLICATION_COMPONENT_NODE"
+				linkLocation = "APP_NODE_MANAGER"
+				linkComponent = "node"
+			}
+
+			hwdX := currentX + width - minSize
+			hwdY := currentY //+ height/2 - minSize/2
+
+			healthDot["x"] = hwdX
+			healthDot["y"] = hwdY
+			dot["drillDownUrl"] = fmt.Sprintf("%s#/location=%s&timeRange=last_1_hour.BEFORE_NOW.-1.-1.60&application=%d&%s=%d&dashboardMode=force", dw.Bag.RestAPIUrl, linkLocation, hn.AppID, linkComponent, apmID)
+			hwdotArray = append(hwdotArray, healthDot)
+			fmt.Printf("Location health %dx%d. Location dot: %dx%d\n", hwdX, hwdY, currentX, currentY)
+		} else {
+			//link to pod list by phase
+			searchUrl := dw.AdqlWorker.GetSearch(searchPath)
+			if searchUrl != "" {
+				dot["drillDownUrl"] = searchUrl
+				dot["useMetricBrowserAsDrillDown"] = false
+			}
+		}
+		dotArray = append(dotArray, dot)
 
 		currentX = currentX + minSize + nodeMargin
 		if currentX > rightMargin {
@@ -556,12 +616,15 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 				//				backgroundWidet["height"] = lastLine + minSize + nodeMargin
 			}
 		}
-		dotArray = append(dotArray, dot)
 
 	}
 	//	dashboard.Widgets = append(dashboard.Widgets, backgroundWidet)
 	for _, d := range dotArray {
 		dashboard.Widgets = append(dashboard.Widgets, d)
+	}
+
+	for _, hwd := range hwdotArray {
+		dashboard.Widgets = append(dashboard.Widgets, hwd)
 	}
 
 	return dashboard, nil
@@ -770,11 +833,13 @@ func (dw *DashboardWorker) updateMetricName(expTemplate map[string]interface{}, 
 	//update drilldown if cluster level dash
 	if dashBag.Type == m.Cluster {
 		searchPath := dw.AdqlWorker.GetSearch(rawPath)
-		if searchPath != "" && (*parentWidget)["drillDownUrl"] == "" {
+		fmt.Printf("Checking parent widget drillDownUrl: %v\n", (*parentWidget)["drillDownUrl"])
+		if searchPath != "" && ((*parentWidget)["drillDownUrl"] == "" || (*parentWidget)["drillDownUrl"] == nil) {
 			(*parentWidget)["drillDownUrl"] = searchPath
 			(*parentWidget)["useMetricBrowserAsDrillDown"] = false
+			fmt.Printf("Assigning drillDownUrl\n")
 		} else {
-			(*parentWidget)["useMetricBrowserAsDrillDown"] = true
+			fmt.Printf(" drillDownUrl not found\n")
 		}
 	}
 }

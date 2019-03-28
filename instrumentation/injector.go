@@ -387,13 +387,11 @@ func (ai AgentInjector) associate(podObj *v1.Pod, appName string, tierName strin
 	//annotate pod
 	podObj.Annotations[ATTACHED_ANNOTATION] = time.Now().String()
 
-	if agentRequest.Tech == m.DotNet {
-		//associate with the tier
-		appID, tierID, _, errAppd := ai.AppdController.DetermineNodeID(appName, tierName, "")
-		if errAppd == nil {
-			podObj.Annotations[APPD_APPID] = strconv.Itoa(appID)
-			podObj.Annotations[APPD_TIERID] = strconv.Itoa(tierID)
-		}
+	//associate with the tier in case node is not accessible
+	appID, tierID, _, errAppd := ai.AppdController.DetermineNodeID(appName, tierName, "")
+	if errAppd == nil {
+		podObj.Annotations[APPD_APPID] = strconv.Itoa(appID)
+		podObj.Annotations[APPD_TIERID] = strconv.Itoa(tierID)
 	}
 
 	if agentRequest.Tech == m.Java {
@@ -407,20 +405,17 @@ func (ai AgentInjector) associate(podObj *v1.Pod, appName string, tierName strin
 			fmt.Printf("AppD agent version probe. Output: %s. Error: %v\n", folderName, errFolder)
 			if c == 0 {
 				nodeName := strings.TrimSpace(folderName)
-				podObj.Annotations[APPD_NODENAME] = nodeName
-				appID, tierID, nodeID, errAppd := ai.AppdController.DetermineNodeID(appName, tierName, nodeName)
-				if errAppd == nil {
-					podObj.Annotations[APPD_APPID] = strconv.Itoa(appID)
-					podObj.Annotations[APPD_TIERID] = strconv.Itoa(tierID)
-					podObj.Annotations[APPD_NODEID] = strconv.Itoa(nodeID)
-					//if analytics was intstrumented, queue up to enable the app for analytics
-				}
-			} else {
-				//try to associate with the tier
-				appID, tierID, _, errAppd := ai.AppdController.DetermineNodeID(appName, tierName, "")
-				if errAppd == nil {
-					podObj.Annotations[APPD_APPID] = strconv.Itoa(appID)
-					podObj.Annotations[APPD_TIERID] = strconv.Itoa(tierID)
+				if nodeName != "" {
+					podObj.Annotations[APPD_NODENAME] = nodeName
+					_, _, nodeID, errAppd := ai.AppdController.DetermineNodeID(appName, tierName, nodeName)
+					if errAppd == nil {
+						//					podObj.Annotations[APPD_APPID] = strconv.Itoa(appID)
+						//					podObj.Annotations[APPD_TIERID] = strconv.Itoa(tierID)
+						podObj.Annotations[APPD_NODEID] = strconv.Itoa(nodeID)
+						//if analytics was intstrumented, queue up to enable the app for analytics
+					}
+				} else {
+					//TODO: agent has not started yet. repeat association later
 				}
 			}
 		}

@@ -301,6 +301,10 @@ func (ew *EventWorker) processObject(e *v1.Event) m.EventSchema {
 	eventObject.SourceComponent = e.Source.Component
 	eventObject.SourceHost = e.Source.Host
 
+	cat, sub := ew.GetEventCategory(&eventObject)
+	eventObject.Category = cat
+	eventObject.SubCategory = sub
+
 	return eventObject
 }
 
@@ -356,7 +360,9 @@ func (ew *EventWorker) summarize(eventObject *m.EventSchema) {
 		summaryTier.EventCount++
 	}
 
-	cat, sub := ew.GetEventCategory(eventObject)
+	cat := eventObject.Category
+	sub := eventObject.SubCategory
+
 	if cat == "error" {
 		summary.EventError++
 		summaryNS.EventError++

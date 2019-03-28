@@ -89,6 +89,11 @@ func NewPodSchemaDef() PodSchemaDef {
 	return pdsd
 }
 
+func (sd PodSchemaDef) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(sd)
+	return &objMap
+}
+
 type PodSchema struct {
 	Name                          string                     `json:"name"`
 	Namespace                     string                     `json:"namespace"`
