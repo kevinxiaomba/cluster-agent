@@ -59,7 +59,6 @@ type AppDBag struct {
 	ProxyInfo                   string
 	ProxyUser                   string
 	ProxyPass                   string
-	InstrumentationMethod       InstrumentationMethod
 	InitContainerDir            string
 	MetricsSyncInterval         int // Frequency of metrics pushes to the controller, sec
 	SnapshotSyncInterval        int // Frequency of snapshot pushes to events api, sec
@@ -71,7 +70,11 @@ type AppDBag struct {
 	NodesToMonitorExclude       []string
 	NsToInstrument              []string
 	NsToInstrumentExclude       []string
+	NSInstrumentRule            []AgentRequest
+	InstrumentationMethod       InstrumentationMethod
+	DefaultInstrumentationTech  TechnologyName
+	BiqService                  string
+	InstrumentContainer         string //all, first, name
 	InstrumentMatchString       string
-	NSInstrumentRule            map[string][]AgentRequest
 	SchemaUpdateCache           []string
 }

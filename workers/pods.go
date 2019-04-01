@@ -40,42 +40,44 @@ import (
 )
 
 type PodWorker struct {
-	informer            cache.SharedIndexInformer
-	Client              *kubernetes.Clientset
-	ConfManager         *config.MutexConfigManager
-	Logger              *log.Logger
-	SummaryMap          map[string]m.ClusterPodMetrics
-	AppSummaryMap       map[string]m.ClusterAppMetrics
-	ContainerSummaryMap map[string]m.ClusterContainerMetrics
-	InstanceSummaryMap  map[string]m.ClusterInstanceMetrics
-	WQ                  workqueue.RateLimitingInterface
-	AppdController      *app.ControllerClient
-	K8sConfig           *rest.Config
-	PendingCache        []string
-	FailedCache         map[string]m.AttachStatus
-	ServiceCache        map[string]m.ServiceSchema
-	EndpointCache       map[string]v1.Endpoints
-	RQCache             map[string]v1.ResourceQuota
-	PVCCache            map[string]v1.PersistentVolumeClaim
-	CMCache             map[string]v1.ConfigMap
-	SecretCache         map[string]v1.Secret
-	NSCache             map[string]m.NsSchema
-	OwnerMap            map[string]string
-	NamespaceMap        map[string]string
-	ServiceWatcher      *w.ServiceWatcher
-	EndpointWatcher     *w.EndpointWatcher
-	PVCWatcher          *w.PVCWatcher
-	RQWatcher           *w.RQWatcher
-	CMWatcher           *w.ConfigWatcher
-	NSWatcher           *w.NSWatcher
-	SecretWatcher       *w.SecretWathcer
-	DashboardCache      map[string]m.PodSchema
-	DelayDashboard      bool
+	informer                cache.SharedIndexInformer
+	Client                  *kubernetes.Clientset
+	ConfManager             *config.MutexConfigManager
+	Logger                  *log.Logger
+	SummaryMap              map[string]m.ClusterPodMetrics
+	AppSummaryMap           map[string]m.ClusterAppMetrics
+	ContainerSummaryMap     map[string]m.ClusterContainerMetrics
+	InstanceSummaryMap      map[string]m.ClusterInstanceMetrics
+	WQ                      workqueue.RateLimitingInterface
+	AppdController          *app.ControllerClient
+	K8sConfig               *rest.Config
+	PendingCache            []string
+	FailedCache             map[string]m.AttachStatus
+	ServiceCache            map[string]m.ServiceSchema
+	EndpointCache           map[string]v1.Endpoints
+	RQCache                 map[string]v1.ResourceQuota
+	PVCCache                map[string]v1.PersistentVolumeClaim
+	CMCache                 map[string]v1.ConfigMap
+	SecretCache             map[string]v1.Secret
+	NSCache                 map[string]m.NsSchema
+	OwnerMap                map[string]string
+	NamespaceMap            map[string]string
+	ServiceWatcher          *w.ServiceWatcher
+	EndpointWatcher         *w.EndpointWatcher
+	PVCWatcher              *w.PVCWatcher
+	RQWatcher               *w.RQWatcher
+	CMWatcher               *w.ConfigWatcher
+	NSWatcher               *w.NSWatcher
+	SecretWatcher           *w.SecretWathcer
+	DashboardCache          map[string]m.PodSchema
+	DelayDashboard          bool
+	PendingAssociationQueue map[string]m.AgentRetryRequest
 }
 
 var lockOwnerMap = sync.RWMutex{}
 var lockDashboards = sync.RWMutex{}
 var lockNS = sync.RWMutex{}
+var lockAssociationQueue = sync.RWMutex{}
 
 var lockServices = sync.RWMutex{}
 
@@ -86,15 +88,15 @@ func NewPodWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, c
 		WQ: queue, AppdController: controller, K8sConfig: config, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus),
 		ServiceCache: make(map[string]m.ServiceSchema), EndpointCache: make(map[string]v1.Endpoints),
 		OwnerMap: make(map[string]string), NamespaceMap: make(map[string]string),
-		RQCache: make(map[string]v1.ResourceQuota), PVCCache: make(map[string]v1.PersistentVolumeClaim),
+		RQCache: make(map[string]v1.ResourceQuota), PVCCache: make(map[string]v1.PersistentVolumeClaim), PendingAssociationQueue: make(map[string]m.AgentRetryRequest),
 		CMCache: make(map[string]v1.ConfigMap), SecretCache: make(map[string]v1.Secret), NSCache: make(map[string]m.NsSchema), DashboardCache: make(map[string]m.PodSchema)}
 	pw.initPodInformer(client)
-	pw.ServiceWatcher = w.NewServiceWatcher(client, cm, &pw.ServiceCache, nil)
+	pw.ServiceWatcher = w.NewServiceWatcher(client, cm, &pw.ServiceCache, pw)
 	pw.EndpointWatcher = w.NewEndpointWatcher(client, cm, &pw.EndpointCache)
 	pw.PVCWatcher = w.NewPVCWatcher(client, cm, &pw.PVCCache)
 	pw.RQWatcher = w.NewRQWatcher(client, cm, &pw.RQCache)
 	pw.CMWatcher = w.NewConfigWatcher(client, cm, &pw.CMCache, pw)
-	pw.SecretWatcher = w.NewSecretWathcer(client, cm, &pw.SecretCache, nil)
+	pw.SecretWatcher = w.NewSecretWathcer(client, cm, &pw.SecretCache, pw)
 	pw.NSWatcher = w.NewNSWatcher(client, cm, &pw.NSCache)
 	pw.DelayDashboard = true
 	return pw
@@ -427,6 +429,11 @@ func (pw *PodWorker) checkForInstrumentation(podObj *v1.Pod, podSchema *m.PodSch
 		if st.Success {
 			if st.LastMessage != "" {
 				EmitInstrumentationEvent(podObj, pw.Client, "AppDInstrumentation", st.LastMessage, v1.EventTypeWarning)
+				if st.RetryAssociation {
+					fmt.Printf("Adding pod %s to Pending Association Queue", podObj.Name)
+					retryObj := m.AgentRetryRequest{Pod: podObj, Request: st.Request}
+					pw.addToAssociationQueue(&retryObj)
+				}
 			} else {
 				//now that the pod is instrumented successfully, add it to the dashboard queue
 				pw.tryDashboardCache(podSchema)
@@ -474,6 +481,8 @@ func (pw PodWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	go pw.SecretWatcher.WatchSecrets()
 
 	go pw.NSWatcher.WatchNamespaces()
+
+	go pw.startRetryQueueWorker(stopCh)
 
 	//dashbard timer
 	bag := (*pw.ConfManager).Get()
@@ -1812,4 +1821,52 @@ func (pw *PodWorker) buildDashboards(dashData map[string]m.DashboardBag) {
 		}
 	}
 	pw.AppdController.StopBT(bth)
+}
+
+func (pw *PodWorker) addToAssociationQueue(retryObj *m.AgentRetryRequest) {
+	lockAssociationQueue.Lock()
+	defer lockAssociationQueue.Unlock()
+	pw.PendingAssociationQueue[utils.GetPodKey(retryObj.Pod)] = *retryObj
+}
+
+func (pw *PodWorker) startRetryQueueWorker(stopCh <-chan struct{}) {
+	bag := (*pw.ConfManager).Get()
+	pw.retryQueueTicker(stopCh, time.NewTicker(time.Duration(bag.MetricsSyncInterval)*time.Second))
+}
+
+func (pw *PodWorker) retryQueueTicker(stop <-chan struct{}, ticker *time.Ticker) {
+	for {
+		select {
+		case <-ticker.C:
+			pw.flushAssociationQueue()
+		case <-stop:
+			ticker.Stop()
+			return
+		}
+	}
+}
+
+func (pw *PodWorker) flushAssociationQueue() {
+	bag := (*pw.ConfManager).Get()
+	purgeList := []m.AgentRetryRequest{}
+	lockAssociationQueue.RLock()
+	injector := instr.NewAgentInjector(pw.Client, pw.K8sConfig, bag, pw.AppdController)
+	for _, p := range pw.PendingAssociationQueue {
+		err := injector.RetryAssociate(p.Pod, p.Request)
+		if err == nil {
+			purgeList = append(purgeList, p)
+		}
+	}
+	lockAssociationQueue.RUnlock()
+}
+
+func (pw *PodWorker) purgeAssociationQueue(retryObjects []m.AgentRetryRequest) {
+	lockAssociationQueue.Lock()
+	defer lockAssociationQueue.Unlock()
+	for _, p := range retryObjects {
+		key := utils.GetPodKey(p.Pod)
+		if _, ok := pw.PendingAssociationQueue[key]; ok {
+			delete(pw.PendingAssociationQueue, key)
+		}
+	}
 }

@@ -378,97 +378,12 @@ func (pw DeployWorker) addMetricToList(objMap map[string]interface{}, metric m.A
 func (dw *DeployWorker) shouldUpdate(deployObj *appsv1.Deployment) (bool, bool, *m.AgentRequestList) {
 	bag := (*dw.ConfigManager).Get()
 
-	var appName, tierName, appAgent string
-	var biqRequested = false
-	var agentRequests *m.AgentRequestList = nil
-	var biQDeploymentOption m.BiQDeploymentOption
-	for k, v := range deployObj.Labels {
-		if k == bag.AppDAppLabel {
-			appName = v
-		}
-
-		if k == bag.AppDTierLabel {
-			tierName = v
-		}
-
-		if k == bag.AgentLabel {
-			appAgent = v
-		}
-
-		if k == bag.AppDAnalyticsLabel {
-			biqRequested = true
-			biQDeploymentOption = m.BiQDeploymentOption(v)
-		}
-	}
-	initRequested := !instr.AgentInitExists(&deployObj.Spec.Template.Spec, bag) && (appName != "" || appAgent != "") && (bag.InstrumentationMethod == m.Mount || bag.InstrumentationMethod == m.MountEnv)
-
-	//	if !initRequested {
-	//		initRequested = utils.DeployQualifiesForInstrumentation(deployObj, bag)
-	//		if initRequested {
-	//			agentRequests = utils.GetAgentRequestsForDeployment(deployObj, bag)
-	//		}
-	//	}
-
-	//check if already updated
-	updated := false
-	biqUpdated := false
-
-	for k, v := range deployObj.Annotations {
-		if k == instr.DEPLOY_ANNOTATION && v != "" {
-			updated = true
-		}
-
-		if k == instr.DEPLOY_BIQ_ANNOTATION && v != "" {
-			biqUpdated = true
-		}
-	}
-
-	fmt.Printf("Update status: %t. BiQ updated: %t\n", updated, biqUpdated)
-	if (!initRequested || updated) && (!biqRequested || biqUpdated) {
-		if updated || biqUpdated {
-			dw.PendingCache = utils.RemoveFromSlice(utils.GetDeployKey(deployObj), dw.PendingCache)
-			fmt.Printf("Deployment %s already updated for AppD. Skipping...\n", deployObj.Name)
-		} else {
-			fmt.Printf("Instrumentation not requested. Skipping %s...\n", deployObj.Name)
-		}
-		return false, false, nil
-	}
-
-	if utils.StringInSlice(utils.GetDeployKey(deployObj), dw.PendingCache) {
-		fmt.Printf("Deployment %s is in process of update. Waiting...\n", deployObj.Name)
-		return false, false, nil
-	}
-
-	//	check Failed cache not to exceed failuer limit
-	status, ok := dw.FailedCache[utils.GetDeployKey(deployObj)]
-	if ok && status.Count >= instr.MAX_INSTRUMENTATION_ATTEMPTS {
-		fmt.Printf("Deployment %s exceeded the max number of failed instrumentation attempts. Skipping...\n", deployObj.Name)
-		return false, false, nil
-	}
-
-	biq := biQDeploymentOption == m.Sidecar && !instr.AnalyticsAgentExists(&deployObj.Spec.Template.Spec, (*dw.ConfigManager).Get())
-
-	if tierName == "" {
-		tierName = deployObj.Name
-	}
-
-	if initRequested || biq {
-		if agentRequests == nil {
-			l := m.NewAgentRequestList(appAgent, appName, tierName)
-			agentRequests = &l
-		} else {
-			//merge
-			agentRequests.AppName = appName
-			agentRequests.TierName = tierName
-		}
-		agentRequests.ApplyInstrumentationMethod(bag.InstrumentationMethod)
-	}
-
-	return initRequested, biq, agentRequests
+	return instr.ShouldInstrumentDeployment(deployObj, bag, &dw.PendingCache, &dw.FailedCache)
 }
 
 func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool, biq bool, agentRequests *m.AgentRequestList) {
-	if !init && !biq {
+	bag := (*dw.ConfigManager).Get()
+	if (!init && !biq) || agentRequests == nil {
 		return
 	}
 
@@ -482,34 +397,44 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 			return fmt.Errorf("Failed to get latest version of Deployment: %v", getErr)
 		}
 
-		if init {
-			fmt.Println("Adding init container...")
-
-			//check if appd-secret exists
-			//if not copy into the namespace
+		if agentRequests.EnvRequired() {
 			fmt.Println("Ensuring secret...")
 			errSecret := dw.ensureSecret(deployObj.Namespace)
 			if errSecret != nil {
-				fmt.Printf("Failed to ensure secret in namespace %s: %v", deployObj.Namespace, errSecret)
-				return fmt.Errorf("Failed to ensure secret in namespace %s: %v", deployObj.Namespace, errSecret)
+				fmt.Printf("Failed to ensure secret in namespace %s: %v\n", deployObj.Namespace, errSecret)
+				return fmt.Errorf("Failed to ensure secret in namespace %s: %v\n", deployObj.Namespace, errSecret)
 			}
-			//add volume and mounts for agent binaries
-			dw.updateSpec(result, (*dw.ConfigManager).Get().AgentMountName, (*dw.ConfigManager).Get().AgentMountPath, agentRequests, true)
-			//add init container for agent attach
-			agentReq := agentRequests.GetFirstRequest()
-			agentAttachContainer := dw.buildInitContainer(&agentReq)
-			result.Spec.Template.Spec.InitContainers = append(result.Spec.Template.Spec.InitContainers, agentAttachContainer)
+		}
+		var biqContainer *v1.Container = nil
+		initMap := []string{}
+		for _, r := range agentRequests.Items {
+			if r.InitContainerRequired() && !utils.StringInSlice(string(r.Tech), initMap) {
+				initMap = append(initMap, string(r.Tech))
+				fmt.Printf("Adding init container for %s agent...\n", r.Tech)
+				agentAttachContainer := dw.buildInitContainer(&r)
+				result.Spec.Template.Spec.InitContainers = append(result.Spec.Template.Spec.InitContainers, agentAttachContainer)
+			}
 
+			c := dw.findContainer(&r, deployObj)
+			if c != nil {
+				r.ContainerName = c.Name
+				volName := fmt.Sprintf("%s-%s", bag.AgentMountName, string(r.Tech))
+				dw.updateSpec(c, result, volName, bag.AgentMountPath, &r, r.EnvRequired())
+				if r.BiQ == string(m.Sidecar) {
+					biqContainer = c
+				}
+			} else {
+				return fmt.Errorf("Agent request refers to a non-existent container %s\n", r.ContainerName)
+			}
+		}
+
+		if init {
 			//annotate pod
 			if result.Spec.Template.Annotations == nil {
 				result.Spec.Template.Annotations = make(map[string]string)
 			}
-			result.Spec.Template.Annotations["appd-instr-method"] = string(agentReq.Method)
-			result.Spec.Template.Annotations["appd-tech"] = string(agentReq.Tech)
-			contList := agentRequests.GetContainerNames()
-			if contList != nil {
-				result.Spec.Template.Annotations["appd-container-list"] = strings.Join(*contList, ",")
-			}
+			result.Spec.Template.Annotations[instr.APPD_ATTACH_PENDING] = agentRequests.ToAnnotation()
+			fmt.Printf("Pending annotation added: %s", result.Spec.Template.Annotations[instr.APPD_ATTACH_PENDING])
 
 			//annotate deployment
 			if result.Annotations == nil {
@@ -519,12 +444,12 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 		}
 
 		if biq {
-			fmt.Println("Adding analytics container")
-			//add volume and mounts for logging
-			dw.updateSpec(result, (*dw.ConfigManager).Get().AppLogMountName, (*dw.ConfigManager).Get().AppLogMountPath, agentRequests, false)
 
+			fmt.Println("Adding analytics agent container")
 			//add analytics agent container
 			analyticsContainer := dw.buildBiqSideCar()
+			//add volume and mounts for logging
+			dw.updateSpec(biqContainer, result, bag.AppLogMountName, bag.AppLogMountPath, agentRequests.GetFirstRequest(), false)
 			result.Spec.Template.Spec.Containers = append(result.Spec.Template.Spec.Containers, analyticsContainer)
 
 			//annotate that biq is instrumented
@@ -557,88 +482,91 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 	fmt.Println("Updated deployment...")
 }
 
-func (dw *DeployWorker) updateSpec(result *appsv1.Deployment, volName string, volumePath string, agentRequests *m.AgentRequestList, envUpdate bool) {
+func (dw *DeployWorker) findContainer(agentRequest *m.AgentRequest, deployObj *appsv1.Deployment) *v1.Container {
+	for _, c := range deployObj.Spec.Template.Spec.Containers {
+		if c.Name == agentRequest.ContainerName {
+			return &c
+		}
+	}
+	fmt.Printf("Agent request refers to a non-existent container %s\n", agentRequest.ContainerName)
+	return nil
+}
+
+func (dw *DeployWorker) updateContainerEnv(ar *m.AgentRequest, c *v1.Container) {
 	bag := (*dw.ConfigManager).Get()
-	applyTo := agentRequests.GetContainerNames()
-	if applyTo == nil {
-		fmt.Printf("Adding volume %s to all containers\n", volName)
-	} else {
-		fmt.Printf("Adding volume %s to the following containers: %s\n", volName, *applyTo)
-	}
-	//add shared volume to the deployment spec for logging
-	vol := v1.Volume{Name: volName, VolumeSource: v1.VolumeSource{
-		EmptyDir: &v1.EmptyDirVolumeSource{},
-	}}
-	if result.Spec.Template.Spec.Volumes == nil || len(result.Spec.Template.Spec.Volumes) == 0 {
-		result.Spec.Template.Spec.Volumes = []v1.Volume{vol}
-	} else {
-		result.Spec.Template.Spec.Volumes = append(result.Spec.Template.Spec.Volumes, vol)
+
+	tech := ar.Tech
+	if tech == m.DotNet {
+		fmt.Printf("Requested env var update for DotNet container %s\n", c.Name)
+		dotnetInjector := instr.NewDotNetInjector(bag, dw.AppdController)
+		dotnetInjector.AddEnvVars(c, ar.AppName, ar.TierName)
 	}
 
-	//add volume mount to the application container(s)
-	clist := []v1.Container{}
-	for _, c := range result.Spec.Template.Spec.Containers {
-		if applyTo != nil && !utils.StringInSlice(c.Name, *applyTo) {
-			clist = append(clist, c)
-			fmt.Printf("Container %s is not on the list. Not adding volume mount...\n", c.Name)
-			continue
-		}
-		ar := agentRequests.GetRequest(c.Name)
-		if ar.Method == m.None {
-			ar.Method = bag.InstrumentationMethod
-		}
-		volumeMount := v1.VolumeMount{Name: volName, MountPath: volumePath}
-		if c.VolumeMounts == nil || len(c.VolumeMounts) == 0 {
-			c.VolumeMounts = []v1.VolumeMount{volumeMount}
+	//if the method is MountEnv and tech is Java, build the env var for the agent
+	fmt.Printf("instrument method =  %s\n", m.MountEnv)
+	if tech == m.Java && ar.Method == m.MountEnv {
+		fmt.Printf("Requested env var update for java container %s\n", c.Name)
+		optsExist := false
+		volPath := fmt.Sprintf("%s-%s", bag.AgentMountPath, string(ar.Tech))
+		javaOptsVal := fmt.Sprintf(` -Dappdynamics.agent.accountAccessKey=$(APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY) -Dappdynamics.controller.hostName=%s -Dappdynamics.controller.port=%d -Dappdynamics.controller.ssl.enabled=%t -Dappdynamics.agent.accountName=%s -Dappdynamics.agent.applicationName=%s -Dappdynamics.agent.tierName=%s -Dappdynamics.agent.reuse.nodeName=true -Dappdynamics.agent.reuse.nodeName.prefix=%s -javaagent:%s/javaagent.jar `,
+			bag.ControllerUrl, bag.ControllerPort, bag.SSLEnabled, bag.Account, ar.AppName, ar.TierName, ar.TierName, volPath)
+		if c.Env == nil {
+			c.Env = []v1.EnvVar{}
 		} else {
-			c.VolumeMounts = append(c.VolumeMounts, volumeMount)
-		}
-		if envUpdate {
-			tech := ar.Tech
-			if tech == m.DotNet {
-				fmt.Printf("Requested env var update for DotNet container %s\n", c.Name)
-				dotnetInjector := instr.NewDotNetInjector(bag, dw.AppdController)
-				dotnetInjector.AddEnvVars(&c, agentRequests.AppName, agentRequests.TierName)
-			}
-
-			//if the method is MountEnv and tech is Java, build the env var for the agent
-			fmt.Printf("instrument method =  %s\n", m.MountEnv)
-			if tech == m.Java && ar.Method == m.MountEnv {
-				fmt.Printf("Requested env var update for java container %s\n", c.Name)
-				optsExist := false
-				javaOptsVal := fmt.Sprintf(` -Dappdynamics.agent.accountAccessKey=$(APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY) -Dappdynamics.controller.hostName=%s -Dappdynamics.controller.port=%d -Dappdynamics.controller.ssl.enabled=%t -Dappdynamics.agent.accountName=%s -Dappdynamics.agent.applicationName=%s -Dappdynamics.agent.tierName=%s -Dappdynamics.agent.reuse.nodeName=true -Dappdynamics.agent.reuse.nodeName.prefix=%s -javaagent:%s/javaagent.jar `,
-					bag.ControllerUrl, bag.ControllerPort, bag.SSLEnabled, bag.Account, agentRequests.AppName, agentRequests.TierName, agentRequests.TierName, bag.AgentMountPath)
-				if c.Env == nil {
-					c.Env = []v1.EnvVar{}
-				} else {
-					for _, ev := range c.Env {
-						if ev.Name == bag.AgentEnvVar {
-							ev.Value += javaOptsVal
-							optsExist = true
-							break
-						}
-					}
+			for _, ev := range c.Env {
+				if ev.Name == bag.AgentEnvVar {
+					ev.Value += javaOptsVal
+					optsExist = true
+					break
 				}
-				//key reference
-				keyRef := v1.SecretKeySelector{Key: instr.APPD_SECRET_KEY_NAME, LocalObjectReference: v1.LocalObjectReference{
-					Name: instr.APPD_SECRET_NAME}}
-				envVarKey := v1.EnvVar{Name: "APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY", ValueFrom: &v1.EnvVarSource{SecretKeyRef: &keyRef}}
-				if !optsExist {
-					envJavaOpts := v1.EnvVar{Name: bag.AgentEnvVar, Value: javaOptsVal}
-					c.Env = append(c.Env, envJavaOpts)
-				}
-				//prepend the secret ref
-				c.Env = append([]v1.EnvVar{envVarKey}, c.Env...)
 			}
-
 		}
-		clist = append(clist, c)
-		if applyTo == nil {
-			//apply only first container
+		//key reference
+		keyRef := v1.SecretKeySelector{Key: instr.APPD_SECRET_KEY_NAME, LocalObjectReference: v1.LocalObjectReference{
+			Name: instr.APPD_SECRET_NAME}}
+		envVarKey := v1.EnvVar{Name: "APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY", ValueFrom: &v1.EnvVarSource{SecretKeyRef: &keyRef}}
+		if !optsExist {
+			envJavaOpts := v1.EnvVar{Name: bag.AgentEnvVar, Value: javaOptsVal}
+			c.Env = append(c.Env, envJavaOpts)
+		}
+		//prepend the secret ref
+		c.Env = append([]v1.EnvVar{envVarKey}, c.Env...)
+	}
+
+}
+
+func (dw *DeployWorker) updateSpec(c *v1.Container, result *appsv1.Deployment, volName string, volumePath string, agentRequest *m.AgentRequest, envUpdate bool) {
+
+	//add shared volume to the deployment spec
+	volumeExists := false
+	for _, ev := range result.Spec.Template.Spec.Volumes {
+		if ev.Name == volName {
+			volumeExists = true
 			break
 		}
 	}
-	result.Spec.Template.Spec.Containers = clist
+	if !volumeExists {
+		vol := v1.Volume{Name: volName, VolumeSource: v1.VolumeSource{
+			EmptyDir: &v1.EmptyDirVolumeSource{},
+		}}
+		if result.Spec.Template.Spec.Volumes == nil || len(result.Spec.Template.Spec.Volumes) == 0 {
+			result.Spec.Template.Spec.Volumes = []v1.Volume{vol}
+		} else {
+			result.Spec.Template.Spec.Volumes = append(result.Spec.Template.Spec.Volumes, vol)
+		}
+	}
+
+	//add volume mount to the application container
+	volumeMount := v1.VolumeMount{Name: volName, MountPath: volumePath}
+	if c.VolumeMounts == nil || len(c.VolumeMounts) == 0 {
+		c.VolumeMounts = []v1.VolumeMount{volumeMount}
+	} else {
+		c.VolumeMounts = append(c.VolumeMounts, volumeMount)
+	}
+
+	if envUpdate {
+		dw.updateContainerEnv(agentRequest, c)
+	}
 }
 
 func (dw *DeployWorker) ensureSecret(ns string) error {
@@ -676,7 +604,6 @@ func (dw *DeployWorker) ensureSecret(ns string) error {
 }
 
 func (dw *DeployWorker) buildInitContainer(agentrequest *m.AgentRequest) v1.Container {
-	fmt.Printf("Building init container using agent request %s\n", agentrequest.ToString())
 	//volume mount for agent files
 	volumeMount := v1.VolumeMount{Name: (*dw.ConfigManager).Get().AgentMountName, MountPath: (*dw.ConfigManager).Get().AgentMountPath}
 	mounts := []v1.VolumeMount{volumeMount}
@@ -732,40 +659,4 @@ func (dw *DeployWorker) buildBiqSideCar() v1.Container {
 		Ports: ports, EnvFrom: envFrom, Env: env, VolumeMounts: mounts, Resources: reqs}
 
 	return cont
-}
-
-func (dw *DeployWorker) addVolume(deployObj *appsv1.Deployment, container *v1.Container) {
-	bag := (*dw.ConfigManager).Get()
-	mountExists := false
-	for _, vm := range container.VolumeMounts {
-		if vm.Name == bag.AgentMountName {
-			mountExists = true
-			break
-		}
-	}
-	if !mountExists {
-		//container volume mount
-		volumeMount := v1.VolumeMount{Name: bag.AgentMountName, MountPath: "/opt/appd", ReadOnly: true}
-		if container.VolumeMounts == nil || len(container.VolumeMounts) == 0 {
-			container.VolumeMounts = []v1.VolumeMount{volumeMount}
-		} else {
-			container.VolumeMounts = append(container.VolumeMounts, volumeMount)
-		}
-	}
-
-	volExists := false
-	for _, vol := range deployObj.Spec.Template.Spec.Volumes {
-		if vol.Name == bag.AgentMountName {
-			volExists = true
-			break
-		}
-	}
-	if !volExists {
-		//pod volume
-		pathType := v1.HostPathDirectory
-		source := v1.HostPathVolumeSource{Path: "/opt/appd", Type: &pathType}
-		volSource := v1.VolumeSource{HostPath: &source}
-		vol := v1.Volume{Name: "appd-repo", VolumeSource: volSource}
-		deployObj.Spec.Template.Spec.Volumes = []v1.Volume{vol}
-	}
 }

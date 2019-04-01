@@ -63,7 +63,7 @@ func (self *MutexConfigManager) Set(conf *m.AppDBag) {
 	}
 	self.Conf = conf
 	if self.Conf.NSInstrumentRule == nil {
-		self.Conf.NSInstrumentRule = make(map[string][]m.AgentRequest)
+		self.Conf.NSInstrumentRule = []m.AgentRequest{}
 	}
 	if self.Conf.SchemaUpdateCache == nil {
 		self.Conf.SchemaUpdateCache = []string{}

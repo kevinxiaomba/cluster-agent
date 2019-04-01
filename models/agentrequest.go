@@ -3,45 +3,70 @@ package models
 import (
 	"fmt"
 	"strings"
+
+	"k8s.io/api/core/v1"
 )
 
 type TechnologyName string
 
 const (
-	Java   TechnologyName = "java"
-	DotNet TechnologyName = "dotnet"
-	NodeJS TechnologyName = "nodejs"
+	REQUEST_SEPARATOR string         = ";"
+	FIELD_SEPARATOR   string         = "_"
+	Java              TechnologyName = "java"
+	DotNet            TechnologyName = "dotnet"
+	NodeJS            TechnologyName = "nodejs"
+	ALL_CONTAINERS    string         = "all"
+	FIRST_CONTAINER   string         = "all"
 )
 
 type InstrumentationMethod string
 
 const (
-	None     InstrumentationMethod = ""
-	Copy     InstrumentationMethod = "copy"
-	Mount    InstrumentationMethod = "mount"
-	MountEnv InstrumentationMethod = "mountEnv"
+	None        InstrumentationMethod = "none"
+	CopyAttach  InstrumentationMethod = "copyAttach"
+	MountAttach InstrumentationMethod = "mountAttach"
+	MountEnv    InstrumentationMethod = "mountEnv"
 )
 
 type AgentRequest struct {
+	Namespaces    []string
+	AppName       string
+	TierName      string
 	AppDAppLabel  string
 	AppDTierLabel string
 	Tech          TechnologyName
-	ContainerName string
+	ContainerName string //first (default), all, name
 	Version       string
 	MatchString   string //string matched against deployment names and labels, supports regex
 	Method        InstrumentationMethod
+	BiQ           string //"sidecar" or reference to the remote analytics agent
+
 }
 
 type AgentRequestList struct {
-	Items    []AgentRequest
-	AppName  string
-	TierName string
+	Items []AgentRequest
 }
 
-func NewAgentRequest(appdAgentLabel string) AgentRequest {
-	agentRequest := AgentRequest{Method: None}
+func (ar *AgentRequest) Clone() AgentRequest {
+	clone := AgentRequest{}
+	clone.Namespaces = ar.Namespaces
+	clone.AppName = ar.AppName
+	clone.AppDAppLabel = ar.AppDAppLabel
+	clone.AppDTierLabel = ar.AppDTierLabel
+	clone.Tech = ar.Tech
+	clone.ContainerName = ar.ContainerName
+	clone.Version = ar.Version
+	clone.MatchString = ar.MatchString
+	clone.Method = ar.Method
+	clone.BiQ = ar.BiQ
+
+	return clone
+}
+
+func NewAgentRequest(appdAgentLabel string, appName string, tierName string, biq string, bag *AppDBag) AgentRequest {
+	agentRequest := AgentRequest{Method: bag.InstrumentationMethod, ContainerName: FIRST_CONTAINER}
 	if appdAgentLabel != "" {
-		ar := strings.Split(appdAgentLabel, "_")
+		ar := strings.Split(appdAgentLabel, FIELD_SEPARATOR)
 		if len(ar) > 0 {
 			agentRequest.Tech = TechnologyName(ar[0])
 			if len(ar) > 1 {
@@ -52,61 +77,102 @@ func NewAgentRequest(appdAgentLabel string) AgentRequest {
 			}
 		}
 	}
+	agentRequest.AppName = appName
+	agentRequest.TierName = tierName
+	if agentRequest.Tech == "" {
+		agentRequest.Tech = bag.DefaultInstrumentationTech
+	}
+
+	agentRequest.BiQ = biq
+
 	return agentRequest
 }
 
-func NewAgentRequestListFromArray(ar []AgentRequest) *AgentRequestList {
+func NewAgentRequestListFromArray(ar []AgentRequest, bag *AppDBag, containers []v1.Container) *AgentRequestList {
 	list := AgentRequestList{}
+	index := 0
+	add := false
 	for _, r := range ar {
+		if r.Method == "" {
+			r.Method = bag.InstrumentationMethod
+		}
+		if r.AppDAppLabel == "" {
+			r.AppDAppLabel = bag.AppDAppLabel
+		}
+		if r.AppDTierLabel == "" {
+			r.AppDTierLabel = bag.AppDTierLabel
+		}
+		if len(ar) == 1 && r.ContainerName == ALL_CONTAINERS || (r.ContainerName == "" && bag.InstrumentContainer == ALL_CONTAINERS) {
+			add = true
+		}
+		r.ContainerName = containers[index].Name
 		list.Items = append(list.Items, r)
+		index++
+	}
+	if add {
+		clone := list.Items[0].Clone()
+		for i := 1; i < len(containers); i++ {
+			clone.ContainerName = containers[i].Name
+			list.Items = append(list.Items, clone)
+		}
 	}
 
 	return &list
 }
 
-func NewAgentRequestListDetail(appName string, tierName string, method InstrumentationMethod, tech TechnologyName, contList *[]string) AgentRequestList {
-	list := AgentRequestList{AppName: appName, TierName: tierName}
-
-	if contList == nil {
-		def := getDefaultAgentRequest()
-		def.Tech = tech
-		def.Method = method
-		list.Items = append(list.Items, def)
-		return list
-	}
-
-	for _, c := range *contList {
-		r := AgentRequest{Method: None}
-		r.ContainerName = c
-		r.Method = method
-		r.Tech = tech
-	}
-
-	return list
-}
-
-func NewAgentRequestList(appdAgentLabel string, appName string, tierName string) AgentRequestList {
-	list := AgentRequestList{AppName: appName, TierName: tierName}
+func NewAgentRequestList(appdAgentLabel string, appName string, tierName string, biq string, containers []v1.Container, bag *AppDBag) AgentRequestList {
+	list := AgentRequestList{}
 
 	if appdAgentLabel == "" {
-		def := getDefaultAgentRequest()
-		list.Items = append(list.Items, def)
+		if bag.InstrumentContainer == FIRST_CONTAINER {
+			def := getDefaultAgentRequest(appName, tierName, biq, bag)
+			def.ContainerName = containers[0].Name
+			list.Items = append(list.Items, def)
+		} else {
+			for _, c := range containers {
+				def := getDefaultAgentRequest(appName, tierName, biq, bag)
+				def.ContainerName = c.Name
+				list.Items = append(list.Items, def)
+			}
+		}
 		return list
 	}
-	if strings.Contains(appdAgentLabel, ";") {
-		ar := strings.Split(appdAgentLabel, ";")
+	if strings.Contains(appdAgentLabel, REQUEST_SEPARATOR) {
+		ar := strings.Split(appdAgentLabel, REQUEST_SEPARATOR)
 		for _, a := range ar {
-			list.Items = append(list.Items, NewAgentRequest(a))
+			ar := NewAgentRequest(a, appName, tierName, biq, bag)
+			list.Items = append(list.Items, ar)
 		}
 	} else {
-		list.Items = append(list.Items, NewAgentRequest(appdAgentLabel))
+		ar := NewAgentRequest(appdAgentLabel, appName, tierName, biq, bag)
+		if ar.ContainerName == "" {
+			ar.ContainerName = bag.InstrumentContainer
+		}
+		if ar.ContainerName == FIRST_CONTAINER {
+			ar.ContainerName = containers[0].Name
+		}
+		list.Items = append(list.Items, ar)
+		if ar.ContainerName == ALL_CONTAINERS {
+			for i := 1; i < len(containers); i++ {
+				add := NewAgentRequest(appdAgentLabel, appName, tierName, biq, bag)
+				add.ContainerName = containers[i].Name
+			}
+		}
 	}
 
 	return list
 }
 
-func getDefaultAgentRequest() AgentRequest {
-	return AgentRequest{Tech: Java, Method: None}
+func getDefaultAgentRequest(appName string, tierName string, biq string, bag *AppDBag) AgentRequest {
+	r := AgentRequest{ContainerName: FIRST_CONTAINER}
+	r.AppName = appName
+	r.TierName = tierName
+	r.BiQ = biq
+	r.Tech = bag.DefaultInstrumentationTech
+	r.Method = bag.InstrumentationMethod
+	r.BiQ = bag.BiqService
+	r.MatchString = bag.InstrumentMatchString
+	return r
 }
 
 func (al *AgentRequestList) ApplyInstrumentationMethod(m InstrumentationMethod) {
@@ -119,7 +185,7 @@ func (al *AgentRequestList) ApplyInstrumentationMethod(m InstrumentationMethod) 
 
 }
 
-func (al *AgentRequestList) GetRequest(cname string) AgentRequest {
+func (al *AgentRequestList) GetRequest(cname string) *AgentRequest {
 	var ar *AgentRequest = nil
 	for _, r := range al.Items {
 		if r.ContainerName == cname {
@@ -128,18 +194,18 @@ func (al *AgentRequestList) GetRequest(cname string) AgentRequest {
 		}
 	}
 	if ar != nil {
-		return *ar
+		return ar
 	}
 
-	return getDefaultAgentRequest()
+	return al.GetFirstRequest()
 }
 
-func (al *AgentRequestList) GetFirstRequest() AgentRequest {
+func (al *AgentRequestList) GetFirstRequest() *AgentRequest {
 	if len(al.Items) > 0 {
-		return al.Items[0]
-	} else {
-		return getDefaultAgentRequest()
+		return &(al.Items[0])
 	}
+
+	return nil
 }
 
 func (al *AgentRequestList) GetContainerNames() *[]string {
@@ -173,8 +239,111 @@ func (ar *AgentRequest) GetAgentImageName(bag *AppDBag) string {
 
 }
 
-func (ar *AgentRequest) ToString() string {
+func (ar *AgentRequest) EnvRequired() bool {
+	return ar.Method == MountEnv
+}
 
-	return fmt.Sprintf("Tech: %s, Container: %s, Version: %s", ar.Tech, ar.ContainerName, ar.Version)
+func (al *AgentRequestList) EnvRequired() bool {
+	for _, r := range al.Items {
+		if r.EnvRequired() {
+			return true
+		}
+	}
+	return false
+}
 
+func (ar *AgentRequest) InitContainerRequired() bool {
+	return ar.Method == MountAttach || ar.Method == MountEnv
+}
+
+func (al *AgentRequestList) InitContainerRequired() bool {
+	for _, r := range al.Items {
+		if r.InitContainerRequired() {
+			return true
+		}
+	}
+	return false
+}
+
+func (al *AgentRequestList) BiQRequested() bool {
+	for _, r := range al.Items {
+		if r.BiQ != "" && r.BiQ != string(NoBiq) {
+			return true
+		}
+	}
+	return false
+}
+
+func (al *AgentRequestList) GetBiQOption() string {
+	//it is the same for
+	for _, r := range al.Items {
+		if r.BiQ != "" && r.BiQ != string(NoBiq) {
+			return r.BiQ
+		}
+	}
+	return ""
+}
+
+func (al *AgentRequestList) ToAnnotation() string {
+	s := ""
+	for _, r := range al.Items {
+		s = fmt.Sprintf("%s;%s", s, r.ToAnnotation())
+	}
+	return s
+}
+
+func (ar *AgentRequest) ToAnnotation() string {
+	return fmt.Sprintf("%s_%s_%s_%s_%s_%s_%s", ar.Method, ar.Tech, ar.ContainerName, ar.AppName, ar.TierName, ar.BiQ, ar.Version)
+}
+
+func FromAnnotation(annotation string) *AgentRequestList {
+	list := AgentRequestList{}
+	if strings.Contains(annotation, ";") {
+		ar := strings.Split(annotation, ";")
+		for _, a := range ar {
+			list.Items = append(list.Items, RequestFromAnnotation(a))
+		}
+	} else {
+		list.Items = append(list.Items, RequestFromAnnotation(annotation))
+	}
+	return &list
+}
+
+func RequestFromAnnotation(annotation string) AgentRequest {
+	r := AgentRequest{}
+	arr := strings.Split(annotation, REQUEST_SEPARATOR)
+	if len(arr) > 0 {
+		r.Method = InstrumentationMethod(arr[0])
+	}
+	if len(arr) > 1 {
+		r.Tech = TechnologyName(arr[1])
+	}
+	if len(arr) > 2 {
+		r.ContainerName = arr[2]
+	}
+	if len(arr) > 3 {
+		r.AppName = arr[3]
+	}
+	if len(arr) > 4 {
+		r.TierName = arr[4]
+	}
+	if len(arr) > 5 {
+		r.BiQ = arr[5]
+	}
+	if len(arr) > 6 {
+		r.Version = arr[6]
+	}
+	return r
+}
+
+func (al *AgentRequestList) String() string {
+	s := "Instrumentation requests:\n"
+	for _, r := range al.Items {
+		s = fmt.Sprintf("%s%s\n", s, r.String())
+	}
+	return s
+}
+
+func (ar *AgentRequest) String() string {
+	return fmt.Sprintf("AppName: %s, TieName: %s, Biq:%s, Tech: %s, Method: %s, Container: %s, Version: %s", ar.AppName, ar.TierName, ar.BiQ, ar.Tech, ar.Method, ar.ContainerName, ar.Version)
 }

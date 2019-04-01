@@ -3,7 +3,6 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 
 	m "github.com/sjeltuhin/clusterAgent/models"
@@ -119,51 +118,6 @@ func IsSystemNamespace(namespace string) bool {
 		return true
 	}
 	return false
-}
-
-func NSQualifiesForInstrumentation(ns string, bag *m.AppDBag) bool {
-	return !IsSystemNamespace(ns) && (len(bag.NsToInstrument) == 0 ||
-		StringInSlice(ns, bag.NsToInstrument)) &&
-		!StringInSlice(ns, bag.NsToInstrumentExclude)
-}
-
-func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag) *m.AgentRequestList {
-	var list *m.AgentRequestList = nil
-	if rules, ok := bag.NSInstrumentRule[deploy.Namespace]; ok {
-		list = m.NewAgentRequestListFromArray(rules)
-	}
-
-	return list
-}
-
-func DeployQualifiesForInstrumentation(deploy *appsv1.Deployment, bag *m.AppDBag) bool {
-	if rules, ok := bag.NSInstrumentRule[deploy.Namespace]; ok {
-		for _, r := range rules {
-			reg, _ := regexp.Compile(r.MatchString)
-			if reg.MatchString(deploy.Name) {
-				return true
-			}
-			for _, v := range deploy.Labels {
-				if reg.MatchString(v) {
-					return true
-				}
-			}
-		}
-	}
-	if bag.InstrumentMatchString != "" {
-		globReg, _ := regexp.Compile(bag.InstrumentMatchString)
-		if globReg.MatchString(deploy.Name) {
-			return true
-		}
-
-		for _, v := range deploy.Labels {
-			if globReg.MatchString(v) {
-				return true
-			}
-		}
-	}
-
-	return NSQualifiesForInstrumentation(deploy.Namespace, bag)
 }
 
 func NodeQualifiesForMonitoring(name string, bag *m.AppDBag) bool {

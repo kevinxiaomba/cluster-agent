@@ -28,7 +28,7 @@ type Flags struct {
 }
 
 func buildParams() Flags {
-	var method string
+	var method, tech string
 	params := Flags{}
 
 	flag.StringVar(&params.Kubeconfig, "kubeconfig", getKubeConfigPath(), "(optional) absolute path to the kubeconfig file")
@@ -85,7 +85,11 @@ func buildParams() Flags {
 	flag.StringVar(&params.Bag.AppDInitContainerName, "appd-init-container-name", "appd-agent-attach", "AppD Init Container Name")
 	flag.StringVar(&method, "appd-instrument-method", getAgentInstrumentationMethod(), "AppD Agent Instrumentation Method (copy, mount)")
 	params.Bag.InstrumentationMethod = m.InstrumentationMethod(method)
+	flag.StringVar(&tech, "instrument-tech", getDefaultInstrumentationTech(), "Default instrumentation tech")
+	params.Bag.DefaultInstrumentationTech = m.TechnologyName(tech)
 	flag.StringVar(&params.Bag.InitContainerDir, "init-container-dir", "/opt/temp/.", "Directory with artifacts in the init container")
+	flag.StringVar(&params.Bag.BiqService, "insrument-biq", getDefaultBiqAttachMethod(), "Reference to the Biq agent. None, sidecar, remote service name")
+	flag.StringVar(&params.Bag.InstrumentContainer, "instrument-container-name", getInstrumentContainer(), "Directory with artifacts in the init container")
 
 	var nsToMonitor string
 	flag.StringVar(&nsToMonitor, "ns-to-monitor", getNSToMonitor(), "List of namespaces to monitor")
@@ -385,7 +389,7 @@ func getDotNetAttachImage() string {
 func getAgentInstrumentationMethod() string {
 	method := os.Getenv("APPDYNAMICS_AGENT_INSTRUMENTATION_METHOD")
 	if method == "" {
-		method = string(m.Copy)
+		method = string(m.None)
 	}
 	return method
 }
@@ -429,6 +433,30 @@ func getNodesToMonitor() string {
 
 func getNodesToMonitorExclude() string {
 	return os.Getenv("NODES_TO_MONITOR_EXC")
+}
+
+func getDefaultInstrumentationTech() string {
+	tech := os.Getenv("APPDYNAMICS_INSTRUMENT_TECH")
+	if tech == "" {
+		tech = "java"
+	}
+	return tech
+}
+
+func getDefaultBiqAttachMethod() string {
+	biq := os.Getenv("APPDYNAMICS_BIQ_ATTACH_MEHTOD")
+	if biq == "" {
+		biq = "none"
+	}
+	return biq
+}
+
+func getInstrumentContainer() string {
+	c := os.Getenv("APPDYNAMICS_CONTAINER_NAME_ATTACH")
+	if c == "" {
+		c = "first"
+	}
+	return c
 }
 
 func getTemplatePath() string {

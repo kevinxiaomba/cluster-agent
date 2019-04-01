@@ -37,8 +37,8 @@ func (dni *DotNetInjector) AddEnvVars(container *v1.Container, appName string, t
 		container.Env = []v1.EnvVar{}
 	}
 	//key reference
-	keyRef := v1.SecretKeySelector{Key: "appd-key", LocalObjectReference: v1.LocalObjectReference{
-		Name: "appd-secret"}}
+	keyRef := v1.SecretKeySelector{Key: APPD_SECRET_KEY_NAME, LocalObjectReference: v1.LocalObjectReference{
+		Name: APPD_SECRET_NAME}}
 	envVarKey := v1.EnvVar{Name: "APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY", ValueFrom: &v1.EnvVarSource{SecretKeyRef: &keyRef}}
 	envVarProfiler := v1.EnvVar{Name: "CORECLR_PROFILER", Value: "{57e1aa68-2229-41aa-9931-a6e93bbc64d8}"}
 	envVarProfilerEnable := v1.EnvVar{Name: "CORECLR_ENABLE_PROFILING", Value: "1"}
