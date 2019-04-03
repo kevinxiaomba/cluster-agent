@@ -405,7 +405,7 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 				return fmt.Errorf("Failed to ensure secret in namespace %s: %v\n", deployObj.Namespace, errSecret)
 			}
 		}
-		var biqContainer *v1.Container = nil
+		var biqContainerIndex int = -1
 		initMap := []string{}
 		for _, r := range agentRequests.Items {
 			if r.InitContainerRequired() && !utils.StringInSlice(string(r.Tech), initMap) {
@@ -415,13 +415,14 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 				result.Spec.Template.Spec.InitContainers = append(result.Spec.Template.Spec.InitContainers, agentAttachContainer)
 			}
 
-			c := dw.findContainer(&r, deployObj)
+			index, c := dw.findContainer(&r, deployObj)
 			if c != nil {
 				r.ContainerName = c.Name
 				volName := fmt.Sprintf("%s-%s", bag.AgentMountName, string(r.Tech))
-				dw.updateSpec(c, result, volName, bag.AgentMountPath, &r, r.EnvRequired())
+				volPath := instr.GetVolumePath(bag, &r)
+				dw.updateSpec(index, result, volName, volPath, &r, r.EnvRequired())
 				if r.BiQ == string(m.Sidecar) {
-					biqContainer = c
+					biqContainerIndex = index
 				}
 			} else {
 				return fmt.Errorf("Agent request refers to a non-existent container %s\n", r.ContainerName)
@@ -434,7 +435,7 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 				result.Spec.Template.Annotations = make(map[string]string)
 			}
 			result.Spec.Template.Annotations[instr.APPD_ATTACH_PENDING] = agentRequests.ToAnnotation()
-			fmt.Printf("Pending annotation added: %s", result.Spec.Template.Annotations[instr.APPD_ATTACH_PENDING])
+			fmt.Printf("Pending annotation added: %s\n", result.Spec.Template.Annotations[instr.APPD_ATTACH_PENDING])
 
 			//annotate deployment
 			if result.Annotations == nil {
@@ -449,7 +450,7 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 			//add analytics agent container
 			analyticsContainer := dw.buildBiqSideCar()
 			//add volume and mounts for logging
-			dw.updateSpec(biqContainer, result, bag.AppLogMountName, bag.AppLogMountPath, agentRequests.GetFirstRequest(), false)
+			dw.updateSpec(biqContainerIndex, result, bag.AppLogMountName, bag.AppLogMountPath, agentRequests.GetFirstRequest(), false)
 			result.Spec.Template.Spec.Containers = append(result.Spec.Template.Spec.Containers, analyticsContainer)
 
 			//annotate that biq is instrumented
@@ -482,38 +483,39 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 	fmt.Println("Updated deployment...")
 }
 
-func (dw *DeployWorker) findContainer(agentRequest *m.AgentRequest, deployObj *appsv1.Deployment) *v1.Container {
-	for _, c := range deployObj.Spec.Template.Spec.Containers {
+func (dw *DeployWorker) findContainer(agentRequest *m.AgentRequest, deployObj *appsv1.Deployment) (int, *v1.Container) {
+	for index, c := range deployObj.Spec.Template.Spec.Containers {
 		if c.Name == agentRequest.ContainerName {
-			return &c
+			return index, &c
 		}
 	}
 	fmt.Printf("Agent request refers to a non-existent container %s\n", agentRequest.ContainerName)
-	return nil
+	return -1, nil
 }
 
-func (dw *DeployWorker) updateContainerEnv(ar *m.AgentRequest, c *v1.Container) {
+func (dw *DeployWorker) updateContainerEnv(ar *m.AgentRequest, deployObj *appsv1.Deployment, containerIndex int) {
 	bag := (*dw.ConfigManager).Get()
 
 	tech := ar.Tech
 	if tech == m.DotNet {
-		fmt.Printf("Requested env var update for DotNet container %s\n", c.Name)
+		fmt.Printf("Requested env var update for DotNet container %s\n", deployObj.Spec.Template.Spec.Containers[containerIndex].Name)
 		dotnetInjector := instr.NewDotNetInjector(bag, dw.AppdController)
-		dotnetInjector.AddEnvVars(c, ar.AppName, ar.TierName)
+		c := &(deployObj.Spec.Template.Spec.Containers[containerIndex])
+		dotnetInjector.AddEnvVars(c, ar)
 	}
 
 	//if the method is MountEnv and tech is Java, build the env var for the agent
 	fmt.Printf("instrument method =  %s\n", m.MountEnv)
 	if tech == m.Java && ar.Method == m.MountEnv {
-		fmt.Printf("Requested env var update for java container %s\n", c.Name)
+		fmt.Printf("Requested env var update for java container %s\n", deployObj.Spec.Template.Spec.Containers[containerIndex].Name)
 		optsExist := false
-		volPath := fmt.Sprintf("%s-%s", bag.AgentMountPath, string(ar.Tech))
+		volPath := instr.GetVolumePath(bag, ar)
 		javaOptsVal := fmt.Sprintf(` -Dappdynamics.agent.accountAccessKey=$(APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY) -Dappdynamics.controller.hostName=%s -Dappdynamics.controller.port=%d -Dappdynamics.controller.ssl.enabled=%t -Dappdynamics.agent.accountName=%s -Dappdynamics.agent.applicationName=%s -Dappdynamics.agent.tierName=%s -Dappdynamics.agent.reuse.nodeName=true -Dappdynamics.agent.reuse.nodeName.prefix=%s -javaagent:%s/javaagent.jar `,
 			bag.ControllerUrl, bag.ControllerPort, bag.SSLEnabled, bag.Account, ar.AppName, ar.TierName, ar.TierName, volPath)
-		if c.Env == nil {
-			c.Env = []v1.EnvVar{}
+		if deployObj.Spec.Template.Spec.Containers[containerIndex].Env == nil {
+			deployObj.Spec.Template.Spec.Containers[containerIndex].Env = []v1.EnvVar{}
 		} else {
-			for _, ev := range c.Env {
+			for _, ev := range deployObj.Spec.Template.Spec.Containers[containerIndex].Env {
 				if ev.Name == bag.AgentEnvVar {
 					ev.Value += javaOptsVal
 					optsExist = true
@@ -527,15 +529,15 @@ func (dw *DeployWorker) updateContainerEnv(ar *m.AgentRequest, c *v1.Container) 
 		envVarKey := v1.EnvVar{Name: "APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY", ValueFrom: &v1.EnvVarSource{SecretKeyRef: &keyRef}}
 		if !optsExist {
 			envJavaOpts := v1.EnvVar{Name: bag.AgentEnvVar, Value: javaOptsVal}
-			c.Env = append(c.Env, envJavaOpts)
+			deployObj.Spec.Template.Spec.Containers[containerIndex].Env = append(deployObj.Spec.Template.Spec.Containers[containerIndex].Env, envJavaOpts)
 		}
 		//prepend the secret ref
-		c.Env = append([]v1.EnvVar{envVarKey}, c.Env...)
+		deployObj.Spec.Template.Spec.Containers[containerIndex].Env = append([]v1.EnvVar{envVarKey}, deployObj.Spec.Template.Spec.Containers[containerIndex].Env...)
 	}
 
 }
 
-func (dw *DeployWorker) updateSpec(c *v1.Container, result *appsv1.Deployment, volName string, volumePath string, agentRequest *m.AgentRequest, envUpdate bool) {
+func (dw *DeployWorker) updateSpec(containerIndex int, result *appsv1.Deployment, volName string, volumePath string, agentRequest *m.AgentRequest, envUpdate bool) {
 
 	//add shared volume to the deployment spec
 	volumeExists := false
@@ -558,14 +560,14 @@ func (dw *DeployWorker) updateSpec(c *v1.Container, result *appsv1.Deployment, v
 
 	//add volume mount to the application container
 	volumeMount := v1.VolumeMount{Name: volName, MountPath: volumePath}
-	if c.VolumeMounts == nil || len(c.VolumeMounts) == 0 {
-		c.VolumeMounts = []v1.VolumeMount{volumeMount}
+	if result.Spec.Template.Spec.Containers[containerIndex].VolumeMounts == nil || len(result.Spec.Template.Spec.Containers[containerIndex].VolumeMounts) == 0 {
+		result.Spec.Template.Spec.Containers[containerIndex].VolumeMounts = []v1.VolumeMount{volumeMount}
 	} else {
-		c.VolumeMounts = append(c.VolumeMounts, volumeMount)
+		result.Spec.Template.Spec.Containers[containerIndex].VolumeMounts = append(result.Spec.Template.Spec.Containers[containerIndex].VolumeMounts, volumeMount)
 	}
 
 	if envUpdate {
-		dw.updateContainerEnv(agentRequest, c)
+		dw.updateContainerEnv(agentRequest, result, containerIndex)
 	}
 }
 
@@ -604,8 +606,10 @@ func (dw *DeployWorker) ensureSecret(ns string) error {
 }
 
 func (dw *DeployWorker) buildInitContainer(agentrequest *m.AgentRequest) v1.Container {
+	bag := (*dw.ConfigManager).Get()
 	//volume mount for agent files
-	volumeMount := v1.VolumeMount{Name: (*dw.ConfigManager).Get().AgentMountName, MountPath: (*dw.ConfigManager).Get().AgentMountPath}
+	volName := fmt.Sprintf("%s-%s", bag.AgentMountName, string(agentrequest.Tech))
+	volumeMount := v1.VolumeMount{Name: volName, MountPath: bag.AgentMountPath}
 	mounts := []v1.VolumeMount{volumeMount}
 
 	cmd := []string{"cp", "-ra", (*dw.ConfigManager).Get().InitContainerDir, (*dw.ConfigManager).Get().AgentMountPath}

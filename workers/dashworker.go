@@ -442,7 +442,10 @@ func (dw *DashboardWorker) updateClusterOverview(bag *m.DashboardBag) error {
 								mmBlock["applicationId"] = bag.ClusterAppID
 								exp, ok := mmBlock["metricExpression"]
 								if ok && exp != nil {
-									dw.updateMetricDefinition(exp.(map[string]interface{}), bag, &widget)
+									e := dw.updateMetricDefinition(exp.(map[string]interface{}), bag, &widget)
+									if e != nil {
+										return e
+									}
 								}
 							}
 						}
@@ -494,14 +497,21 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 	leftMargin := 26
 	nodeMargin := minSize
 
+	deployGap := 1
+	nsGap := deployGap + 1
+
 	currentX := leftMargin
 	currentY := startLine
 
 	width := minSize
 	height := minSize
 
-	numPods := len(bag.HeatNodes)
-	availableArea := (backWidth - 2*nodeMargin) * (backHeight - (startLine - backTop))
+	nodeArray, nsNum, deployNum := bag.GetNodes()
+
+	numPods := len(nodeArray)
+
+	entityGaps := (nsNum-1)*nsGap + (deployNum-nsNum)*deployGap
+	availableArea := (backWidth - 2*nodeMargin - entityGaps) * (backHeight - (startLine - backTop))
 	areaPerNode := math.Round(float64(availableArea / numPods))
 	side := math.Sqrt(areaPerNode)
 	if side > float64(minSize+nodeMargin) {
@@ -550,7 +560,10 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 
 	dotArray := []map[string]interface{}{}
 	hwdotArray := []map[string]interface{}{}
-	for _, hn := range bag.HeatNodes {
+
+	oldDeploy := ""
+	oldNS := ""
+	for _, hn := range nodeArray {
 		dot, err := utils.CloneMap(heatWidget)
 		if err != nil {
 			return nil, fmt.Errorf("Heatmap template is invalid. %v\n", err)
@@ -578,9 +591,17 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 
 		dot["backgroundColor"] = colorCode
 
+		if oldNS != "" && oldNS != hn.Namespace {
+			currentX += nsGap
+		} else if oldDeploy != "" && oldDeploy != hn.Owner {
+			currentX += deployGap
+		}
 		//position
 		dot["x"] = currentX
 		dot["y"] = currentY
+
+		oldNS = hn.Namespace
+		oldDeploy = hn.Owner
 
 		//if APM node add health widget
 		if apmID, hasNodeID := hn.GetAPMID(); apmID > 0 {
@@ -802,7 +823,10 @@ func (dw *DashboardWorker) addDeploymentSummaryWidget(dashboard *m.Dashboard, ba
 						mmBlock["applicationId"] = bag.ClusterAppID
 						exp, ok := mmBlock["metricExpression"]
 						if ok && exp != nil {
-							dw.updateMetricDefinition(exp.(map[string]interface{}), bag, &widget)
+							e := dw.updateMetricDefinition(exp.(map[string]interface{}), bag, &widget)
+							if e != nil {
+								return nil, e
+							}
 						}
 					}
 				}
@@ -820,12 +844,12 @@ func (dw *DashboardWorker) addDeploymentSummaryWidget(dashboard *m.Dashboard, ba
 	return dashboard, nil
 }
 
-func (dw *DashboardWorker) updateMetricDefinition(expTemplate map[string]interface{}, bag *m.DashboardBag, parentWidget *map[string]interface{}) {
+func (dw *DashboardWorker) updateMetricDefinition(expTemplate map[string]interface{}, bag *m.DashboardBag, parentWidget *map[string]interface{}) error {
 	ok, definition := dw.nodeHasDefinition(expTemplate)
 	if ok {
-		dw.updateMetricName(definition, bag, parentWidget)
+		return dw.updateMetricName(definition, bag, parentWidget)
 	} else {
-		dw.updateMetricsExpression(expTemplate, bag, parentWidget)
+		return dw.updateMetricsExpression(expTemplate, bag, parentWidget)
 	}
 }
 
@@ -840,9 +864,9 @@ func (dw *DashboardWorker) nodeHasDefinition(node map[string]interface{}) (bool,
 	return ok && definition != nil, nil
 }
 
-func (dw *DashboardWorker) updateMetricName(expTemplate map[string]interface{}, dashBag *m.DashboardBag, parentWidget *map[string]interface{}) {
+func (dw *DashboardWorker) updateMetricName(expTemplate map[string]interface{}, dashBag *m.DashboardBag, parentWidget *map[string]interface{}) error {
 	if expTemplate["logicalMetricName"] == nil {
-		return
+		return nil
 	}
 	rawPath := expTemplate["logicalMetricName"].(string)
 	metricPath := ""
@@ -857,6 +881,7 @@ func (dw *DashboardWorker) updateMetricName(expTemplate map[string]interface{}, 
 	metricID, err := dw.AppdController.GetMetricID(dw.Bag.AppID, metricPath)
 	if err != nil {
 		dw.Logger.Printf("Cannot get metric ID for %s. %v\n", metricPath, err)
+		return fmt.Errorf("Cannot get metric ID for %s. %v\n", metricPath, err)
 	} else {
 		expTemplate["metricId"] = metricID
 	}
@@ -872,20 +897,28 @@ func (dw *DashboardWorker) updateMetricName(expTemplate map[string]interface{}, 
 			(*parentWidget)["useMetricBrowserAsDrillDown"] = false
 		}
 	}
+	return nil
 }
 
-func (dw *DashboardWorker) updateMetricsExpression(expTemplate map[string]interface{}, dashBag *m.DashboardBag, parentWidget *map[string]interface{}) {
+func (dw *DashboardWorker) updateMetricsExpression(expTemplate map[string]interface{}, dashBag *m.DashboardBag, parentWidget *map[string]interface{}) error {
 	for i := 0; i < 2; i++ {
 		expNodeName := fmt.Sprintf("expression%d", i+1)
 		if expNode, ok := expTemplate[expNodeName]; ok {
 			hasDefinition, definition := dw.nodeHasDefinition(expNode.(map[string]interface{}))
 			if hasDefinition {
-				dw.updateMetricName(definition, dashBag, parentWidget)
+				err := dw.updateMetricName(definition, dashBag, parentWidget)
+				if err != nil {
+					return err
+				}
 			} else {
-				dw.updateMetricsExpression(expNode.(map[string]interface{}), dashBag, parentWidget)
+				err := dw.updateMetricsExpression(expNode.(map[string]interface{}), dashBag, parentWidget)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
+	return nil
 }
 
 //templates

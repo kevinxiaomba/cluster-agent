@@ -11,7 +11,7 @@ import (
 	m "github.com/sjeltuhin/clusterAgent/models"
 )
 
-const CONFIG_FILE = "/opt/appd/config/bag.yaml"
+const CONFIG_FILE = "/opt/appdynamics/config/cluster-agent-config.json"
 
 /*
  Simple interface that allows us to switch out both implementations of the Manager
@@ -35,7 +35,10 @@ type MutexConfigManager struct {
 func NewMutexConfigManager(env *m.AppDBag) *MutexConfigManager {
 	conf, e := loadConfig(CONFIG_FILE)
 	if e != nil {
+		fmt.Printf("Config file not found. Using env vars and passed-in parameters\n")
 		return &MutexConfigManager{Conf: env, Mutex: &sync.Mutex{}}
+	} else {
+		fmt.Printf("Using config file %s\n", CONFIG_FILE)
 	}
 	cm := MutexConfigManager{Conf: conf, Mutex: &sync.Mutex{}}
 	watcher, err := WatchFile(CONFIG_FILE, time.Second, cm.onConfigUpdate)
@@ -69,6 +72,7 @@ func (self *MutexConfigManager) Set(conf *m.AppDBag) {
 		self.Conf.SchemaUpdateCache = []string{}
 	}
 	self.Mutex.Unlock()
+	fmt.Printf("Config bag: %v\n", self.Conf)
 }
 
 func (self *MutexConfigManager) Get() *m.AppDBag {

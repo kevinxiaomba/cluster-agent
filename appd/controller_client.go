@@ -207,8 +207,8 @@ func (c *ControllerClient) FindAppID(appName string) (int, error) {
 	rc := NewRestClient((*c.ConfManager).Get(), logger)
 	data, err := rc.CallAppDController(path, "GET", nil)
 	if err != nil {
-		fmt.Printf("App by name response: %v %v", data, err)
-		return appID, fmt.Errorf("Unable to find appID")
+		fmt.Printf("App by name response: %v %v\n", data, err)
+		return appID, fmt.Errorf("Unable to find appID\n")
 	}
 	var appObj map[string]interface{}
 	errJson := json.Unmarshal(data, &appObj)
@@ -238,8 +238,8 @@ func (c *ControllerClient) FindNodeID(appID int, tierName string, nodeName strin
 	rc := NewRestClient((*c.ConfManager).Get(), logger)
 	data, err := rc.CallAppDController(path, "POST", d)
 	if err != nil {
-		fmt.Printf("Unable to find nodeID. %v", err)
-		return tierID, nodeID, fmt.Errorf("Unable to find nodeID. %v", err)
+		fmt.Printf("Unable to find nodeID. %v\n", err)
+		return tierID, nodeID, fmt.Errorf("Unable to find nodeID. %v\n", err)
 	}
 	var tierObj map[string]interface{}
 	errJson := json.Unmarshal(data, &tierObj)
@@ -338,13 +338,13 @@ func (c *ControllerClient) EnableAppAnalytics(appID int, appName string) error {
 
 	body, e := json.Marshal(jsonBody)
 	if e != nil {
-		return fmt.Errorf("Unable to serialize payload. %v ", e)
+		return fmt.Errorf("Unable to serialize payload. %v \n", e)
 	}
 
 	rc := NewRestClient((*c.ConfManager).Get(), logger)
 	_, err := rc.CallAppDController(path, "POST", body)
 	if err != nil {
-		return fmt.Errorf("Unable to enable analytics for App %s. %v", appName, err)
+		return fmt.Errorf("Unable to enable analytics for App %s. %v\n", appName, err)
 	}
 
 	//get BTs

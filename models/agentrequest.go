@@ -71,10 +71,11 @@ func NewAgentRequest(appdAgentLabel string, appName string, tierName string, biq
 			agentRequest.Tech = TechnologyName(ar[0])
 			if len(ar) > 1 {
 				agentRequest.ContainerName = ar[1]
+				if len(ar) > 2 {
+					agentRequest.Version = ar[2]
+				}
 			}
-			if len(ar) > 2 {
-				agentRequest.Version = ar[2]
-			}
+
 		}
 	}
 	agentRequest.AppName = appName
@@ -82,6 +83,7 @@ func NewAgentRequest(appdAgentLabel string, appName string, tierName string, biq
 	if agentRequest.Tech == "" {
 		agentRequest.Tech = bag.DefaultInstrumentationTech
 	}
+	agentRequest.Version = "latest"
 
 	agentRequest.BiQ = biq
 
@@ -106,6 +108,9 @@ func NewAgentRequestListFromArray(ar []AgentRequest, bag *AppDBag, containers []
 			add = true
 		}
 		r.ContainerName = containers[index].Name
+		if r.TierName == "" {
+			r.TierName = r.ContainerName
+		}
 		list.Items = append(list.Items, r)
 		index++
 	}
@@ -113,6 +118,9 @@ func NewAgentRequestListFromArray(ar []AgentRequest, bag *AppDBag, containers []
 		clone := list.Items[0].Clone()
 		for i := 1; i < len(containers); i++ {
 			clone.ContainerName = containers[i].Name
+			if clone.TierName == "" {
+				clone.TierName = clone.ContainerName
+			}
 			list.Items = append(list.Items, clone)
 		}
 	}
@@ -127,11 +135,17 @@ func NewAgentRequestList(appdAgentLabel string, appName string, tierName string,
 		if bag.InstrumentContainer == FIRST_CONTAINER {
 			def := getDefaultAgentRequest(appName, tierName, biq, bag)
 			def.ContainerName = containers[0].Name
+			if tierName == "" {
+				def.TierName = def.ContainerName
+			}
 			list.Items = append(list.Items, def)
 		} else {
 			for _, c := range containers {
 				def := getDefaultAgentRequest(appName, tierName, biq, bag)
 				def.ContainerName = c.Name
+				if tierName == "" {
+					def.TierName = c.Name
+				}
 				list.Items = append(list.Items, def)
 			}
 		}
@@ -151,10 +165,16 @@ func NewAgentRequestList(appdAgentLabel string, appName string, tierName string,
 		if ar.ContainerName == FIRST_CONTAINER {
 			ar.ContainerName = containers[0].Name
 		}
+		if tierName == "" {
+			ar.TierName = ar.ContainerName
+		}
 		list.Items = append(list.Items, ar)
 		if ar.ContainerName == ALL_CONTAINERS {
 			for i := 1; i < len(containers); i++ {
 				add := NewAgentRequest(appdAgentLabel, appName, tierName, biq, bag)
+				if tierName == "" {
+					add.TierName = add.ContainerName
+				}
 				add.ContainerName = containers[i].Name
 			}
 		}
@@ -172,6 +192,7 @@ func getDefaultAgentRequest(appName string, tierName string, biq string, bag *Ap
 	r.Method = bag.InstrumentationMethod
 	r.BiQ = bag.BiqService
 	r.MatchString = bag.InstrumentMatchString
+	r.Version = "latest"
 	return r
 }
 
@@ -285,11 +306,11 @@ func (al *AgentRequestList) GetBiQOption() string {
 }
 
 func (al *AgentRequestList) ToAnnotation() string {
-	s := ""
+	arrStrings := []string{}
 	for _, r := range al.Items {
-		s = fmt.Sprintf("%s;%s", s, r.ToAnnotation())
+		arrStrings = append(arrStrings, r.ToAnnotation())
 	}
-	return s
+	return strings.Join(arrStrings, REQUEST_SEPARATOR)
 }
 
 func (ar *AgentRequest) ToAnnotation() string {
@@ -311,26 +332,47 @@ func FromAnnotation(annotation string) *AgentRequestList {
 
 func RequestFromAnnotation(annotation string) AgentRequest {
 	r := AgentRequest{}
-	arr := strings.Split(annotation, REQUEST_SEPARATOR)
+	arr := strings.Split(annotation, FIELD_SEPARATOR)
 	if len(arr) > 0 {
 		r.Method = InstrumentationMethod(arr[0])
 	}
 	if len(arr) > 1 {
+		r.Method = InstrumentationMethod(arr[0])
 		r.Tech = TechnologyName(arr[1])
 	}
 	if len(arr) > 2 {
+		r.Method = InstrumentationMethod(arr[0])
+		r.Tech = TechnologyName(arr[1])
 		r.ContainerName = arr[2]
 	}
 	if len(arr) > 3 {
+		r.Method = InstrumentationMethod(arr[0])
+		r.Tech = TechnologyName(arr[1])
+		r.ContainerName = arr[2]
 		r.AppName = arr[3]
 	}
 	if len(arr) > 4 {
+		r.Method = InstrumentationMethod(arr[0])
+		r.Tech = TechnologyName(arr[1])
+		r.ContainerName = arr[2]
+		r.AppName = arr[3]
 		r.TierName = arr[4]
 	}
 	if len(arr) > 5 {
+		r.Method = InstrumentationMethod(arr[0])
+		r.Tech = TechnologyName(arr[1])
+		r.ContainerName = arr[2]
+		r.AppName = arr[3]
+		r.TierName = arr[4]
 		r.BiQ = arr[5]
 	}
 	if len(arr) > 6 {
+		r.Method = InstrumentationMethod(arr[0])
+		r.Tech = TechnologyName(arr[1])
+		r.ContainerName = arr[2]
+		r.AppName = arr[3]
+		r.TierName = arr[4]
+		r.BiQ = arr[5]
 		r.Version = arr[6]
 	}
 	return r

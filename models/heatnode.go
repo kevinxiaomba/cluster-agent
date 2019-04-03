@@ -8,6 +8,7 @@ type HeatNode struct {
 	Namespace   string
 	Nodename    string
 	Podname     string
+	Owner       string
 	State       string
 	PendingTime int64
 	APM         bool
@@ -19,7 +20,7 @@ type HeatNode struct {
 func NewHeatNode(podSchema PodSchema) HeatNode {
 	return HeatNode{Namespace: podSchema.Namespace, Nodename: podSchema.NodeName, Podname: podSchema.Name,
 		State: podSchema.GetState(), APM: podSchema.AppID > 0, PendingTime: int64(podSchema.PendingTime),
-		AppID: podSchema.AppID, TierID: podSchema.TierID, NodeID: podSchema.NodeID}
+		AppID: podSchema.AppID, TierID: podSchema.TierID, NodeID: podSchema.NodeID, Owner: podSchema.Owner}
 }
 
 func (hn *HeatNode) FormatPendingTime() string {

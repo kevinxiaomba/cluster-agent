@@ -106,21 +106,20 @@ func GetAttachMetadata(appTag string, tierTag string, deploy *appsv1.Deployment,
 		}
 	}
 
-	if tierName == "" {
-		tierName = deploy.Name
-	}
 	return appName, tierName, biQDeploymentOption
 }
 
 func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag) *m.AgentRequestList {
 	//check for exclusions
 	if bag.InstrumentationMethod == m.None || utils.StringInSlice(deploy.Namespace, bag.NsToInstrumentExclude) {
+		fmt.Printf("Instrumentation is not configured for namespace %s\n", deploy.Namespace)
 		return nil
 	}
 
 	var list *m.AgentRequestList = nil
 	//check deployment labels for instrumentation requests
-	var appName, tierName, appAgent, biQDeploymentOption string
+	var appAgent string
+	appName, tierName, biQDeploymentOption := GetAttachMetadata(bag.AppDAppLabel, bag.AppDTierLabel, deploy, bag)
 
 	for k, v := range deploy.Labels {
 		if k == bag.AgentLabel {
@@ -128,9 +127,9 @@ func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag) *m
 		}
 	}
 
-	if appAgent != "" {
-		appName, tierName, biQDeploymentOption = GetAttachMetadata(bag.AppDAppLabel, bag.AppDTierLabel, deploy, bag)
+	if appAgent != "" || appName != "" {
 		al := m.NewAgentRequestList(appAgent, appName, tierName, biQDeploymentOption, deploy.Spec.Template.Spec.Containers, bag)
+		fmt.Printf("Using deployment metadata for agent request. AppName: %s AppAgent: %s\n", appName, appAgent)
 		list = &al
 	} else {
 		//try global configuration
@@ -172,6 +171,7 @@ func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag) *m
 			arr = append(arr, (*namespaceRule))
 		}
 		if len(arr) > 0 {
+			fmt.Printf("Applying %d custom rules for agent request\n", len(arr))
 			list = m.NewAgentRequestListFromArray(arr, bag, deploy.Spec.Template.Spec.Containers)
 		}
 
@@ -198,7 +198,7 @@ func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag) *m
 					}
 				}
 				if global {
-					appName, tierName, biQDeploymentOption = GetAttachMetadata(bag.AppDAppLabel, bag.AppDTierLabel, deploy, bag)
+					fmt.Printf("Applying global rule for agent request\n")
 					al := m.NewAgentRequestList("", appName, tierName, biQDeploymentOption, deploy.Spec.Template.Spec.Containers, bag)
 					list = &al
 				}
@@ -207,6 +207,8 @@ func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag) *m
 	}
 	if list != nil {
 		fmt.Printf(list.String())
+	} else {
+		fmt.Printf("No Agent requests found\n")
 	}
 	return list
 }
@@ -495,7 +497,7 @@ func (ai AgentInjector) RetryAssociate(podObj *v1.Pod, agentRequest *m.AgentRequ
 }
 
 func (ai AgentInjector) Associate(podObj *v1.Pod, exec *Executor, agentRequest *m.AgentRequest) error {
-	jarPath := ai.Bag.AgentMountPath
+	jarPath := GetVolumePath(ai.Bag, agentRequest)
 	if ai.Bag.InstrumentationMethod == m.CopyAttach {
 		jarPath = fmt.Sprintf("%s/%s", jarPath, "AppServerAgent")
 	}
@@ -509,12 +511,21 @@ func (ai AgentInjector) Associate(podObj *v1.Pod, exec *Executor, agentRequest *
 	associateError := ""
 
 	//associate with the tier in case node is not accessible
+	containerAppID := fmt.Sprintf("%s_%s", agentRequest.ContainerName, APPD_APPID)
+	containerTierID := fmt.Sprintf("%s_%s", agentRequest.ContainerName, APPD_TIERID)
+	containerNodeID := fmt.Sprintf("%s_%s", agentRequest.ContainerName, APPD_NODEID)
 	appID, tierID, _, errAppd := ai.AppdController.DetermineNodeID(agentRequest.AppName, agentRequest.TierName, "")
 	if errAppd == nil {
-		podObj.Annotations[APPD_APPID] = strconv.Itoa(appID)
-		podObj.Annotations[APPD_TIERID] = strconv.Itoa(tierID)
-	} else if errAppd != nil || appID == 0 {
+		if podObj.Annotations[APPD_APPID] == "" {
+			podObj.Annotations[APPD_APPID] = strconv.Itoa(appID)
+			podObj.Annotations[APPD_TIERID] = strconv.Itoa(tierID)
+		}
+		podObj.Annotations[containerAppID] = strconv.Itoa(appID)
+		podObj.Annotations[containerTierID] = strconv.Itoa(tierID)
+	}
+	if appID == 0 {
 		//mark to retry to give the agent time to initialize
+		fmt.Printf("Association error. No appID\n", appID)
 		associateError = APPD_ASSOCIATE_ERROR
 	}
 
@@ -532,15 +543,25 @@ func (ai AgentInjector) Associate(podObj *v1.Pod, exec *Executor, agentRequest *
 				nodeName := strings.TrimSpace(folderName)
 				if nodeName != "" {
 					podObj.Annotations[APPD_NODENAME] = nodeName
-					_, _, nodeID, errAppd := ai.AppdController.DetermineNodeID(agentRequest.AppName, agentRequest.TierName, nodeName)
+					app, tier, nodeID, errAppd := ai.AppdController.DetermineNodeID(agentRequest.AppName, agentRequest.TierName, nodeName)
 					if errAppd == nil {
-						//					podObj.Annotations[APPD_APPID] = strconv.Itoa(appID)
-						//					podObj.Annotations[APPD_TIERID] = strconv.Itoa(tierID)
-						podObj.Annotations[APPD_NODEID] = strconv.Itoa(nodeID)
-						//if analytics was intstrumented, queue up to enable the app for analytics
+						if podObj.Annotations[APPD_NODEID] == "" {
+							podObj.Annotations[APPD_NODEID] = strconv.Itoa(nodeID)
+						}
+						if podObj.Annotations[APPD_APPID] == "" {
+							podObj.Annotations[APPD_APPID] = strconv.Itoa(app)
+						}
+						if podObj.Annotations[APPD_TIERID] == "" {
+							podObj.Annotations[APPD_TIERID] = strconv.Itoa(tier)
+						}
+						associateError = ""
+						podObj.Annotations[containerAppID] = strconv.Itoa(app)
+						podObj.Annotations[containerTierID] = strconv.Itoa(tier)
+						podObj.Annotations[containerNodeID] = strconv.Itoa(nodeID)
+						//TODO: if analytics was intstrumented, queue up to enable the app for analytics
 					}
 				} else {
-					//TODO: agent has not started yet. repeat association later
+					fmt.Printf("Association error. Empty node name: %s (%s)\n", nodeName, folderName)
 					associateError = APPD_ASSOCIATE_ERROR
 				}
 			}
@@ -548,10 +569,16 @@ func (ai AgentInjector) Associate(podObj *v1.Pod, exec *Executor, agentRequest *
 	}
 	_, updateErr := ai.ClientSet.Core().Pods(podObj.Namespace).Update(podObj)
 	if updateErr != nil {
+		fmt.Printf("%s, Error: %v\n", ANNOTATION_UPDATE_ERROR, updateErr)
 		return fmt.Errorf("%s, Error: %v\n", ANNOTATION_UPDATE_ERROR, updateErr)
 	}
 	if associateError != "" {
+		fmt.Printf("Associate error is not empty %s\n", associateError)
 		return fmt.Errorf("%s", associateError)
 	}
 	return nil
+}
+
+func GetVolumePath(bag *m.AppDBag, r *m.AgentRequest) string {
+	return fmt.Sprintf("%s-%s", bag.AgentMountPath, string(r.Tech))
 }

@@ -24,6 +24,9 @@ import (
 	"k8s.io/client-go/util/workqueue"
 )
 
+var lockNSCache = sync.RWMutex{}
+var lockTierCache = sync.RWMutex{}
+
 type EventWorker struct {
 	informer       cache.SharedIndexInformer
 	Client         *kubernetes.Clientset
@@ -231,15 +234,18 @@ func (ew *EventWorker) buildAppDMetrics() {
 	}
 	//check for missing namespaces
 	nsMap := ew.PodsWorker.GetKnownNamespaces()
+	lockNSCache.RLock()
 	for ns, _ := range nsMap {
 		if _, ok := ew.SummaryMap[ns]; !ok {
 			summaryNS := m.NewClusterEventMetrics(bag, ns, m.ALL)
 			ew.SummaryMap[ns] = summaryNS
 		}
 	}
+	lockNSCache.RUnlock()
 
 	//check for missing deployments
 	tierMap := ew.PodsWorker.GetKnownDeployments()
+	lockTierCache.RLock()
 	for key, tierName := range tierMap {
 		if _, ok := ew.SummaryMap[key]; !ok {
 			ns, _ := utils.SplitPodKey(key)
@@ -247,6 +253,7 @@ func (ew *EventWorker) buildAppDMetrics() {
 			ew.SummaryMap[tierName] = emptyMetrics
 		}
 	}
+	lockTierCache.RUnlock()
 
 	ml := ew.builAppDMetricsList()
 

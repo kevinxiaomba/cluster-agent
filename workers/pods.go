@@ -80,6 +80,7 @@ var lockNS = sync.RWMutex{}
 var lockAssociationQueue = sync.RWMutex{}
 
 var lockServices = sync.RWMutex{}
+var lockEPs = sync.RWMutex{}
 
 func NewPodWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient, config *rest.Config, l *log.Logger) PodWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
@@ -561,7 +562,11 @@ func (pw *PodWorker) buildAppDMetrics() {
 	dash := make(map[string]m.DashboardBag)
 	fmt.Printf("Deployments configured for dashboarding: %s \n", bag.DeploysToDashboard)
 
-	heatMapData := []m.HeatNode{}
+	var clusterBag *m.DashboardBag = nil
+	if !pw.DelayDashboard {
+		//create cluster dashboard bag
+		clusterBag = m.NewDashboardBagCluster()
+	}
 	var count int = 0
 	for _, obj := range pw.informer.GetStore().List() {
 		podObject := obj.(*v1.Pod)
@@ -573,7 +578,9 @@ func (pw *PodWorker) buildAppDMetrics() {
 		}
 		//heat map
 		heatNode := m.NewHeatNode(podSchema)
-		heatMapData = append(heatMapData, heatNode)
+		if clusterBag != nil {
+			clusterBag.AddNode(&heatNode)
+		}
 		count++
 		//should build the dashboard
 		if pw.shouldUpdateDashboard(&podSchema) {
@@ -608,15 +615,13 @@ func (pw *PodWorker) buildAppDMetrics() {
 	pw.AppdController.StopBT(bth)
 
 	//delay dashboard generation
-	if !pw.DelayDashboard {
-		//create cluster dashboard bag
-		clusterBag := m.NewDashboardBagCluster(heatMapData)
+	if !pw.DelayDashboard && clusterBag != nil {
 		clusterBag.ClusterName = bag.AppName
 		clusterBag.ClusterAppID = bag.AppID
 		clusterBag.ClusterTierID = bag.TierID
 		clusterBag.ClusterTierID = bag.TierID
 		clusterBag.ClusterNodeID = bag.NodeID
-		dash[bag.AppName] = clusterBag
+		dash[bag.AppName] = *clusterBag
 		fmt.Printf("Number of dashboards to be updated %d\n", len(dash))
 		go pw.buildDashboards(dash)
 	}
@@ -673,6 +678,7 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 		}
 		lockServices.RUnlock()
 
+		lockEPs.RLock()
 		for _, ep := range pw.EndpointCache {
 			summary.EndpointCount++
 			ready, notready, orphan := m.GetEPStats(&ep)
@@ -682,6 +688,7 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 				summary.OrphanEndpoint++
 			}
 		}
+		lockEPs.RUnlock()
 
 		pw.SummaryMap[m.ALL] = summary
 	}
@@ -1852,12 +1859,23 @@ func (pw *PodWorker) flushAssociationQueue() {
 	lockAssociationQueue.RLock()
 	injector := instr.NewAgentInjector(pw.Client, pw.K8sConfig, bag, pw.AppdController)
 	for _, p := range pw.PendingAssociationQueue {
-		err := injector.RetryAssociate(p.Pod, p.Request)
-		if err == nil {
-			purgeList = append(purgeList, p)
+		//update pod from cache
+		podKey := utils.GetPodKey(p.Pod)
+		updated, ok, err := pw.informer.GetStore().GetByKey(podKey)
+		if err == nil && ok {
+			fmt.Printf("Updatedd version of pod % found. Retrying association...\n", podKey)
+			podObj := updated.(*v1.Pod)
+			p.Pod = podObj
+			err := injector.RetryAssociate(p.Pod, p.Request)
+			if err == nil {
+				purgeList = append(purgeList, p)
+			}
 		}
 	}
 	lockAssociationQueue.RUnlock()
+	if len(purgeList) > 0 {
+		pw.purgeAssociationQueue(purgeList)
+	}
 }
 
 func (pw *PodWorker) purgeAssociationQueue(retryObjects []m.AgentRetryRequest) {

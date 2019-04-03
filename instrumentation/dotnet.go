@@ -26,7 +26,7 @@ func NewDotNetInjector(bag *m.AppDBag, appdController *app.ControllerClient) Dot
 	return DotNetInjector{Bag: bag, AppdController: appdController}
 }
 
-func (dni *DotNetInjector) AddEnvVars(container *v1.Container, appName string, tierName string) {
+func (dni *DotNetInjector) AddEnvVars(container *v1.Container, agentRequest *m.AgentRequest) {
 	if container == nil {
 		return
 	}
@@ -36,21 +36,22 @@ func (dni *DotNetInjector) AddEnvVars(container *v1.Container, appName string, t
 	if container.Env == nil || len(container.Env) == 1 {
 		container.Env = []v1.EnvVar{}
 	}
+	mountPath := GetVolumePath(dni.Bag, agentRequest)
 	//key reference
 	keyRef := v1.SecretKeySelector{Key: APPD_SECRET_KEY_NAME, LocalObjectReference: v1.LocalObjectReference{
 		Name: APPD_SECRET_NAME}}
 	envVarKey := v1.EnvVar{Name: "APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY", ValueFrom: &v1.EnvVarSource{SecretKeyRef: &keyRef}}
 	envVarProfiler := v1.EnvVar{Name: "CORECLR_PROFILER", Value: "{57e1aa68-2229-41aa-9931-a6e93bbc64d8}"}
 	envVarProfilerEnable := v1.EnvVar{Name: "CORECLR_ENABLE_PROFILING", Value: "1"}
-	envVarProfilerPath := v1.EnvVar{Name: "CORECLR_PROFILER_PATH", Value: fmt.Sprintf("%s/libappdprofiler.so", dni.Bag.AgentMountPath)}
+	envVarProfilerPath := v1.EnvVar{Name: "CORECLR_PROFILER_PATH", Value: fmt.Sprintf("%s/libappdprofiler.so", mountPath)}
 	envVarControllerHost := v1.EnvVar{Name: "APPDYNAMICS_CONTROLLER_HOST_NAME", Value: dni.Bag.ControllerUrl}
 	envVarControllerPort := v1.EnvVar{Name: "APPDYNAMICS_CONTROLLER_PORT", Value: strconv.Itoa(int(dni.Bag.ControllerPort))}
 	envVarControllerSSL := v1.EnvVar{Name: "APPDYNAMICS_CONTROLLER_SSL_ENABLED", Value: strconv.FormatBool(dni.Bag.SSLEnabled)}
 	envVarAccountName := v1.EnvVar{Name: "APPDYNAMICS_AGENT_ACCOUNT_NAME", Value: dni.Bag.Account}
-	envVarAppName := v1.EnvVar{Name: "APPDYNAMICS_AGENT_APPLICATION_NAME", Value: appName}
-	envVarTierName := v1.EnvVar{Name: "APPDYNAMICS_AGENT_TIER_NAME", Value: tierName}
+	envVarAppName := v1.EnvVar{Name: "APPDYNAMICS_AGENT_APPLICATION_NAME", Value: agentRequest.AppName}
+	envVarTierName := v1.EnvVar{Name: "APPDYNAMICS_AGENT_TIER_NAME", Value: agentRequest.TierName}
 	envVarNodeReuse := v1.EnvVar{Name: "APPDYNAMICS_AGENT_REUSE_NODE_NAME", Value: "true"}
-	envVarNodePrefix := v1.EnvVar{Name: "APPDYNAMICS_AGENT_REUSE_NODE_NAME_PREFIX", Value: tierName}
+	envVarNodePrefix := v1.EnvVar{Name: "APPDYNAMICS_AGENT_REUSE_NODE_NAME_PREFIX", Value: agentRequest.TierName}
 
 	container.Env = append(container.Env, envVarKey)
 	container.Env = append(container.Env, envVarProfiler)
