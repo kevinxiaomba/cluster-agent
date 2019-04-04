@@ -36,7 +36,6 @@ type AppDBag struct {
 	DashboardTemplatePath       string
 	DashboardSuffix             string
 	DashboardDelayMin           int
-	JavaAgentVersion            string
 	AgentEnvVar                 string
 	AgentLabel                  string
 	AppDAppLabel                string
@@ -75,6 +74,6 @@ type AppDBag struct {
 	DefaultInstrumentationTech  TechnologyName
 	BiqService                  string
 	InstrumentContainer         string //all, first, name
-	InstrumentMatchString       string
+	InstrumentMatchString       []string
 	SchemaUpdateCache           []string
 }

@@ -146,19 +146,21 @@ func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag) *m
 				}
 			}
 			if applies {
-				if r.MatchString == "" {
+				if len(r.MatchString) == 0 {
 					namespaceRule = &r
 				}
-				reg, _ := regexp.Compile(r.MatchString)
-				if reg.MatchString(deploy.Name) {
-					r.AppName, r.TierName, r.BiQ = GetAttachMetadata(r.AppDAppLabel, r.AppDTierLabel, deploy, bag)
-					arr = append(arr, r)
-				}
-				if len(arr) == 0 {
-					for _, v := range deploy.Labels {
-						if reg.MatchString(v) {
-							r.AppName, r.TierName, r.BiQ = GetAttachMetadata(r.AppDAppLabel, r.AppDTierLabel, deploy, bag)
-							arr = append(arr, r)
+				for _, ms := range r.MatchString {
+					reg, _ := regexp.Compile(ms)
+					if reg.MatchString(deploy.Name) {
+						r.AppName, r.TierName, r.BiQ = GetAttachMetadata(r.AppDAppLabel, r.AppDTierLabel, deploy, bag)
+						arr = append(arr, r)
+					}
+					if len(arr) == 0 {
+						for _, v := range deploy.Labels {
+							if reg.MatchString(v) {
+								r.AppName, r.TierName, r.BiQ = GetAttachMetadata(r.AppDAppLabel, r.AppDTierLabel, deploy, bag)
+								arr = append(arr, r)
+							}
 						}
 					}
 				}
@@ -179,20 +181,22 @@ func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag) *m
 		if list == nil {
 			if utils.StringInSlice(deploy.Namespace, bag.NsToInstrument) {
 				global := false
-				if bag.InstrumentMatchString == "" {
+				if len(bag.InstrumentMatchString) == 0 {
 					//everything in the namespace needs to be instrumented
 					global = true
 
 				} else {
-					globReg, _ := regexp.Compile(bag.InstrumentMatchString)
-					if globReg.MatchString(deploy.Name) {
-						global = true
-					}
-					if list == nil {
-						for _, v := range deploy.Labels {
-							if globReg.MatchString(v) {
-								global = true
-								break
+					for _, ms := range bag.InstrumentMatchString {
+						globReg, _ := regexp.Compile(ms)
+						if globReg.MatchString(deploy.Name) {
+							global = true
+						}
+						if list == nil {
+							for _, v := range deploy.Labels {
+								if globReg.MatchString(v) {
+									global = true
+									break
+								}
 							}
 						}
 					}
@@ -214,15 +218,6 @@ func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag) *m
 }
 
 func ShouldInstrumentDeployment(deployObj *appsv1.Deployment, bag *m.AppDBag, pendingCache *[]string, failedCache *map[string]m.AttachStatus) (bool, bool, *m.AgentRequestList) {
-	agentRequests := GetAgentRequestsForDeployment(deployObj, bag)
-	if agentRequests == nil {
-		fmt.Printf("Deployment %s does not need to be instrumented. Ignoring...\n", deployObj.Name)
-		return false, false, nil
-	}
-
-	var biqRequested = agentRequests.BiQRequested()
-	initRequested := !AgentInitExists(&deployObj.Spec.Template.Spec, bag) && agentRequests.InitContainerRequired()
-
 	//check if already updated
 	updated := false
 	biqUpdated := false
@@ -238,13 +233,10 @@ func ShouldInstrumentDeployment(deployObj *appsv1.Deployment, bag *m.AppDBag, pe
 	}
 
 	fmt.Printf("Update status: %t. BiQ updated: %t\n", updated, biqUpdated)
-	if (!initRequested || updated) && (!biqRequested || biqUpdated) {
-		if updated || biqUpdated {
-			(*pendingCache) = utils.RemoveFromSlice(utils.GetDeployKey(deployObj), *pendingCache)
-			fmt.Printf("Deployment %s already updated for AppD. Skipping...\n", deployObj.Name)
-		} else {
-			fmt.Printf("Instrumentation not requested. Skipping %s...\n", deployObj.Name)
-		}
+
+	if updated || biqUpdated {
+		(*pendingCache) = utils.RemoveFromSlice(utils.GetDeployKey(deployObj), *pendingCache)
+		fmt.Printf("Deployment %s already updated for AppD. Skipping...\n", deployObj.Name)
 		return false, false, nil
 	}
 
@@ -253,11 +245,24 @@ func ShouldInstrumentDeployment(deployObj *appsv1.Deployment, bag *m.AppDBag, pe
 		return false, false, nil
 	}
 
-	//	check Failed cache not to exceed failuer limit
+	//	check Failed cache not to exceed failure limit
 	status, ok := (*failedCache)[utils.GetDeployKey(deployObj)]
 	if ok && status.Count >= MAX_INSTRUMENTATION_ATTEMPTS {
 		fmt.Printf("Deployment %s exceeded the max number of failed instrumentation attempts. Skipping...\n", deployObj.Name)
 		return false, false, nil
+	}
+
+	agentRequests := GetAgentRequestsForDeployment(deployObj, bag)
+	if agentRequests == nil {
+		fmt.Printf("Deployment %s does not need to be instrumented. Ignoring...\n", deployObj.Name)
+		return false, false, nil
+	}
+
+	var biqRequested = agentRequests.BiQRequested()
+	initRequested := !AgentInitExists(&deployObj.Spec.Template.Spec, bag) && agentRequests.InitContainerRequired()
+
+	if !biqRequested && !initRequested {
+		fmt.Printf("Instrumentation not requested. Skipping %s...\n", deployObj.Name)
 	}
 
 	biq := agentRequests.GetBiQOption() == string(m.Sidecar) && !AnalyticsAgentExists(&deployObj.Spec.Template.Spec, bag)
@@ -525,7 +530,7 @@ func (ai AgentInjector) Associate(podObj *v1.Pod, exec *Executor, agentRequest *
 	}
 	if appID == 0 {
 		//mark to retry to give the agent time to initialize
-		fmt.Printf("Association error. No appID\n", appID)
+		fmt.Printf("Association error. No appID\n")
 		associateError = APPD_ASSOCIATE_ERROR
 	}
 
@@ -565,6 +570,12 @@ func (ai AgentInjector) Associate(podObj *v1.Pod, exec *Executor, agentRequest *
 					associateError = APPD_ASSOCIATE_ERROR
 				}
 			}
+		}
+	}
+	if appID > 0 && agentRequest.BiQRequested() {
+		analyticsErr := ai.AppdController.EnableAppAnalytics(appID, agentRequest.AppName)
+		if analyticsErr != nil {
+			fmt.Printf("Unable to enable analytics for application %s\n", agentRequest.AppName)
 		}
 	}
 	_, updateErr := ai.ClientSet.Core().Pods(podObj.Namespace).Update(podObj)

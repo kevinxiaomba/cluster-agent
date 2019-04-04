@@ -57,13 +57,13 @@ func buildParams() Flags {
 	flag.StringVar(&params.Bag.ContainerSchemaName, "schema-containers", "kube_container_snapshots", "Container schema name")
 	flag.StringVar(&params.Bag.LogSchemaName, "schema-logs", "kube_logs", "Log schema name")
 	flag.StringVar(&params.Bag.EpSchemaName, "schema-ep", "kube_endpoints", "Endpoint schema name")
+	flag.StringVar(&params.Bag.JobSchemaName, "schema-jobs", "kube_jobs", "Jobs schema name")
 	flag.StringVar(&params.Bag.DashboardTemplatePath, "template-path", getTemplatePath(), "Dashboard template path")
 	flag.StringVar(&params.Bag.DashboardSuffix, "dash-name", getDashboardSuffix(), "Dashboard name")
 	flag.IntVar(&params.Bag.DashboardDelayMin, "dash-delay", getDashboardDelayMin(), "Dashboard delay (min)")
 	flag.IntVar(&params.Bag.EventAPILimit, "event-batch-size", getBatchSize(), "Max number of AppD events record to send in a batch")
 	flag.IntVar(&params.Bag.MetricsSyncInterval, "metrics-sync-interval", getMetricSyncInterval(), "Frequency of metrics pushes to the controller, sec")
 	flag.IntVar(&params.Bag.SnapshotSyncInterval, "snapshot-sync-interval", getEventSyncInterval(), "Frequency of snapshot pushes to events api, sec")
-	flag.StringVar(&params.Bag.JavaAgentVersion, "java-agent-version", getJavaAgentVersion(), "AppD Java Agent Version")
 	flag.StringVar(&params.Bag.AppDJavaAttachImage, "java-attach-image", getJavaAttachImage(), "Java Attach Image")
 	flag.StringVar(&params.Bag.AppDDotNetAttachImage, "dotnet-attach-image", getDotNetAttachImage(), "DotNet Attach Image")
 	flag.StringVar(&params.Bag.AgentLabel, "agent-label", "appd-agent", "AppD Agent Label")
@@ -132,6 +132,13 @@ func buildParams() Flags {
 	if dash != "" {
 		params.Bag.DeploysToDashboard = strings.Split(dash, ",")
 	}
+
+	var ims string
+	flag.StringVar(&ims, "instrument-match-strings", getInstrumentationMatchStrings(), "List of match strings for instrumentation")
+	if ims != "" {
+		params.Bag.InstrumentMatchString = strings.Split(ims, ",")
+	}
+
 	var tempPort uint
 	flag.UintVar(&tempPort, "controller-port", getControllerPort(), "Controller Port")
 	params.Bag.ControllerPort = uint16(tempPort)
@@ -409,6 +416,10 @@ func getJavaAttachImage() string {
 
 func getDeploysToDashboard() string {
 	return os.Getenv("APPDYNAMICS_DEPLOYS_TO_DASH")
+}
+
+func getInstrumentationMatchStrings() string {
+	return os.Getenv("APPDYNAMICS_INSTRUMENT_MATCH")
 }
 
 func getNSToMonitor() string {

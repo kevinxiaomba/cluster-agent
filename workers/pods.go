@@ -1863,7 +1863,7 @@ func (pw *PodWorker) flushAssociationQueue() {
 		podKey := utils.GetPodKey(p.Pod)
 		updated, ok, err := pw.informer.GetStore().GetByKey(podKey)
 		if err == nil && ok {
-			fmt.Printf("Updatedd version of pod % found. Retrying association...\n", podKey)
+			fmt.Printf("Updatedd version of pod %s found. Retrying association...\n", podKey)
 			podObj := updated.(*v1.Pod)
 			p.Pod = podObj
 			err := injector.RetryAssociate(p.Pod, p.Request)

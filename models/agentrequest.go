@@ -17,6 +17,7 @@ const (
 	NodeJS            TechnologyName = "nodejs"
 	ALL_CONTAINERS    string         = "all"
 	FIRST_CONTAINER   string         = "all"
+	VERSION_LATEST    string         = "latest"
 )
 
 type InstrumentationMethod string
@@ -37,7 +38,7 @@ type AgentRequest struct {
 	Tech          TechnologyName
 	ContainerName string //first (default), all, name
 	Version       string
-	MatchString   string //string matched against deployment names and labels, supports regex
+	MatchString   []string //string matched against deployment names and labels, supports regex
 	Method        InstrumentationMethod
 	BiQ           string //"sidecar" or reference to the remote analytics agent
 
@@ -56,7 +57,10 @@ func (ar *AgentRequest) Clone() AgentRequest {
 	clone.Tech = ar.Tech
 	clone.ContainerName = ar.ContainerName
 	clone.Version = ar.Version
-	clone.MatchString = ar.MatchString
+	clone.MatchString = []string{}
+	for _, ms := range ar.MatchString {
+		clone.MatchString = append(clone.MatchString, ms)
+	}
 	clone.Method = ar.Method
 	clone.BiQ = ar.BiQ
 
@@ -65,6 +69,7 @@ func (ar *AgentRequest) Clone() AgentRequest {
 
 func NewAgentRequest(appdAgentLabel string, appName string, tierName string, biq string, bag *AppDBag) AgentRequest {
 	agentRequest := AgentRequest{Method: bag.InstrumentationMethod, ContainerName: FIRST_CONTAINER}
+	agentRequest.MatchString = []string{}
 	if appdAgentLabel != "" {
 		ar := strings.Split(appdAgentLabel, FIELD_SEPARATOR)
 		if len(ar) > 0 {
@@ -83,7 +88,7 @@ func NewAgentRequest(appdAgentLabel string, appName string, tierName string, biq
 	if agentRequest.Tech == "" {
 		agentRequest.Tech = bag.DefaultInstrumentationTech
 	}
-	agentRequest.Version = "latest"
+	agentRequest.Version = VERSION_LATEST
 
 	agentRequest.BiQ = biq
 
@@ -98,6 +103,9 @@ func NewAgentRequestListFromArray(ar []AgentRequest, bag *AppDBag, containers []
 		if r.Method == "" {
 			r.Method = bag.InstrumentationMethod
 		}
+		if r.Tech == "" {
+			r.Tech = bag.DefaultInstrumentationTech
+		}
 		if r.AppDAppLabel == "" {
 			r.AppDAppLabel = bag.AppDAppLabel
 		}
@@ -111,6 +119,10 @@ func NewAgentRequestListFromArray(ar []AgentRequest, bag *AppDBag, containers []
 		if r.TierName == "" {
 			r.TierName = r.ContainerName
 		}
+		if r.Version == "" {
+			r.Version = VERSION_LATEST
+		}
+
 		list.Items = append(list.Items, r)
 		index++
 	}
@@ -191,8 +203,12 @@ func getDefaultAgentRequest(appName string, tierName string, biq string, bag *Ap
 	r.Tech = bag.DefaultInstrumentationTech
 	r.Method = bag.InstrumentationMethod
 	r.BiQ = bag.BiqService
-	r.MatchString = bag.InstrumentMatchString
-	r.Version = "latest"
+	r.MatchString = []string{}
+	for _, ms := range bag.InstrumentMatchString {
+		r.MatchString = append(r.MatchString, ms)
+	}
+
+	r.Version = VERSION_LATEST
 	return r
 }
 
@@ -288,11 +304,21 @@ func (al *AgentRequestList) InitContainerRequired() bool {
 
 func (al *AgentRequestList) BiQRequested() bool {
 	for _, r := range al.Items {
-		if r.BiQ != "" && r.BiQ != string(NoBiq) {
+		if r.BiQRequested() {
 			return true
 		}
 	}
 	return false
+}
+
+func (ar *AgentRequest) BiQRequested() bool {
+
+	return ar.BiQ != "" && ar.BiQ != string(NoBiq)
+}
+
+func (ar *AgentRequest) IsBiQRemote() bool {
+
+	return ar.BiQRequested() && ar.BiQ != string(Sidecar)
 }
 
 func (al *AgentRequestList) GetBiQOption() string {

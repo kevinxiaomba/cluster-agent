@@ -497,9 +497,6 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 	leftMargin := 26
 	nodeMargin := minSize
 
-	deployGap := 1
-	nsGap := deployGap + 1
-
 	currentX := leftMargin
 	currentY := startLine
 
@@ -510,15 +507,19 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 
 	numPods := len(nodeArray)
 
-	entityGaps := (nsNum-1)*nsGap + (deployNum-nsNum)*deployGap
-	availableArea := (backWidth - 2*nodeMargin - entityGaps) * (backHeight - (startLine - backTop))
-	areaPerNode := math.Round(float64(availableArea / numPods))
+	totalUnits := numPods + deployNum + 2*nsNum
+
+	availableArea := (backWidth - 2*nodeMargin) * (backHeight - (startLine - backTop))
+	areaPerNode := math.Round(float64(availableArea / totalUnits))
 	side := math.Sqrt(areaPerNode)
 	if side > float64(minSize+nodeMargin) {
 		nodeMargin = int(math.Round(side / 2))
 		width = nodeMargin
 		height = nodeMargin
 	}
+
+	deployGap := int(side)
+	nsGap := int(2 * side)
 
 	rightMargin := backWidth - nodeMargin
 	lastLine := backTop + backHeight - nodeMargin - height

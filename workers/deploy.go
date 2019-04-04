@@ -512,12 +512,15 @@ func (dw *DeployWorker) updateContainerEnv(ar *m.AgentRequest, deployObj *appsv1
 		volPath := instr.GetVolumePath(bag, ar)
 		javaOptsVal := fmt.Sprintf(` -Dappdynamics.agent.accountAccessKey=$(APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY) -Dappdynamics.controller.hostName=%s -Dappdynamics.controller.port=%d -Dappdynamics.controller.ssl.enabled=%t -Dappdynamics.agent.accountName=%s -Dappdynamics.agent.applicationName=%s -Dappdynamics.agent.tierName=%s -Dappdynamics.agent.reuse.nodeName=true -Dappdynamics.agent.reuse.nodeName.prefix=%s -javaagent:%s/javaagent.jar `,
 			bag.ControllerUrl, bag.ControllerPort, bag.SSLEnabled, bag.Account, ar.AppName, ar.TierName, ar.TierName, volPath)
+		if ar.IsBiQRemote() {
+			javaOptsVal = fmt.Sprintf("%s -Dappdynamics.analytics.agent.url=%s/v2/sinks/bt", javaOptsVal, bag.AnalyticsAgentUrl)
+		}
 		if deployObj.Spec.Template.Spec.Containers[containerIndex].Env == nil {
 			deployObj.Spec.Template.Spec.Containers[containerIndex].Env = []v1.EnvVar{}
 		} else {
-			for _, ev := range deployObj.Spec.Template.Spec.Containers[containerIndex].Env {
+			for i, ev := range deployObj.Spec.Template.Spec.Containers[containerIndex].Env {
 				if ev.Name == bag.AgentEnvVar {
-					ev.Value += javaOptsVal
+					deployObj.Spec.Template.Spec.Containers[containerIndex].Env[i].Value += javaOptsVal
 					optsExist = true
 					break
 				}

@@ -50,7 +50,7 @@ func NewMutexConfigManager(env *m.AppDBag) *MutexConfigManager {
 }
 
 func (self *MutexConfigManager) onConfigUpdate() {
-	fmt.Printf("Configfile Updated\n")
+	fmt.Printf("Config file Updated\n")
 	conf, e := loadConfig(CONFIG_FILE)
 	if e != nil {
 		fmt.Printf("Unable to read the config file. %v", e)
@@ -67,6 +67,9 @@ func (self *MutexConfigManager) Set(conf *m.AppDBag) {
 	self.Conf = conf
 	if self.Conf.NSInstrumentRule == nil {
 		self.Conf.NSInstrumentRule = []m.AgentRequest{}
+	}
+	if self.Conf.InstrumentMatchString == nil {
+		self.Conf.InstrumentMatchString = []string{}
 	}
 	if self.Conf.SchemaUpdateCache == nil {
 		self.Conf.SchemaUpdateCache = []string{}
@@ -96,11 +99,13 @@ func loadConfig(configFile string) (*m.AppDBag, error) {
 	configData, err := ioutil.ReadFile(configFile)
 	if err != nil {
 		fmt.Printf("Cannot read the config file. %v", err)
+		return conf, err
 	}
 
 	err = json.Unmarshal(configData, conf)
 	if err != nil {
 		fmt.Printf("Cannot deserialize the config file. %v", err)
+		return conf, err
 	}
 	return conf, nil
 }

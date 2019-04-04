@@ -64,7 +64,7 @@ func (self *ConfigWatcher) run() {
 			// change as fsnotify is designed as cross platform and not all platforms support
 			// symlinks.
 
-			if event.Op == fsnotify.Remove {
+			if event.Op == fsnotify.Remove || event.Op == fsnotify.Write {
 				// Since the symlink was removed, we must
 				// re-register the file to be watched
 				self.fsNotify.Remove(event.Name)
