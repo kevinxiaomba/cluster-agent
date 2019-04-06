@@ -334,18 +334,16 @@ func (c *ControllerClient) GetMetricID(appID int, metricPath string) (float64, e
 func (c *ControllerClient) EnableAppAnalytics(appID int, appName string) error {
 	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
 	path := "restui/analyticsConfigTxnAnalyticsUiService/enableAnalyticsForApplication?enabled=true"
-	jsonBody := fmt.Sprintf(`{appId=%d, name: %s}`, appID, appName)
+	jsonBody := fmt.Sprintf(`{"appId"=%d, "name": "%s"}`, appID, appName)
 
-	body, e := json.Marshal(jsonBody)
-	if e != nil {
-		return fmt.Errorf("Unable to serialize payload. %v \n", e)
-	}
+	body := []byte(jsonBody)
 
 	rc := NewRestClient((*c.ConfManager).Get(), logger)
 	_, err := rc.CallAppDController(path, "POST", body)
 	if err != nil {
 		return fmt.Errorf("Unable to enable analytics for App %s. %v\n", appName, err)
 	}
+	fmt.Printf("Successfully enabled analytics for app %s\n", appName)
 
 	//get BTs
 	path = fmt.Sprintf("restui/analyticsConfigTxnAnalyticsUiService/enableAnalyticsDataCollectionForBTs/%d", appID)
@@ -379,6 +377,8 @@ func (c *ControllerClient) EnableAppAnalytics(appID int, appName string) error {
 	if errSave != nil {
 		return fmt.Errorf("Unable to save BTs for analytics. %v ", errSave)
 	}
+
+	fmt.Printf("Successfully enabled analytics for all BTs in app %s\n", appName)
 
 	return nil
 

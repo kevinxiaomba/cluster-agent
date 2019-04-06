@@ -93,6 +93,7 @@ func GetAttachMetadata(appTag string, tierTag string, deploy *appsv1.Deployment,
 	}
 
 	for k, v := range deploy.Labels {
+		fmt.Printf("Labels: %s:%s\n", k, v)
 		if k == appTag {
 			appName = v
 		}
@@ -121,6 +122,7 @@ func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag) *m
 	var appAgent string
 	appName, tierName, biQDeploymentOption := GetAttachMetadata(bag.AppDAppLabel, bag.AppDTierLabel, deploy, bag)
 
+	fmt.Printf("biQDeploymentOption: %s\n", biQDeploymentOption)
 	for k, v := range deploy.Labels {
 		if k == bag.AgentLabel {
 			appAgent = v
@@ -152,13 +154,13 @@ func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag) *m
 				for _, ms := range r.MatchString {
 					reg, _ := regexp.Compile(ms)
 					if reg.MatchString(deploy.Name) {
-						r.AppName, r.TierName, r.BiQ = GetAttachMetadata(r.AppDAppLabel, r.AppDTierLabel, deploy, bag)
+						r.AppName, r.TierName, _ = GetAttachMetadata(r.AppDAppLabel, r.AppDTierLabel, deploy, bag)
 						arr = append(arr, r)
 					}
 					if len(arr) == 0 {
 						for _, v := range deploy.Labels {
 							if reg.MatchString(v) {
-								r.AppName, r.TierName, r.BiQ = GetAttachMetadata(r.AppDAppLabel, r.AppDTierLabel, deploy, bag)
+								r.AppName, r.TierName, _ = GetAttachMetadata(r.AppDAppLabel, r.AppDTierLabel, deploy, bag)
 								arr = append(arr, r)
 							}
 						}
@@ -203,6 +205,9 @@ func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag) *m
 				}
 				if global {
 					fmt.Printf("Applying global rule for agent request\n")
+					if appName == "" {
+						appName = deploy.Name
+					}
 					al := m.NewAgentRequestList("", appName, tierName, biQDeploymentOption, deploy.Spec.Template.Spec.Containers, bag)
 					list = &al
 				}

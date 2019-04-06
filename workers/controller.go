@@ -41,7 +41,7 @@ func NewController(cm *config.MutexConfigManager, client *kubernetes.Clientset, 
 func (c *MainController) ValidateParameters() error {
 	bag := c.ConfManager.Get()
 	//validate controller URL
-	if bag.EventServiceUrl == "" || strings.Contains(bag.ControllerUrl, "http") {
+	if strings.Contains(bag.ControllerUrl, "http") {
 		arr := strings.Split(bag.ControllerUrl, ":")
 		if len(arr) != 3 {
 			return fmt.Errorf("Controller Url is invalid. Use this format: protocol://url:port")
@@ -55,6 +55,8 @@ func (c *MainController) ValidateParameters() error {
 		bag.ControllerUrl = controllerUrl
 		bag.ControllerPort = uint16(port)
 		bag.SSLEnabled = strings.Contains(protocol, "s")
+	} else {
+		return fmt.Errorf("Controller Url is invalid. Use this format: protocol://url:port")
 	}
 
 	//build rest api url
@@ -84,7 +86,7 @@ func (c *MainController) ValidateParameters() error {
 	if bag.RestAPICred == "" {
 		return fmt.Errorf("Rest API user account is required. Create an account and pass it to the cluster agent in this form <user>@<account>:<pass>")
 	}
-	if bag.AccessKey == "" || bag.EventKey == "" {
+	if bag.AccessKey == "" {
 
 		path := "restui/user/account"
 
@@ -117,6 +119,14 @@ func (c *MainController) ValidateParameters() error {
 			return fmt.Errorf("Unable to generate key for AppDynamics Event API. %v", e)
 		}
 		bag.EventKey = key
+	}
+	if bag.ProxyUrl != "" {
+		arr := strings.Split(bag.ProxyUrl, ":")
+		if len(arr) != 3 {
+			return fmt.Errorf("ProxyUrl Url is invalid. Use this format: protocol://url:port")
+		}
+		bag.ProxyHost = strings.TrimLeft(arr[1], "//")
+		bag.ProxyPort = arr[2]
 	}
 	c.ConfManager.Set(bag)
 	c.Logger.Printf("Account info: %s %s\n", bag.AccessKey, bag.GlobalAccount)

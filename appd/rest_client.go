@@ -31,8 +31,8 @@ func NewRestClient(bag *m.AppDBag, logger *log.Logger) *RestClient {
 }
 
 func (rc *RestClient) getClient() *http.Client {
-	if rc.Bag.ProxyInfo != "" {
-		proxyUrl, err := url.Parse(rc.Bag.ProxyInfo)
+	if rc.Bag.ProxyUrl != "" {
+		proxyUrl, err := url.Parse(rc.Bag.ProxyUrl)
 		if err != nil {
 			fmt.Print("Proxy url is invalid")
 			return &http.Client{}

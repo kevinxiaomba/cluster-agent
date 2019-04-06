@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -448,7 +449,7 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 
 			fmt.Println("Adding analytics agent container")
 			//add analytics agent container
-			analyticsContainer := dw.buildBiqSideCar()
+			analyticsContainer := dw.buildBiqSideCar(agentRequests.GetFirstRequest())
 			//add volume and mounts for logging
 			dw.updateSpec(biqContainerIndex, result, bag.AppLogMountName, bag.AppLogMountPath, agentRequests.GetFirstRequest(), false)
 			result.Spec.Template.Spec.Containers = append(result.Spec.Template.Spec.Containers, analyticsContainer)
@@ -617,13 +618,15 @@ func (dw *DeployWorker) buildInitContainer(agentrequest *m.AgentRequest) v1.Cont
 
 	cmd := []string{"cp", "-ra", (*dw.ConfigManager).Get().InitContainerDir, (*dw.ConfigManager).Get().AgentMountPath}
 
+	reqCPU, reqMem, limitCpu, limitMem := dw.getResourceLimits("init")
+
 	resRequest := v1.ResourceList{}
-	resRequest[v1.ResourceCPU] = resource.MustParse("0.1")
-	resRequest[v1.ResourceMemory] = resource.MustParse("50M")
+	resRequest[v1.ResourceCPU] = resource.MustParse(reqCPU)
+	resRequest[v1.ResourceMemory] = resource.MustParse(reqMem)
 
 	resLimit := v1.ResourceList{}
-	resLimit[v1.ResourceCPU] = resource.MustParse("0.15")
-	resLimit[v1.ResourceMemory] = resource.MustParse("75M")
+	resLimit[v1.ResourceCPU] = resource.MustParse(limitCpu)
+	resLimit[v1.ResourceMemory] = resource.MustParse(limitMem)
 	reqs := v1.ResourceRequirements{Requests: resRequest, Limits: resLimit}
 
 	cont := v1.Container{Name: (*dw.ConfigManager).Get().AppDInitContainerName, Image: agentrequest.GetAgentImageName((*dw.ConfigManager).Get()), ImagePullPolicy: v1.PullIfNotPresent,
@@ -632,18 +635,22 @@ func (dw *DeployWorker) buildInitContainer(agentrequest *m.AgentRequest) v1.Cont
 	return cont
 }
 
-func (dw *DeployWorker) buildBiqSideCar() v1.Container {
-	// configMap reference
-	cmRef := v1.ConfigMapEnvSource{}
-	cmRef.Name = "controller-config"
-	envFromMap := v1.EnvFromSource{ConfigMapRef: &cmRef}
-	envFrom := []v1.EnvFromSource{envFromMap}
-
+func (dw *DeployWorker) buildBiqSideCar(agentrequest *m.AgentRequest) v1.Container {
+	bag := (*dw.ConfigManager).Get()
 	//key reference
-	keyRef := v1.SecretKeySelector{Key: "appd-key", LocalObjectReference: v1.LocalObjectReference{
-		Name: "appd-secret"}}
-	envVar := v1.EnvVar{Name: "ACCOUNT_ACCESS_KEY", ValueFrom: &v1.EnvVarSource{SecretKeyRef: &keyRef}}
+	keyRef := v1.SecretKeySelector{Key: instr.APPD_SECRET_KEY_NAME, LocalObjectReference: v1.LocalObjectReference{
+		Name: instr.APPD_SECRET_NAME}}
+	envVar := v1.EnvVar{Name: "APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY", ValueFrom: &v1.EnvVarSource{SecretKeyRef: &keyRef}}
 	env := []v1.EnvVar{envVar}
+	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_AGENT_APPLICATION_NAME", Value: agentrequest.AppName})
+	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_CONTROLLER_HOST_NAME", Value: bag.ControllerUrl})
+	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_CONTROLLER_PORT", Value: fmt.Sprintf("%d", bag.ControllerPort)})
+	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_CONTROLLER_SSL_ENABLED", Value: fmt.Sprintf("%t", bag.SSLEnabled)})
+	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_EVENTS_API_URL", Value: bag.EventServiceUrl})
+	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_AGENT_ACCOUNT_NAME", Value: bag.Account})
+	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_GLOBAL_ACCOUNT_NAME", Value: bag.GlobalAccount})
+	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_CONTROLLER_PROXY_HOST", Value: bag.ProxyHost})
+	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_CONTROLLER_PROXY_PORT", Value: bag.ProxyPort})
 
 	//ports
 	p := v1.ContainerPort{ContainerPort: 9090}
@@ -653,17 +660,59 @@ func (dw *DeployWorker) buildBiqSideCar() v1.Container {
 	volumeMount := v1.VolumeMount{Name: (*dw.ConfigManager).Get().AppLogMountName, MountPath: (*dw.ConfigManager).Get().AppLogMountPath}
 	mounts := []v1.VolumeMount{volumeMount}
 
+	reqCPU, reqMem, limitCpu, limitMem := dw.getResourceLimits("biq")
+
 	resRequest := v1.ResourceList{}
-	resRequest[v1.ResourceCPU] = resource.MustParse("0.1")
-	resRequest[v1.ResourceMemory] = resource.MustParse("50M")
+	resRequest[v1.ResourceCPU] = resource.MustParse(reqCPU)
+	resRequest[v1.ResourceMemory] = resource.MustParse(reqMem)
 
 	resLimit := v1.ResourceList{}
-	resLimit[v1.ResourceCPU] = resource.MustParse("0.2")
-	resLimit[v1.ResourceMemory] = resource.MustParse("100M")
+	resLimit[v1.ResourceCPU] = resource.MustParse(limitCpu)
+	resLimit[v1.ResourceMemory] = resource.MustParse(limitMem)
 	reqs := v1.ResourceRequirements{Requests: resRequest, Limits: resLimit}
 
 	cont := v1.Container{Name: (*dw.ConfigManager).Get().AnalyticsAgentContainerName, Image: (*dw.ConfigManager).Get().AnalyticsAgentImage, ImagePullPolicy: v1.PullIfNotPresent,
-		Ports: ports, EnvFrom: envFrom, Env: env, VolumeMounts: mounts, Resources: reqs}
+		Ports: ports, Env: env, VolumeMounts: mounts, Resources: reqs}
 
 	return cont
+}
+
+func (dw *DeployWorker) getResourceLimits(containerType string) (string, string, string, string) {
+	bag := (*dw.ConfigManager).Get()
+	reqCPU := ""
+	reqMem := ""
+
+	if containerType == "biq" {
+		reqCPU = bag.BiqRequestCpu
+		reqMem = bag.BiqRequestMem
+	}
+
+	if containerType == "init" {
+		reqCPU = bag.InitRequestCpu
+		reqMem = bag.InitRequestMem
+	}
+
+	if reqCPU == "" {
+		reqCPU = "0.1"
+	}
+
+	if reqMem == "" {
+		reqMem = "200"
+	}
+
+	limitCpu := "0.2"
+	limitCpuVal, e := strconv.ParseFloat(reqCPU, 32)
+	if e == nil {
+		limitCpu = fmt.Sprintf("%.1f", limitCpuVal*2)
+	}
+
+	limitMem := "300M"
+	limitMemVal, eMem := strconv.ParseInt(reqMem, 10, 0)
+	if eMem == nil {
+		limitMem = fmt.Sprintf("%dM", int(limitMemVal*3/2))
+	}
+
+	reqMem = reqMem + "M"
+
+	return reqCPU, reqMem, limitCpu, limitMem
 }

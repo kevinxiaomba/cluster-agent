@@ -55,7 +55,9 @@ type AppDBag struct {
 	AppDJavaAttachImage         string
 	AppDDotNetAttachImage       string
 	AppDNodeJSAttachImage       string
-	ProxyInfo                   string
+	ProxyUrl                    string
+	ProxyHost                   string
+	ProxyPort                   string
 	ProxyUser                   string
 	ProxyPass                   string
 	InitContainerDir            string
@@ -75,5 +77,9 @@ type AppDBag struct {
 	BiqService                  string
 	InstrumentContainer         string //all, first, name
 	InstrumentMatchString       []string
+	InitRequestMem              string
+	InitRequestCpu              string
+	BiqRequestMem               string
+	BiqRequestCpu               string
 	SchemaUpdateCache           []string
 }

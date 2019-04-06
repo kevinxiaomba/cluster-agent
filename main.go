@@ -90,6 +90,7 @@ func buildParams() Flags {
 	flag.StringVar(&params.Bag.InitContainerDir, "init-container-dir", "/opt/temp/.", "Directory with artifacts in the init container")
 	flag.StringVar(&params.Bag.BiqService, "insrument-biq", getDefaultBiqAttachMethod(), "Reference to the Biq agent. None, sidecar, remote service name")
 	flag.StringVar(&params.Bag.InstrumentContainer, "instrument-container-name", getInstrumentContainer(), "Directory with artifacts in the init container")
+	flag.StringVar(&params.Bag.ProxyUrl, "proxy-url", getProxyUrl(), "Proxu Url, e.g. http://example.com:9999")
 
 	var nsToMonitor string
 	flag.StringVar(&nsToMonitor, "ns-to-monitor", getNSToMonitor(), "List of namespaces to monitor")
@@ -278,6 +279,10 @@ func getSystemSSL() string {
 
 func getAgentSSL() string {
 	return os.Getenv("APPDYNAMICS_AGENT_SSL")
+}
+
+func getProxyUrl() string {
+	return os.Getenv("APPDYNAMICS_CONTROLLER_PROXY_URL")
 }
 
 func getDashboardSuffix() string {

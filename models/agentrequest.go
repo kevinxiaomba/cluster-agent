@@ -92,6 +92,10 @@ func NewAgentRequest(appdAgentLabel string, appName string, tierName string, biq
 
 	agentRequest.BiQ = biq
 
+	if agentRequest.BiQ == "" && agentRequest.BiQ != string(NoBiq) {
+		agentRequest.BiQ = bag.BiqService
+	}
+
 	return agentRequest
 }
 
@@ -100,6 +104,7 @@ func NewAgentRequestListFromArray(ar []AgentRequest, bag *AppDBag, containers []
 	index := 0
 	add := false
 	for _, r := range ar {
+		fmt.Printf("AgentRequest Biq = %s\n", r.BiQ)
 		if r.Method == "" {
 			r.Method = bag.InstrumentationMethod
 		}
@@ -121,6 +126,9 @@ func NewAgentRequestListFromArray(ar []AgentRequest, bag *AppDBag, containers []
 		}
 		if r.Version == "" {
 			r.Version = VERSION_LATEST
+		}
+		if r.BiQ == "" {
+			r.BiQ = bag.BiqService
 		}
 
 		list.Items = append(list.Items, r)
@@ -202,10 +210,13 @@ func getDefaultAgentRequest(appName string, tierName string, biq string, bag *Ap
 	r.BiQ = biq
 	r.Tech = bag.DefaultInstrumentationTech
 	r.Method = bag.InstrumentationMethod
-	r.BiQ = bag.BiqService
 	r.MatchString = []string{}
 	for _, ms := range bag.InstrumentMatchString {
 		r.MatchString = append(r.MatchString, ms)
+	}
+
+	if r.BiQ == "" && r.BiQ != string(NoBiq) {
+		r.BiQ = bag.BiqService
 	}
 
 	r.Version = VERSION_LATEST
@@ -260,6 +271,9 @@ func (al *AgentRequestList) GetContainerNames() *[]string {
 }
 
 func (ar *AgentRequest) GetAgentImageName(bag *AppDBag) string {
+	if ar.Version != "" && ar.Version != VERSION_LATEST {
+		return ar.Version
+	}
 	if ar.Tech == Java {
 		return bag.AppDJavaAttachImage
 	}
@@ -413,5 +427,5 @@ func (al *AgentRequestList) String() string {
 }
 
 func (ar *AgentRequest) String() string {
-	return fmt.Sprintf("AppName: %s, TieName: %s, Biq:%s, Tech: %s, Method: %s, Container: %s, Version: %s", ar.AppName, ar.TierName, ar.BiQ, ar.Tech, ar.Method, ar.ContainerName, ar.Version)
+	return fmt.Sprintf("AppName: %s, TieName: %s, BiQ:%s, Tech: %s, Method: %s, Container: %s, Version: %s", ar.AppName, ar.TierName, ar.BiQ, ar.Tech, ar.Method, ar.ContainerName, ar.Version)
 }

@@ -518,8 +518,8 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 		height = nodeMargin
 	}
 
-	deployGap := int(side)
-	nsGap := int(2 * side)
+	deployGap := int(width)
+	nsGap := int(2 * width)
 
 	rightMargin := backWidth - nodeMargin
 	lastLine := backTop + backHeight - nodeMargin - height
