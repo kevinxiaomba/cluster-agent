@@ -613,10 +613,10 @@ func (dw *DeployWorker) buildInitContainer(agentrequest *m.AgentRequest) v1.Cont
 	bag := (*dw.ConfigManager).Get()
 	//volume mount for agent files
 	volName := fmt.Sprintf("%s-%s", bag.AgentMountName, string(agentrequest.Tech))
-	volumeMount := v1.VolumeMount{Name: volName, MountPath: bag.AgentMountPath}
+	volumeMount := v1.VolumeMount{Name: volName, MountPath: bag.InitContainerDir}
 	mounts := []v1.VolumeMount{volumeMount}
 
-	cmd := []string{"cp", "-ra", (*dw.ConfigManager).Get().InitContainerDir, (*dw.ConfigManager).Get().AgentMountPath}
+	cmd := []string{"cp", "-ra", fmt.Sprintf("%s/.", bag.AgentMountPath), bag.InitContainerDir}
 
 	reqCPU, reqMem, limitCpu, limitMem := dw.getResourceLimits("init")
 
@@ -642,22 +642,27 @@ func (dw *DeployWorker) buildBiqSideCar(agentrequest *m.AgentRequest) v1.Contain
 		Name: instr.APPD_SECRET_NAME}}
 	envVar := v1.EnvVar{Name: "APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY", ValueFrom: &v1.EnvVarSource{SecretKeyRef: &keyRef}}
 	env := []v1.EnvVar{envVar}
-	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_AGENT_APPLICATION_NAME", Value: agentrequest.AppName})
-	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_CONTROLLER_HOST_NAME", Value: bag.ControllerUrl})
+	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_AGENT_APPLICATION_NAME", Value: fmt.Sprintf("%s", agentrequest.AppName)})
+	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_CONTROLLER_HOST_NAME", Value: fmt.Sprintf("%s", bag.ControllerUrl)})
 	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_CONTROLLER_PORT", Value: fmt.Sprintf("%d", bag.ControllerPort)})
 	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_CONTROLLER_SSL_ENABLED", Value: fmt.Sprintf("%t", bag.SSLEnabled)})
-	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_EVENTS_API_URL", Value: bag.EventServiceUrl})
-	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_AGENT_ACCOUNT_NAME", Value: bag.Account})
-	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_GLOBAL_ACCOUNT_NAME", Value: bag.GlobalAccount})
-	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_CONTROLLER_PROXY_HOST", Value: bag.ProxyHost})
-	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_CONTROLLER_PROXY_PORT", Value: bag.ProxyPort})
+	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_EVENTS_API_URL", Value: fmt.Sprintf("%s", bag.EventServiceUrl)})
+	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_AGENT_ACCOUNT_NAME", Value: fmt.Sprintf("%s", bag.Account)})
+	env = append(env, v1.EnvVar{Name: "APPDYNAMICS_GLOBAL_ACCOUNT_NAME", Value: fmt.Sprintf("%s", bag.GlobalAccount)})
+	if bag.ProxyHost != "" {
+		env = append(env, v1.EnvVar{Name: "APPDYNAMICS_CONTROLLER_PROXY_HOST", Value: fmt.Sprintf("%s", bag.ProxyHost)})
+	}
+
+	if bag.ProxyPass != "" {
+		env = append(env, v1.EnvVar{Name: "APPDYNAMICS_CONTROLLER_PROXY_PORT", Value: fmt.Sprintf("%s", bag.ProxyPort)})
+	}
 
 	//ports
 	p := v1.ContainerPort{ContainerPort: 9090}
 	ports := []v1.ContainerPort{p}
 
 	//volume mount for logs
-	volumeMount := v1.VolumeMount{Name: (*dw.ConfigManager).Get().AppLogMountName, MountPath: (*dw.ConfigManager).Get().AppLogMountPath}
+	volumeMount := v1.VolumeMount{Name: bag.AppLogMountName, MountPath: bag.AppLogMountPath}
 	mounts := []v1.VolumeMount{volumeMount}
 
 	reqCPU, reqMem, limitCpu, limitMem := dw.getResourceLimits("biq")

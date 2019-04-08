@@ -555,6 +555,7 @@ func (ai AgentInjector) Associate(podObj *v1.Pod, exec *Executor, agentRequest *
 					podObj.Annotations[APPD_NODENAME] = nodeName
 					app, tier, nodeID, errAppd := ai.AppdController.DetermineNodeID(agentRequest.AppName, agentRequest.TierName, nodeName)
 					if errAppd == nil {
+						appID = app
 						if podObj.Annotations[APPD_NODEID] == "" {
 							podObj.Annotations[APPD_NODEID] = strconv.Itoa(nodeID)
 						}
@@ -580,7 +581,7 @@ func (ai AgentInjector) Associate(podObj *v1.Pod, exec *Executor, agentRequest *
 	if appID > 0 && agentRequest.BiQRequested() {
 		analyticsErr := ai.AppdController.EnableAppAnalytics(appID, agentRequest.AppName)
 		if analyticsErr != nil {
-			fmt.Printf("Unable to enable analytics for application %s\n", agentRequest.AppName)
+			fmt.Printf("Unable to enable analytics for application %s. %v\n", agentRequest.AppName, analyticsErr)
 		}
 	}
 	_, updateErr := ai.ClientSet.Core().Pods(podObj.Namespace).Update(podObj)

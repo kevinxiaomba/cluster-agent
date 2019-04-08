@@ -1,5 +1,2 @@
-#configMap
-oc create cm appd-clusteragent --from-literal=CONTROLLER_URL=<controller dns>  --from-literal=CONTROLLER_PORT=<port>  --from-literal=APPLICATION_NAME=K8s-CLuster-Agent  --from-literal=TIER_NAME=Cluster-Agent --from-literal=NODE_NAME=Node1  --from-literal=AGENT_VERSION=ver4.5.5.24422  --from-literal=EVENTS_API_URL=<analytics api url>
-
 #secret
-ocn create secret generic appd-clusteragent  --from-literal=ACCESS_KEY=<controller access key> --from-literal=EVENT_ACCESS_KEY=<events api key> --from-literal=GLOBAL_ACCOUNT_NAME=<global-account-name> --from-literal=ACCOUNT_NAME=<account> --from-literal=REST_API_CREDENTIALS=<username>@<account>:<password>
+ocn create secret generic appd-clusteragent  --from-literal=APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY=<controller access key> --from-literal=APPDYNAMICS_EVENT_ACCESS_KEY=<events api key> --from-literal=APPDYNAMICS_REST_API_CREDENTIALS=<username>@<account>:<password>

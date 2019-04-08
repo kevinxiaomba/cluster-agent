@@ -334,51 +334,51 @@ func (c *ControllerClient) GetMetricID(appID int, metricPath string) (float64, e
 func (c *ControllerClient) EnableAppAnalytics(appID int, appName string) error {
 	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
 	path := "restui/analyticsConfigTxnAnalyticsUiService/enableAnalyticsForApplication?enabled=true"
-	jsonBody := fmt.Sprintf(`{"appId"=%d, "name": "%s"}`, appID, appName)
+	jsonBody := fmt.Sprintf(`{"appId": %d, "name": "%s"}`, appID, appName)
 
 	body := []byte(jsonBody)
 
 	rc := NewRestClient((*c.ConfManager).Get(), logger)
 	_, err := rc.CallAppDController(path, "POST", body)
-	if err != nil {
-		return fmt.Errorf("Unable to enable analytics for App %s. %v\n", appName, err)
+	if err != nil && !strings.Contains(err.Error(), "204") {
+		return fmt.Errorf("Cannot enable analytics for App %s. %v\n", appName, err)
 	}
 	fmt.Printf("Successfully enabled analytics for app %s\n", appName)
 
-	//get BTs
-	path = fmt.Sprintf("restui/analyticsConfigTxnAnalyticsUiService/enableAnalyticsDataCollectionForBTs/%d", appID)
-	bts, errBT := rc.CallAppDController(path, "GET", nil)
-	if errBT != nil {
-		return fmt.Errorf("Unable to get the list of BTs for App %s. %v", appName, errBT)
-	}
-	var list []map[string]interface{}
-	errJson := json.Unmarshal(bts, &list)
-	if errJson != nil {
-		return fmt.Errorf("Unable to deserialize metrics list")
-	}
-	btIDs := []int{}
-	for _, obj := range list {
-		for k, val := range obj {
-			if k == "id" {
-				btIDs = append(btIDs, val.(int))
-			}
-		}
-	}
+	//	//get BTs
+	//	path = fmt.Sprintf("restui/analyticsConfigTxnAnalyticsUiService/enableAnalyticsDataCollectionForBTs/%d", appID)
+	//	bts, errBT := rc.CallAppDController(path, "GET", nil)
+	//	if errBT != nil {
+	//		return fmt.Errorf("Unable to get the list of BTs for App %s. %v", appName, errBT)
+	//	}
+	//	var list []map[string]interface{}
+	//	errJson := json.Unmarshal(bts, &list)
+	//	if errJson != nil {
+	//		return fmt.Errorf("Unable to deserialize metrics list")
+	//	}
+	//	btIDs := []int{}
+	//	for _, obj := range list {
+	//		for k, val := range obj {
+	//			if k == "id" {
+	//				btIDs = append(btIDs, val.(int))
+	//			}
+	//		}
+	//	}
 
-	//save BTs for analytics
-	b, eM := json.Marshal(btIDs)
-	if eM != nil {
-		return fmt.Errorf("Unable to serialize list of BT ids. %v ", eM)
-	}
+	//	//save BTs for analytics
+	//	b, eM := json.Marshal(btIDs)
+	//	if eM != nil {
+	//		return fmt.Errorf("Unable to serialize list of BT ids. %v ", eM)
+	//	}
 
-	path = "restui/analyticsConfigTxnAnalyticsUiService/enableAnalyticsDataCollectionForBTs"
+	//	path = "restui/analyticsConfigTxnAnalyticsUiService/enableAnalyticsDataCollectionForBTs"
 
-	_, errSave := rc.CallAppDController(path, "POST", b)
-	if errSave != nil {
-		return fmt.Errorf("Unable to save BTs for analytics. %v ", errSave)
-	}
+	//	_, errSave := rc.CallAppDController(path, "POST", b)
+	//	if errSave != nil && !strings.Contains(errSave.Error(), "204") {
+	//		return fmt.Errorf("Unable to save BTs for analytics. %v ", errSave)
+	//	}
 
-	fmt.Printf("Successfully enabled analytics for all BTs in app %s\n", appName)
+	//	fmt.Printf("Successfully enabled analytics for all BTs in app %s\n", appName)
 
 	return nil
 
