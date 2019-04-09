@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	m "github.com/sjeltuhin/clusterAgent/models"
@@ -124,4 +125,42 @@ func NodeQualifiesForMonitoring(name string, bag *m.AppDBag) bool {
 	return (len(bag.NodesToMonitor) == 0 ||
 		StringInSlice(name, bag.NodesToMonitor)) &&
 		!StringInSlice(name, bag.NodesToMonitorExclude)
+}
+
+func FormatDuration(sinceNanosec int64) string {
+	val := sinceNanosec / 1000000
+	seconds := (val / 1000) % 60
+	minutes := ((val / (1000 * 60)) % 60)
+	hours := (int)((val / (1000 * 60 * 60)) % 24)
+
+	var output = ""
+	if minutes > 59 {
+		output = fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
+	} else {
+		if minutes == 0 {
+			output = fmt.Sprintf("00:00:%02d", seconds)
+		} else {
+			output = fmt.Sprintf("00:%02d:%02d", minutes, seconds)
+		}
+	}
+	return output
+}
+
+func SplitUrl(url string) (string, string, int, error) {
+	if strings.Contains(url, "http") {
+		arr := strings.Split(url, ":")
+		if len(arr) != 3 {
+			return "", "", 0, fmt.Errorf("Url is invalid. Use this format: protocol://url:port")
+		}
+		protocol := arr[0]
+		host := strings.TrimLeft(arr[1], "//")
+		port, errPort := strconv.Atoi(arr[2])
+		if errPort != nil {
+			return "", "", 0, fmt.Errorf("Port is invalid. %v", errPort)
+		}
+		return protocol, host, port, nil
+	} else {
+		return "", "", 0, fmt.Errorf("Url is invalid. Use this format: protocol://url:port")
+	}
+
 }

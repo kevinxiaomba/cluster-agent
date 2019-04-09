@@ -1,58 +1,82 @@
 apiVersion: v1
+data:
+  cluster-agent-config.json: |
+    {
+    "Account": "",
+    "GlobalAccount": "",
+    "ControllerUrl": "http://455controllernossh-k8sbiqtest-eq2w7bwd.srv.ravcloud.com:8090",
+    "EventServiceUrl": "http://455controllernossh-k8sbiqtest-eq2w7bwd.srv.ravcloud.com:9080",
+    "EventKey": "5be04dca-5c04-491e-b055-bc580ba9d7aa",
+    "RestAPICred": "k8sresty@customer1:k8sresty",
+    "AppName": "K8s-Cluster-Agent",
+    "TierName": "ClusterAgent",
+    "NodeName": "Node1",
+    "SystemSSLCert": "/opt/appd/ssl/system.crt",
+    "AgentSSLCert": "/opt/appd/ssl/agent.crt",
+    "EventAPILimit": 100,
+    "PodSchemaName": "kube_pod_snapshots",
+    "NodeSchemaName": "kube_node_snapshots",
+    "EventSchemaName": "kube_event_snapshots",
+    "ContainerSchemaName": "kube_container_snapshots",
+    "JobSchemaName": "kube_jobs",
+    "LogSchemaName": "kube_logs",
+    "EpSchemaName": "kube_endpoints",
+    "NsSchemaName": "kube_ns_snapshots",
+    "RqSchemaName": "kube_rq_snapshots",
+    "DeploySchemaName": "kube_deploy_snapshots",
+    "RSSchemaName": "kube_rs_snapshots",
+    "DaemonSchemaName": "kube_daemon_snapshots",
+    "DashboardTemplatePath": "",
+    "DashboardSuffix": "SUMMARY",
+    "DashboardDelayMin": 2,
+    "AgentLabel": "appd-agent",
+    "AgentEnvVar": "JAVA_OPTS",
+    "AppDAppLabel": "appd-app",
+    "AppDTierLabel": "appd-tier",
+    "AppDAnalyticsLabel": "appd-biq",
+    "AgentMountName": "appd-agent-repo",
+    "AgentMountPath": "/opt/appdynamics",
+    "AppLogMountName": "appd-volume",
+    "AppLogMountPath": "/opt/appdlogs",
+    "JDKMountName": "jdk-repo",
+    "JDKMountPath": "$JAVA_HOME/lib",
+    "NodeNamePrefix": "node",
+    "AnalyticsAgentUrl": "http://analytics-proxy:9090",
+    "AnalyticsAgentContainerName": "appd-analytics-agent",
+    "AppDInitContainerName": "appd-agent-attach",
+    "AnalyticsAgentImage": "sashaz/analytics-agent@sha256:315bdd43f03d49a3fa0e2f2454e51517b1ba5a2d6a86a58386efe662634e8064",
+    "AppDJavaAttachImage": "sashaz/java-agent@sha256:bed1658308bee6b4f3bccb6e27f10226e94ed936605b888056cc120c9374cae8",
+    "AppDDotNetAttachImage": "sashaz/dotnet-agent-attach@sha256:3f5d921eadfa227ffe072caa41e01c3c1fc882c5617ad45d808ffedaa20593a6",
+    "AppDNodeJSAttachImage": "latest",
+    "ProxyInfo": "",
+    "ProxyUser": "",
+    "ProxyPass": "",
+    "InstrumentationMethod": "mountEnv",
+    "InstrumentMatchString": ["client-api"],
+    "DefaultInstrumentationTech": "java",
+    "BiqService": "none",
+    "InstrumentContainer": "first",
+    "InitContainerDir": "/opt/temp",
+    "MetricsSyncInterval": 60,
+    "SnapshotSyncInterval": 15,
+    "AgentServerPort": 8989,
+    "NsToMonitor": [],
+    "NsToMonitorExclude": [],
+    "DeploysToDashboard": [],
+    "NodesToMonitor": [],
+    "NodesToMonitorExclude": [],
+    "NsToInstrument": ["dev"],
+    "NsToInstrumentExclude": [],
+    "NSInstrumentRule": [{"Namespaces":["dev"],"MatchString":["dotnet"],"Tech": "dotnet", "AppDAppLabel":"name"},
+    {"Namespaces":["dev"],"MatchString":["client-api"],"BiQ": "sidecar", "AppDAppLabel":"name"}],
+    "InitRequestMem": "50",
+    "InitRequestCpu": "0.1",
+    "BiqRequestMem": "500",
+    "BiqRequestCpu": "0.1",
+    "LogLines": 0,
+    "PodEventNumber": 3
+    }
 kind: ConfigMap
 metadata:
   name: cluster-agent-config
-data:
-  cluster-agent-config.yaml: |
-    Account: ""
-	GlobalAccount: ""
-	ControllerUrl:
-	ControllerPort:
-	EventServiceUrl:
-	SSLEnabled:
-    AppName: "K8s-Cluster-Agent"
-	TierName: "ClusterAgent"
-	NodeName: "Node1"
-	SystemSSLCert: "/opt/appd/ssl/system.crt"
-	AgentSSLCert: "/opt/appd/ssl/agent.crt"
-	EventAPILimit: 100
-	PodSchemaName: "schema-pods"
-	NodeSchemaName: "schema-nodes"
-	EventSchemaName: "schema-events"
-	ContainerSchemaName: "schema-containers"
-	JobSchemaName: "schema-jobs"
-	LogSchemaName: "schema-logs"
-	DashboardTemplatePath: "/usr/local/go/src/github.com/sjeltuhin/clusterAgent/templates/k8s_dashboard_template.json"
-	DashboardSuffix: "SUMMARY"
-	JavaAgentVersion: "latest"
-	AgentLabel: "appd-agent"
-	AppDAppLabel: "appd-app"
-	AppDTierLabel: "appd-tier"
-	AppDAnalyticsLabel: "appd-biq"
-	AgentMountName: "appd-agent-repo"
-	AgentMountPath: "/opt/appd"
-	AppLogMountName: "appd-volume"
-	AppLogMountPath: "/opt/appdlogs"
-	JDKMountName: "jdk-repo"
-	JDKMountPath: "$JAVA_HOME/lib"
-	NodeNamePrefix: ""
-	AnalyticsAgentUrl: "http://analytics-proxy:9090"
-	AnalyticsAgentContainerName: "appd-analytics-agent"
-	AppDInitContainerName" appd-agent-attach"
-	AnalyticsAgentImage: "sashaz/analytics-agent@sha256:ff776bdf3beed9f4bdf638d16b5a688d9e1c0fc124ce1282bef1851c122397e4"
-	AppDJavaAttachImage: "sashaz/java-agent-attach@sha256:b93f2018b091f4abfd2533e6c194c9e6ecf00fcae861c732f1b771dad1b26a80"
-	AppDDotNetAttachImage: "sashaz/dotnet-agent-attach@sha256:3f5d921eadfa227ffe072caa41e01c3c1fc882c5617ad45d808ffedaa20593a6"
-	AppDNodeJSAttachImage: "latest"
-	ProxyInfo: ""
-	ProxyUser: ""
-	ProxyPass: ""
-	InstrumentationMethod: "mount"
-	InitContainerDir: "/opt/temp."
-	MetricsSyncInterval: 60
-	SnapshotSyncInterval: 15
-	AgentServerPort: 8989
-	IncludeNsToInstrument: []
-	ExcludeNsToInstrument: []
-	DeploysToDashboard: ["client-api"]
-	IncludeNodesToInstrument: []
-	ExcludeNodesToInstrument: []
+  namespace: appdynamics-infra

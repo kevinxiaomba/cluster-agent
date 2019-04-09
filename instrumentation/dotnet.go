@@ -66,4 +66,27 @@ func (dni *DotNetInjector) AddEnvVars(container *v1.Container, agentRequest *m.A
 	container.Env = append(container.Env, envVarNodeReuse)
 	container.Env = append(container.Env, envVarNodePrefix)
 
+	if agentRequest.BiQRequested() {
+		if agentRequest.BiQ == string(m.Sidecar) {
+			envVarBiqHost := v1.EnvVar{Name: "APPDYNAMICS_ANALYTICS_HOST_NAME", Value: "localhost"}
+			envVarBiqPort := v1.EnvVar{Name: "APPDYNAMICS_ANALYTICS_PORT", Value: "9090"}
+			envVarBiqSSL := v1.EnvVar{Name: "APPDYNAMICS_ANALYTICS_SSL_ENABLED", Value: "false"}
+			container.Env = append(container.Env, envVarBiqHost)
+			container.Env = append(container.Env, envVarBiqPort)
+			container.Env = append(container.Env, envVarBiqSSL)
+		} else {
+			envVarBiqHost := v1.EnvVar{Name: "APPDYNAMICS_ANALYTICS_HOST_NAME", Value: dni.Bag.RemoteBiqHost}
+			envVarBiqPort := v1.EnvVar{Name: "APPDYNAMICS_ANALYTICS_PORT", Value: fmt.Sprintf("%d", dni.Bag.RemoteBiqPort)}
+			ssl := "false"
+			if dni.Bag.RemoteBiqProtocol == "https" {
+				ssl = "true"
+			}
+			envVarBiqSSL := v1.EnvVar{Name: "APPDYNAMICS_ANALYTICS_SSL_ENABLED", Value: ssl}
+			container.Env = append(container.Env, envVarBiqHost)
+			container.Env = append(container.Env, envVarBiqPort)
+			container.Env = append(container.Env, envVarBiqSSL)
+		}
+
+	}
+
 }

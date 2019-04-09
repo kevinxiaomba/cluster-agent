@@ -41,12 +41,19 @@ func NewMutexConfigManager(env *m.AppDBag) *MutexConfigManager {
 		fmt.Printf("Using config file %s\n", CONFIG_FILE)
 	}
 	cm := MutexConfigManager{Conf: conf, Mutex: &sync.Mutex{}}
+	cm.setDefaults(env)
 	watcher, err := WatchFile(CONFIG_FILE, time.Second, cm.onConfigUpdate)
 	if err != nil {
 		fmt.Printf("Enable to start config watcher. %v", err)
 	}
 	cm.Watch = watcher
 	return &cm
+}
+
+func (self *MutexConfigManager) setDefaults(env *m.AppDBag) {
+	if self.Conf.DashboardTemplatePath == "" {
+		self.Conf.DashboardTemplatePath = env.DashboardTemplatePath
+	}
 }
 
 func (self *MutexConfigManager) onConfigUpdate() {

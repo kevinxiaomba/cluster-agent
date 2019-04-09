@@ -573,7 +573,16 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 		dot["guid"] = uuid.New().String()
 		dot["height"] = height
 		dot["width"] = width
+		contNum := hn.GetContainerCount()
+		if contNum > 1 {
+			dot["text"] = fmt.Sprintf("%d", len(hn.Containers))
+		}
 		dot["description"] = fmt.Sprintf("%s/%s\n%s", hn.Namespace, hn.Podname, hn.Nodename)
+		dot["description"] = fmt.Sprintf("%s\n%s", dot["description"], hn.GetContainerStatsFormatted())
+
+		if len(hn.Events) > 0 {
+			dot["description"] = fmt.Sprintf("%s\n%s", dot["description"], hn.GetEventsFormatted())
+		}
 
 		//color
 		colorCode := 0
@@ -617,7 +626,6 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 			healthDot["iconSize"] = healthsize
 			healthDot["applicationId"] = hn.AppID
 			healthDot["entityIds"] = []int{apmID}
-			healthDot["description"] = dot["description"].(string)
 
 			linkLocation := "APP_COMPONENT_MANAGER"
 			linkComponent := "component"

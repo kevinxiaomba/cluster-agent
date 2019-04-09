@@ -72,6 +72,9 @@ type PodWorker struct {
 	DashboardCache          map[string]m.PodSchema
 	DelayDashboard          bool
 	PendingAssociationQueue map[string]m.AgentRetryRequest
+	EventMap                map[string][]string
+	NodesMonitor            *NodesWorker
+	//	MetricsServerExists     bool
 }
 
 var lockOwnerMap = sync.RWMutex{}
@@ -79,16 +82,18 @@ var lockDashboards = sync.RWMutex{}
 var lockNS = sync.RWMutex{}
 var lockAssociationQueue = sync.RWMutex{}
 
+var lockEventLock = sync.RWMutex{}
+
 var lockServices = sync.RWMutex{}
 var lockEPs = sync.RWMutex{}
 
-func NewPodWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient, config *rest.Config, l *log.Logger) PodWorker {
+func NewPodWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient, config *rest.Config, l *log.Logger, nw *NodesWorker) PodWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 	pw := PodWorker{Client: client, ConfManager: cm, Logger: l, SummaryMap: make(map[string]m.ClusterPodMetrics), AppSummaryMap: make(map[string]m.ClusterAppMetrics),
 		ContainerSummaryMap: make(map[string]m.ClusterContainerMetrics), InstanceSummaryMap: make(map[string]m.ClusterInstanceMetrics),
 		WQ: queue, AppdController: controller, K8sConfig: config, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus),
 		ServiceCache: make(map[string]m.ServiceSchema), EndpointCache: make(map[string]v1.Endpoints),
-		OwnerMap: make(map[string]string), NamespaceMap: make(map[string]string),
+		OwnerMap: make(map[string]string), NamespaceMap: make(map[string]string), EventMap: make(map[string][]string),
 		RQCache: make(map[string]v1.ResourceQuota), PVCCache: make(map[string]v1.PersistentVolumeClaim), PendingAssociationQueue: make(map[string]m.AgentRetryRequest),
 		CMCache: make(map[string]v1.ConfigMap), SecretCache: make(map[string]v1.Secret), NSCache: make(map[string]m.NsSchema), DashboardCache: make(map[string]m.PodSchema)}
 	pw.initPodInformer(client)
@@ -100,6 +105,8 @@ func NewPodWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, c
 	pw.SecretWatcher = w.NewSecretWathcer(client, cm, &pw.SecretCache, pw)
 	pw.NSWatcher = w.NewNSWatcher(client, cm, &pw.NSCache)
 	pw.DelayDashboard = true
+	pw.NodesMonitor = nw
+	//	pw.MetricsServerExists = false
 	return pw
 }
 
@@ -147,6 +154,12 @@ func (pw *PodWorker) onNewPod(obj interface{}) {
 	pw.WQ.Add(&podRecord)
 	pw.checkForInstrumentation(podObj, &podRecord)
 }
+
+//func (pw *PodWorker) validateMetricsServer(podObject *v1.Pod) {
+//	if podObject.Namespace == "kube-system" && strings.Contains(podObject.Name, "metrics-server") {
+//		pw.MetricsServerExists = true
+//	}
+//}
 
 func (pw *PodWorker) instrument(statusChannel chan m.AttachStatus, podObj *v1.Pod, podSchema *m.PodSchema) {
 	bag := (*pw.ConfManager).Get()
@@ -579,6 +592,8 @@ func (pw *PodWorker) buildAppDMetrics() {
 		//heat map
 		heatNode := m.NewHeatNode(podSchema)
 		if clusterBag != nil {
+			heatNode.Events = pw.GetPodEvents(&podSchema)
+			heatNode.Containers = pw.GetPodUtilization(&podSchema)
 			clusterBag.AddNode(&heatNode)
 		}
 		count++
@@ -1366,10 +1381,10 @@ func (pw PodWorker) updateConatainerStatus(podObject *m.PodSchema, containerObj 
 
 	podObject.Containers[containerObj.Name] = *containerObj
 
-	if containerObj.Restarts > 10 {
+	if bag.LogLines > 0 && (containerObj.Restarts > 2 || podObject.Phase == "Failed") {
 		po := v1.PodLogOptions{}
 		var since int64 = int64(bag.SnapshotSyncInterval)
-		var lines int64 = int64(bag.EventAPILimit)
+		var lines int64 = int64(bag.LogLines)
 		po.SinceSeconds = &since
 		po.Container = containerObj.Name
 		po.Follow = false
@@ -1863,12 +1878,14 @@ func (pw *PodWorker) flushAssociationQueue() {
 		podKey := utils.GetPodKey(p.Pod)
 		updated, ok, err := pw.informer.GetStore().GetByKey(podKey)
 		if err == nil && ok {
-			fmt.Printf("Updatedd version of pod %s found. Retrying association...\n", podKey)
 			podObj := updated.(*v1.Pod)
-			p.Pod = podObj
-			err := injector.RetryAssociate(p.Pod, p.Request)
-			if err == nil {
-				purgeList = append(purgeList, p)
+			if utils.IsPodRunnnig(podObj) {
+				fmt.Printf("Updatedd version of pod %s found. Retrying association...\n", podKey)
+				p.Pod = podObj
+				err := injector.RetryAssociate(p.Pod, p.Request)
+				if err == nil {
+					purgeList = append(purgeList, p)
+				}
 			}
 		}
 	}
@@ -1887,4 +1904,79 @@ func (pw *PodWorker) purgeAssociationQueue(retryObjects []m.AgentRetryRequest) {
 			delete(pw.PendingAssociationQueue, key)
 		}
 	}
+}
+
+func (pw *PodWorker) OnPodrrorEvent(podName string, namespace string, message string, since int64) {
+	bag := (*pw.ConfManager).Get()
+	lockEventLock.Lock()
+	defer lockEventLock.Unlock()
+	key := utils.GetKey(namespace, podName)
+	list, ok := pw.EventMap[key]
+	if !ok {
+		list = []string{}
+	}
+	limit := len(list)
+	for limit >= bag.PodEventNumber {
+		list = append(list[:0], list[1:]...)
+		limit = len(list)
+	}
+	eventMessage := fmt.Sprintf("%s. %s", utils.FormatDuration(since), message)
+	list = append(list, eventMessage)
+	pw.EventMap[key] = list
+}
+
+func (pw *PodWorker) GetPodEvents(podSchema *m.PodSchema) []string {
+	key := utils.GetKey(podSchema.Namespace, podSchema.Name)
+	if list, ok := pw.EventMap[key]; ok {
+		return list
+	}
+
+	return []string{}
+}
+
+func (pw *PodWorker) GetCpuUtilization(podSchema *m.PodSchema, containerSchema *m.ContainerSchema) float64 {
+	if containerSchema.CpuUse > 0 {
+		if containerSchema.CpuRequest > 0 {
+			return float64(containerSchema.CpuUse) / float64(containerSchema.CpuRequest) * 100
+		} else if containerSchema.CpuLimit > 0 {
+			return float64(containerSchema.CpuUse) / float64(containerSchema.CpuLimit) * 100
+		} else if pw.NodesMonitor != nil {
+			nodeInfo := pw.NodesMonitor.GetNodeData(podSchema.NodeName)
+			if nodeInfo != nil {
+				if nodeInfo.CpuCapacity > 0 {
+					return float64(containerSchema.CpuUse) / float64(nodeInfo.CpuCapacity) * 100
+				}
+			}
+		}
+	}
+	return -1
+}
+
+func (pw *PodWorker) GetMemUtilization(podSchema *m.PodSchema, containerSchema *m.ContainerSchema) float64 {
+	if containerSchema.MemUse > 0 {
+		if containerSchema.MemRequest > 0 {
+			return float64(containerSchema.MemUse) / float64(containerSchema.MemRequest) * 100
+		} else if podSchema.MemLimit > 0 {
+			return float64(containerSchema.MemUse) / float64(containerSchema.MemLimit) * 100
+		} else if pw.NodesMonitor != nil {
+			nodeInfo := pw.NodesMonitor.GetNodeData(podSchema.NodeName)
+			if nodeInfo != nil {
+				if nodeInfo.MemCapacity > 0 {
+					return float64(containerSchema.MemUse) / float64(nodeInfo.MemCapacity) * 100
+				}
+			}
+		}
+	}
+	return -1
+}
+
+func (pw *PodWorker) GetPodUtilization(podSchema *m.PodSchema) map[string]m.Utilization {
+	mu := make(map[string]m.Utilization)
+	for _, c := range podSchema.Containers {
+		if !c.Init {
+			cu := m.Utilization{CpuUse: pw.GetCpuUtilization(podSchema, &c), MemUse: pw.GetMemUtilization(podSchema, &c)}
+			mu[c.Name] = cu
+		}
+	}
+	return mu
 }

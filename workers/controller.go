@@ -11,6 +11,7 @@ import (
 
 	"github.com/sjeltuhin/clusterAgent/config"
 	m "github.com/sjeltuhin/clusterAgent/models"
+	"github.com/sjeltuhin/clusterAgent/utils"
 	"github.com/sjeltuhin/clusterAgent/web"
 	"k8s.io/api/core/v1"
 
@@ -32,6 +33,7 @@ type MainController struct {
 	Logger      *log.Logger
 	K8sConfig   *rest.Config
 	PodsWorker  *PodWorker
+	NodesWorker *NodesWorker
 }
 
 func NewController(cm *config.MutexConfigManager, client *kubernetes.Clientset, l *log.Logger, config *rest.Config) MainController {
@@ -128,6 +130,15 @@ func (c *MainController) ValidateParameters() error {
 		bag.ProxyHost = strings.TrimLeft(arr[1], "//")
 		bag.ProxyPort = arr[2]
 	}
+	if bag.AnalyticsAgentUrl != "" {
+		protocol, host, port, err := utils.SplitUrl(bag.AnalyticsAgentUrl)
+		if err != nil {
+			return fmt.Errorf("Analytics agent Url is invalid. Use this format: protocol://url:port")
+		}
+		bag.RemoteBiqProtocol = protocol
+		bag.RemoteBiqHost = host
+		bag.RemoteBiqPort = port
+	}
 	c.ConfManager.Set(bag)
 	c.Logger.Printf("Account info: %s %s\n", bag.AccessKey, bag.GlobalAccount)
 	return nil
@@ -141,11 +152,8 @@ func (c *MainController) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 
 	appdController := app.NewControllerClient(c.ConfManager, c.Logger)
 
-	wg.Add(1)
+	wg.Add(3)
 	go c.startNodeWorker(stopCh, c.K8sClient, wg, appdController)
-
-	wg.Add(2)
-	go c.startPodsWorker(stopCh, c.K8sClient, wg, appdController)
 
 	wg.Add(1)
 	go c.startDeployWorker(stopCh, c.K8sClient, wg, appdController)
@@ -162,14 +170,15 @@ func (c *MainController) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	//	<-stopCh
 }
 
-func (c *MainController) startPodsWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
-	fmt.Println("Starting Pods worker")
+func (c *MainController) startNodeWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
+	fmt.Println("Starting Nodes worker")
 	defer wg.Done()
-	pw := NewPodWorker(client, c.ConfManager, appdController, c.K8sConfig, c.Logger)
-	c.PodsWorker = &pw
-	go c.startEventsWorker(stopCh, c.K8sClient, wg, appdController)
-	c.PodsWorker.Observe(stopCh, wg)
+	nw := NewNodesWorker(client, c.ConfManager, appdController)
+	c.NodesWorker = &nw
+	go c.startPodsWorker(stopCh, client, wg, appdController)
+	nw.Observe(stopCh, wg)
 	<-stopCh
+
 }
 
 func (c *MainController) startDeployWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
@@ -201,6 +210,7 @@ func (c *MainController) startEventsWorker(stopCh <-chan struct{}, client *kuber
 	defer wg.Done()
 	ew := NewEventWorker(client, c.ConfManager, appdController, c.PodsWorker)
 	ew.Observe(stopCh, wg)
+	<-stopCh
 }
 
 func (c *MainController) startJobsWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
@@ -208,13 +218,17 @@ func (c *MainController) startJobsWorker(stopCh <-chan struct{}, client *kuberne
 	defer wg.Done()
 	ew := NewJobsWorker(client, c.ConfManager, appdController, c.K8sConfig)
 	ew.Observe(stopCh, wg)
+	<-stopCh
 }
 
-func (c *MainController) startNodeWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
-	fmt.Println("Starting Nodes worker")
+func (c *MainController) startPodsWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
+	fmt.Println("Starting Pods worker")
 	defer wg.Done()
-	ew := NewNodesWorker(client, c.ConfManager, appdController)
-	ew.Observe(stopCh, wg)
+	pw := NewPodWorker(client, c.ConfManager, appdController, c.K8sConfig, c.Logger, c.NodesWorker)
+	c.PodsWorker = &pw
+	go c.startEventsWorker(stopCh, c.K8sClient, wg, appdController)
+	c.PodsWorker.Observe(stopCh, wg)
+	<-stopCh
 }
 
 func nodesWorker(finished chan *v1.NodeList, client *kubernetes.Clientset, wg *sync.WaitGroup) {

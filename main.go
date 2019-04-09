@@ -77,6 +77,8 @@ func buildParams() Flags {
 	flag.StringVar(&params.Bag.AgentMountPath, "mount-path", "/opt/appdynamics", "AppD Agent Mount Path")
 	flag.StringVar(&params.Bag.JDKMountName, "jdkmount-name", "jdk-repo", "JDK Mount Name")
 	flag.IntVar(&params.Bag.AgentServerPort, "ws-port", getServerPort(), "Agent Web Server port number")
+	flag.IntVar(&params.Bag.LogLines, "log-lines", 0, "Number of lines to log when continer is in a failed state")
+	flag.IntVar(&params.Bag.PodEventNumber, "pod-event-number", 3, "Number of of recent events retained for a pod")
 	flag.StringVar(&params.Bag.JDKMountPath, "jdkmount-path", "$JAVA_HOME/lib", "JDK Mount Path")
 	flag.StringVar(&params.Bag.NodeNamePrefix, "node-prefix", params.Bag.TierName, "Node name prefix. Used when node reuse is set to true")
 	flag.StringVar(&params.Bag.AnalyticsAgentUrl, "analytics-agent-url", getAnalyticsAgentUrl(), "Analytics Agent Url")
@@ -476,9 +478,9 @@ func getInstrumentContainer() string {
 }
 
 func getTemplatePath() string {
-	templPath := os.Getenv("DASH_TEMPLATE__PATH")
+	templPath := os.Getenv("DASH_TEMPLATE_PATH")
 	if templPath == "" {
-		absPath, err := filepath.Abs("templates/k8s_dashboard_template.json")
+		absPath, err := filepath.Abs("templates/cluster_template.json")
 		if err != nil {
 			fmt.Printf("Cannot find dashbaord template. %v\n", err)
 		}

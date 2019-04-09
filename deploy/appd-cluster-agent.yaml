@@ -7,47 +7,44 @@ spec:
   template:
     metadata:
       labels:
-        name: appd-cluster-agent
+        name: cluster-agent
     spec:
-      serviceAccountName: appd-operator
+      serviceAccountName: appdynamics-operator
       containers:
-      - name: appd-cluster-agent-devops
-        image: sashaz/appd-cluster-agent@sha256:49030bc88bbfa678bd2ed3acb475f54003aa17c289c444e63325c73bc2275be3
+      - name: cluster-agent
+        image: appdynamics/cluster-agent:latest
         imagePullPolicy: IfNotPresent
         envFrom:
         - configMapRef:
-            name: appd-clusteragent
+            name: cluster-agent-config
         env:
-        - name: ACCESS_KEY
+        - name: APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              key: ACCESS_KEY
-              name: appd-clusteragent
-        - name: ACCOUNT_NAME
+              key: controller-key
+              name: cluster-agent-secret
+        - name: APPDYNAMICS_EVENT_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              key: ACCOUNT_NAME
-              name: appd-clusteragent
-        - name: EVENT_ACCESS_KEY
+              key: event-key
+              name: cluster-agent-secret
+        - name: APPDYNAMICS_REST_API_CREDENTIALS
           valueFrom:
             secretKeyRef:
-              key: EVENT_ACCESS_KEY
-              name: appd-clusteragent
-        - name: GLOBAL_ACCOUNT_NAME
-          valueFrom:
-            secretKeyRef:
-              key: GLOBAL_ACCOUNT_NAME
-              name: appd-clusteragent
-        - name: REST_API_CREDENTIALS
-          valueFrom:
-            secretKeyRef:
-              key: REST_API_CREDENTIALS
-              name: appd-clusteragent
-		- name: AGENT_NAMESPACE
+              key: api-user
+              name: cluster-agent-secret
+		- name: APPDYNAMICS_AGENT_NAMESPACE
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+		volumeMounts:
+        - name: agent-config
+          mountPath: /opt/appdynamics/config/
         ports:
         - containerPort: 8989
           protocol: TCP
+	volumes:
+      - name: agent-config
+        configMap:
+          name: cluster-agent-config
     restartPolicy: Always

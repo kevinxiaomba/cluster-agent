@@ -81,5 +81,10 @@ type AppDBag struct {
 	InitRequestCpu              string
 	BiqRequestMem               string
 	BiqRequestCpu               string
+	LogLines                    int //0 - no logging
+	PodEventNumber              int
+	RemoteBiqProtocol           string
+	RemoteBiqHost               string
+	RemoteBiqPort               int
 	SchemaUpdateCache           []string
 }

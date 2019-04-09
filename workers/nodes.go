@@ -30,11 +30,14 @@ type NodesWorker struct {
 	SummaryMap     map[string]m.ClusterNodeMetrics
 	WQ             workqueue.RateLimitingInterface
 	AppdController *app.ControllerClient
+	CapacityMap    map[string]m.NodeSchema
 }
+
+var lockCapacityMap = sync.RWMutex{}
 
 func NewNodesWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient) NodesWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
-	pw := NodesWorker{Client: client, ConfigManager: cm, SummaryMap: make(map[string]m.ClusterNodeMetrics), WQ: queue, AppdController: controller}
+	pw := NodesWorker{Client: client, ConfigManager: cm, SummaryMap: make(map[string]m.ClusterNodeMetrics), WQ: queue, AppdController: controller, CapacityMap: make(map[string]m.NodeSchema)}
 	pw.initNodeInformer(client)
 	return pw
 }
@@ -310,6 +313,18 @@ func (pw *NodesWorker) summarize(nodeObject *m.NodeSchema) {
 
 	pw.SummaryMap[m.ALL] = summary
 	pw.SummaryMap[nodeObject.NodeName] = summaryNode
+	pw.updateCapcityMap(*nodeObject)
+}
+
+func (pw *NodesWorker) updateCapcityMap(node m.NodeSchema) {
+	lockCapacityMap.Lock()
+	defer lockCapacityMap.Unlock()
+	pw.CapacityMap[node.NodeName] = node
+}
+
+func (pw *NodesWorker) GetNodeData(nodeName string) *m.NodeSchema {
+	node := pw.CapacityMap[nodeName]
+	return &node
 }
 
 func (pw *NodesWorker) processObject(n *v1.Node, old *v1.Node) (m.NodeSchema, bool) {
@@ -369,7 +384,7 @@ func (pw *NodesWorker) processObject(n *v1.Node, old *v1.Node) (m.NodeSchema, bo
 			nodeObject.MemAllocations = a.Value()
 		}
 		if k == "cpu" {
-			nodeObject.CpuAllocations = a.Value()
+			nodeObject.CpuAllocations = a.Value() * 1000 //milli
 		}
 		if k == "pods" {
 			nodeObject.PodAllocations = a.Value()

@@ -312,6 +312,11 @@ func (ew *EventWorker) processObject(e *v1.Event) m.EventSchema {
 	eventObject.Category = cat
 	eventObject.SubCategory = sub
 
+	if ew.PodsWorker != nil && eventObject.ObjectKind == "Pod" && eventObject.Category == "error" {
+		elapsedTime := time.Now().Sub(eventObject.LastTimestamp)
+		ew.PodsWorker.OnPodrrorEvent(eventObject.ObjectName, eventObject.Namespace, eventObject.Reason, int64(elapsedTime))
+	}
+
 	return eventObject
 }
 
