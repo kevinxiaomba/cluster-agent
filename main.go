@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"strconv"
@@ -13,8 +12,11 @@ import (
 	"path/filepath"
 	"sync"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/sjeltuhin/clusterAgent/config"
 	m "github.com/sjeltuhin/clusterAgent/models"
+	"github.com/sjeltuhin/clusterAgent/version"
 	w "github.com/sjeltuhin/clusterAgent/workers"
 
 	"k8s.io/client-go/kubernetes"
@@ -26,6 +28,8 @@ type Flags struct {
 	Kubeconfig string
 	Bag        m.AppDBag
 }
+
+var l *log.Logger = log.New()
 
 func buildParams() Flags {
 	var method, tech string
@@ -152,8 +156,14 @@ func buildParams() Flags {
 }
 
 func main() {
+
+	// Only log the warning severity or above.
+	l.SetLevel(log.InfoLevel)
 	// Set logging output to standard console out
-	log.SetOutput(os.Stdout)
+	l.SetOutput(os.Stdout)
+
+	l.Info("Starting AppDynamics ClusterAgent")
+	l.WithField("v", version.Version).Info("ClusterAgent version:")
 
 	sigs := make(chan os.Signal, 1) // Create channel to receive OS signals
 	stop := make(chan struct{})     // Create channel to receive stop signal
@@ -162,7 +172,7 @@ func main() {
 
 	params := buildParams()
 
-	configManager := config.NewMutexConfigManager(&params.Bag)
+	configManager := config.NewMutexConfigManager(&params.Bag, l)
 
 	defer func() {
 		configManager.Close()
@@ -170,29 +180,29 @@ func main() {
 
 	config, err := authFromConfig(&params)
 	if err != nil {
-		log.Printf("Issues getting kube config. %s. Terminating...", err.Error())
+		l.WithField("error", err.Error()).Error("Issues getting kube config. Terminating...")
 		return
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		log.Printf("Issues authenticating with the cluster. %s. Terminating...", err.Error())
+		l.WithField("error", err.Error()).Error("Issues authenticating with the cluster. Terminating...")
 		return
 	}
 
 	var wg sync.WaitGroup
-	l := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
+
 	controller := w.NewController(configManager, clientset, l, config)
 	validationErr := controller.ValidateParameters()
 	if validationErr != nil {
-		log.Printf("Cluster Agent parameters are invalid. %v. Terminating...", validationErr)
+		l.WithField("error", validationErr.Error()).Error("Cluster Agent parameters are invalid. Terminating...")
 		return
 	}
 	controller.Run(stop, &wg)
 
 	<-sigs
 
-	fmt.Println("Shutting down...")
+	l.Info("Shutting down...")
 
 	close(stop)
 
@@ -202,10 +212,10 @@ func main() {
 
 func authFromConfig(params *Flags) (*rest.Config, error) {
 	if params.Kubeconfig != "" {
-		fmt.Printf("Kube config = %s\n", params.Kubeconfig)
+		l.WithField("path", params.Kubeconfig).Info("Kube config path")
 		return clientcmd.BuildConfigFromFlags("", params.Kubeconfig)
 	} else {
-		fmt.Printf("Using in-cluster auth")
+		l.Info("Using in-cluster auth")
 		return rest.InClusterConfig()
 	}
 
@@ -227,7 +237,7 @@ func getKubeConfigPath() string {
 			path = filepath.Join(home, ".kube", "config")
 			//check if a valid path
 			if _, err := os.Stat(path); err != nil {
-				fmt.Printf("Default path to  %s does not exist", path)
+				l.WithField("path", path).Warn("Default path to kubeconfig does not exist")
 				path = ""
 			}
 		}
@@ -482,7 +492,7 @@ func getTemplatePath() string {
 	if templPath == "" {
 		absPath, err := filepath.Abs("templates/cluster_template.json")
 		if err != nil {
-			fmt.Printf("Cannot find dashbaord template. %v\n", err)
+			l.WithField("error", err).Warn("Cannot find dashboard template")
 		}
 		templPath = absPath
 	}
@@ -490,7 +500,10 @@ func getTemplatePath() string {
 }
 
 func getControllerPort() uint {
-	port := os.Getenv("CONTROLLER_PORT")
+	port := os.Getenv("APPDYNAMICS_CONTROLLER_PORT")
+	if port == "" {
+		return 8090
+	}
 	val, err := strconv.Atoi(port)
 	if err != nil {
 		fmt.Printf("Cannot convert port value %s to int\n", port)

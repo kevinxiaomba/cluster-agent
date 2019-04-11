@@ -50,6 +50,11 @@ type NodeSchemaDef struct {
 	DiskPressure    string `json:"diskPressure"`
 }
 
+func (sd NodeSchemaDef) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(sd)
+	return &objMap
+}
+
 func NewNodeSchemaDefWrapper() NodeSchemaDefWrapper {
 	schema := NewNodeSchemaDef()
 	wrapper := NodeSchemaDefWrapper{Schema: schema}

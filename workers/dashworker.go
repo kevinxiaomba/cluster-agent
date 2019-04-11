@@ -4,7 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
+
+	log "github.com/sirupsen/logrus"
 
 	"math"
 	"os"
@@ -175,7 +176,7 @@ func (dw *DashboardWorker) readJsonTemplate(templateFile string) ([]byte, error,
 		exists = !os.IsNotExist(err)
 		return nil, fmt.Errorf("Unable to open template file %s. %v", templateFile, err), exists
 	}
-	fmt.Printf("Successfully opened template %s\n", templateFile)
+	dw.Logger.Debugf("Successfully opened template %s\n", templateFile)
 	defer jsonFile.Close()
 
 	byteValue, errRead := ioutil.ReadAll(jsonFile)
@@ -261,7 +262,7 @@ func (dw *DashboardWorker) createDashboardFromFile(dashboard *m.Dashboard, genPa
 		return nil, fmt.Errorf("Unable to create dashaboard. Unable to deserialize the new dashaboards. %v\n", eD)
 	}
 
-	fmt.Printf("Dashboard saved %.0f %s\n", dashObj.ID, dashObj.Name)
+	dw.Logger.Debugf("Dashboard saved %.0f %s\n", dashObj.ID, dashObj.Name)
 	return dashboard, nil
 }
 
@@ -272,12 +273,12 @@ func (dw *DashboardWorker) saveTemplate(dashboard *m.Dashboard, genPath string) 
 	}
 	dir := filepath.Dir(dw.Bag.DashboardTemplatePath)
 	fileForUpload := dir + genPath
-	fmt.Printf("About to save template file %s...\n", fileForUpload)
+	dw.Logger.Debugf("About to save template file %s...\n", fileForUpload)
 	errSave := ioutil.WriteFile(fileForUpload, generated, 0644)
 	if errSave != nil {
 		return nil, fmt.Errorf("Issues when writing generated template. %v", errSave)
 	}
-	fmt.Printf("File %s... saved\n", fileForUpload)
+	dw.Logger.Debugf("File %s... saved\n", fileForUpload)
 	return &fileForUpload, nil
 }
 
@@ -370,18 +371,18 @@ func (dw *DashboardWorker) updateClusterOverview(bag *m.DashboardBag) error {
 		return fmt.Errorf("Cluster template exists, but cannot be loaded. %v", err)
 	}
 	dashName := fmt.Sprintf("Cluster-Overview-%s-%s", dw.Bag.AppName, dw.Bag.DashboardSuffix)
-	//	check if deleted
-	var existing *m.Dashboard = nil
-	if dashboard != nil {
-		existing, err = dw.loadDashboardByID(dashboard.ID)
-		if err != nil {
-			return fmt.Errorf("Unable to load existing dashboard %s. %v", dashName, err)
-		}
-	}
-	if dashboard == nil || existing == nil {
-		fmt.Printf("Not found. Creating cluster overview dashboard from scratch\n")
+	//	//	check if deleted
+	//	var existing *m.Dashboard = nil
+	//	if dashboard != nil {
+	//		existing, err = dw.loadDashboardByID(dashboard.ID)
+	//		if err != nil {
+	//			return fmt.Errorf("Unable to validate existing dashboard %s. %v", dashName, err)
+	//		}
+	//	}
+	if dashboard == nil {
+		dw.Logger.Info("Saved template not found. Creating cluster overview dashboard from scratch\n")
 		dashboard, err, exists = dw.loadDashboardTemplate(FULL_CLUSTER)
-		fmt.Printf("Load template %s. Error: %v, Exists: %t\n", FULL_CLUSTER, err, true)
+		dw.Logger.Debugf("Load template %s. Error: %v, Exists: %t\n", FULL_CLUSTER, err, exists)
 		if !exists {
 			return fmt.Errorf("Cluster overview template not found. Aborting dashboard generation")
 		}
@@ -389,20 +390,19 @@ func (dw *DashboardWorker) updateClusterOverview(bag *m.DashboardBag) error {
 			return fmt.Errorf("Cluster overview template exists, but cannot be loaded. %v", err)
 		}
 		dashboard.Name = dashName
-		if existing == nil {
-			newDash, err := dw.createDashboard(dashboard)
-			fmt.Printf("Create dashboard result. Error: %v, \n", err)
+
+		newDash, err := dw.createDashboard(dashboard)
+		dw.Logger.Debugf("Create dashboard result. Error: %v, \n", err)
+		if err != nil {
+			//agent restart, no template left, but the dashboard exists, attempt to load by name
+			existing, err := dw.loadDashboard(dashName)
 			if err != nil {
-				//agent restart, no template left, but the dashboard exists, attempt to load by name
-				existing, err := dw.loadDashboard(dashName)
-				if err != nil {
-					return fmt.Errorf("Unable to load dashboard %s. %v", dashName, err)
-				} else {
-					dashboard.ID = existing.ID
-				}
+				return fmt.Errorf("Unable to load dashboard %s. %v", dashName, err)
 			} else {
-				dashboard = newDash
+				dashboard.ID = existing.ID
 			}
+		} else {
+			dashboard = newDash
 		}
 
 		//by this time we should have dashboard object with id
@@ -456,7 +456,7 @@ func (dw *DashboardWorker) updateClusterOverview(bag *m.DashboardBag) error {
 
 		//update dashboard with static widgets
 		savedDash, errSaveDash := dw.saveDashboard(dashboard)
-		fmt.Printf("saveDashboard. %v\n", errSaveDash)
+		dw.Logger.Debugf("saveDashboard. %v\n", errSaveDash)
 		if errSaveDash != nil {
 			return errSaveDash
 		}
@@ -481,7 +481,7 @@ func (dw *DashboardWorker) updateClusterOverview(bag *m.DashboardBag) error {
 	}
 
 	_, errSaveDash := dw.saveDashboard(hotdash)
-	fmt.Printf("saveDashboard. %v\n", errSaveDash)
+	dw.Logger.Debugf("Cluster overview Dashboard saved. %v\n", errSaveDash)
 
 	return nil
 }
@@ -588,7 +588,11 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 		colorCode := 0
 		searchPath := fmt.Sprintf("%s%s", BASE_PATH, "Evictions")
 		if hn.State == "Running" {
-			colorCode = 34021 //34021  39168
+			if hn.IsOverconsuming() {
+				colorCode = 10040319
+			} else {
+				colorCode = 34021 //34021  39168
+			}
 			searchPath = fmt.Sprintf("%s%s", BASE_PATH, "PodRunning")
 		} else if hn.State == "Pending" {
 			colorCode = 16605970
@@ -601,11 +605,16 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 
 		dot["backgroundColor"] = colorCode
 
-		if oldNS != "" && oldNS != hn.Namespace {
-			currentX += nsGap
-		} else if oldDeploy != "" && oldDeploy != hn.Owner {
+		if oldDeploy != "" && oldDeploy != hn.Owner {
 			currentX += deployGap
 		}
+
+		if oldNS != "" && oldNS != hn.Namespace {
+			currentX += nsGap
+		}
+		//revalidate dimensions after the adjustment
+		currentX, currentY = dw.validateDimensions(currentX, currentY, lastLine, height, nodeMargin, minSize, rightMargin, leftMargin, dashboard, &backgroundWidet)
+
 		//position
 		dot["x"] = currentX
 		dot["y"] = currentY
@@ -653,16 +662,7 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 		dotArray = append(dotArray, dot)
 
 		currentX = currentX + minSize + nodeMargin
-		if currentX > rightMargin {
-			currentX = leftMargin
-			currentY = currentY + minSize + nodeMargin
-			if currentY > lastLine {
-				//make the background taller
-				lastLine = lastLine + height + nodeMargin
-				backgroundWidet["height"] = lastLine + minSize + nodeMargin
-			}
-		}
-
+		currentX, currentY = dw.validateDimensions(currentX, currentY, lastLine, height, nodeMargin, minSize, rightMargin, leftMargin, dashboard, &backgroundWidet)
 	}
 
 	//append widgets
@@ -675,6 +675,22 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 	}
 
 	return dashboard, nil
+}
+
+func (dw *DashboardWorker) validateDimensions(currentX, currentY, lastLine, height, nodeMargin, minSize, rightMargin, leftMargin int, dashboard *m.Dashboard, backgroundWidet *map[string]interface{}) (int, int) {
+	if currentX > rightMargin {
+		currentX = leftMargin
+		currentY = currentY + minSize + nodeMargin
+		if currentY > lastLine {
+			//make the background taller
+			lastLine = lastLine + height + nodeMargin
+			(*backgroundWidet)["height"] = lastLine + minSize + nodeMargin
+			if dashboard.Height < float64((*backgroundWidet)["height"].(int)+2*minSize) {
+				dashboard.Height = float64((*backgroundWidet)["height"].(int) + 4*minSize)
+			}
+		}
+	}
+	return currentX, currentY
 }
 
 func (dw *DashboardWorker) updateHealthWidget(widget *map[string]interface{}, bag *m.DashboardBag) {

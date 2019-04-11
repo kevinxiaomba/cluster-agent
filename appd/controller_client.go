@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"strings"
 	"sync"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/sjeltuhin/clusterAgent/config"
 	m "github.com/sjeltuhin/clusterAgent/models"
@@ -24,7 +25,7 @@ type ControllerClient struct {
 	MetricsCache map[string]float64
 }
 
-func NewControllerClient(cm *config.MutexConfigManager, logger *log.Logger) *ControllerClient {
+func NewControllerClient(cm *config.MutexConfigManager, logger *log.Logger) (*ControllerClient, error) {
 	cfg := appd.Config{}
 
 	bag := (*cm).Get()
@@ -38,11 +39,11 @@ func NewControllerClient(cm *config.MutexConfigManager, logger *log.Logger) *Con
 	if bag.SSLEnabled {
 		err := writeSSLFromEnv(bag, logger)
 		if err != nil {
-			logger.Printf("Unable to set SSL certificates. Using system certs %s", bag.SystemSSLCert)
+			logger.Errorf("Unable to set SSL certificates. Using system certs %s", bag.SystemSSLCert)
 			cfg.Controller.CertificateFile = bag.SystemSSLCert
 
 		} else {
-			logger.Printf("Setting agent certs to %s", bag.AgentSSLCert)
+			logger.Errorf("Setting agent certs to %s", bag.AgentSSLCert)
 			cfg.Controller.CertificateFile = bag.AgentSSLCert
 		}
 	}
@@ -53,11 +54,12 @@ func NewControllerClient(cm *config.MutexConfigManager, logger *log.Logger) *Con
 	//	cfg.Logging.BaseDir = "__console__"
 	cfg.Logging.MinimumLevel = appd.APPD_LOG_LEVEL_DEBUG
 	if err := appd.InitSDK(&cfg); err != nil {
-		logger.Printf("Error initializing the AppDynamics SDK. %v\n", err)
+		logger.WithField("error", err).Error("Error initializing the AppDynamics SDK.")
+		return nil, err
 	} else {
-		logger.Printf("Initialized AppDynamics SDK successfully\n")
+		logger.Info("Initialized AppDynamics SDK successfully")
 	}
-	logger.Println(&cfg.Controller)
+	logger.Debugf("AppD Controller info: %v", &cfg.Controller)
 
 	controller := ControllerClient{ConfManager: cm, logger: logger, regMetrics: make(map[string]bool), MetricsCache: make(map[string]float64)}
 
@@ -71,7 +73,7 @@ func NewControllerClient(cm *config.MutexConfigManager, logger *log.Logger) *Con
 		(*cm).Set(bag)
 	}
 
-	return &controller
+	return &controller, nil
 }
 
 func (c *ControllerClient) RegisterMetrics(metrics m.AppDMetricList) error {
@@ -127,7 +129,6 @@ func (c *ControllerClient) registerMetric(metric m.AppDMetric) error {
 }
 
 func (c *ControllerClient) PostMetrics(metrics m.AppDMetricList) error {
-	c.logger.Println("Pushing Metrics through the agent:")
 	bt := appd.StartBT("PostMetrics", "")
 	for _, metric := range metrics.Items {
 		metric.MetricPath = fmt.Sprintf(metric.MetricPath, (*c.ConfManager).Get().TierName)
@@ -135,7 +136,6 @@ func (c *ControllerClient) PostMetrics(metrics m.AppDMetricList) error {
 		appd.ReportCustomMetric("", metric.MetricPath, metric.MetricValue)
 	}
 	appd.EndBT(bt)
-	c.logger.Println("Done pushing Metrics through the agent")
 
 	return nil
 }
@@ -202,12 +202,10 @@ func (c *ControllerClient) DetermineNodeID(appName string, tierName string, node
 func (c *ControllerClient) FindAppID(appName string) (int, error) {
 	var appID int = 0
 	path := fmt.Sprintf("restui/applicationManagerUiBean/applicationByName?applicationName=%s", appName)
-	fmt.Printf("App by name path %s", path)
-	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	rc := NewRestClient((*c.ConfManager).Get(), logger)
+	rc := NewRestClient((*c.ConfManager).Get(), c.logger)
 	data, err := rc.CallAppDController(path, "GET", nil)
 	if err != nil {
-		fmt.Printf("App by name response: %v %v\n", data, err)
+		c.logger.Errorf("App by name response: %v %v\n", data, err)
 		return appID, fmt.Errorf("Unable to find appID\n")
 	}
 	var appObj map[string]interface{}
@@ -221,7 +219,7 @@ func (c *ControllerClient) FindAppID(appName string) (int, error) {
 			break
 		}
 	}
-	fmt.Printf("App ID = %d \n", appID)
+	c.logger.Debugf("Loaded App ID = %d \n", appID)
 	return appID, nil
 }
 
@@ -234,11 +232,10 @@ func (c *ControllerClient) FindNodeID(appID int, tierName string, nodeName strin
 
 	//	fmt.Printf("Node ID JSON data: %s", jsonData)
 
-	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	rc := NewRestClient((*c.ConfManager).Get(), logger)
+	rc := NewRestClient((*c.ConfManager).Get(), c.logger)
 	data, err := rc.CallAppDController(path, "POST", d)
 	if err != nil {
-		fmt.Printf("Unable to find nodeID. %v\n", err)
+		c.logger.Errorf("Unable to find nodeID. %v\n", err)
 		return tierID, nodeID, fmt.Errorf("Unable to find nodeID. %v\n", err)
 	}
 	var tierObj map[string]interface{}
@@ -266,7 +263,7 @@ func (c *ControllerClient) FindNodeID(appID int, tierName string, nodeName strin
 							for i, p := range nodeObj {
 								if i == "nodeName" && p == nodeName {
 									nodeID = int(nodeObj["nodeId"].(float64))
-									fmt.Printf("TierID: %d, nodeID: %d\n", tierID, nodeID)
+									c.logger.Debugf("Obtained TierID: %d, nodeID: %d\n", tierID, nodeID)
 									return tierID, nodeID, nil
 								}
 							}
@@ -281,7 +278,6 @@ func (c *ControllerClient) FindNodeID(appID int, tierName string, nodeName strin
 
 func (c *ControllerClient) GetMetricID(appID int, metricPath string) (float64, error) {
 
-	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
 	path := fmt.Sprintf("restui/metricBrowser/%d", appID)
 	arr := strings.Split(metricPath, "|")
 	arrPath := arr[:len(arr)-1]
@@ -303,7 +299,7 @@ func (c *ControllerClient) GetMetricID(appID int, metricPath string) (float64, e
 		fmt.Printf("Unable to serialize metrics path. %v \n", eM)
 	}
 
-	rc := NewRestClient((*c.ConfManager).Get(), logger)
+	rc := NewRestClient((*c.ConfManager).Get(), c.logger)
 	//	logger.Printf("Calling metrics update: %s. %s\n", path, string(body))
 	data, err := rc.CallAppDController(path, "POST", body)
 	if err != nil {
@@ -332,13 +328,12 @@ func (c *ControllerClient) GetMetricID(appID int, metricPath string) (float64, e
 }
 
 func (c *ControllerClient) EnableAppAnalytics(appID int, appName string) error {
-	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
 	path := "restui/analyticsConfigTxnAnalyticsUiService/enableAnalyticsForApplication?enabled=true"
 	jsonBody := fmt.Sprintf(`{"appId": %d, "name": "%s"}`, appID, appName)
 
 	body := []byte(jsonBody)
 
-	rc := NewRestClient((*c.ConfManager).Get(), logger)
+	rc := NewRestClient((*c.ConfManager).Get(), c.logger)
 	_, err := rc.CallAppDController(path, "POST", body)
 	if err != nil && !strings.Contains(err.Error(), "204") {
 		return fmt.Errorf("Cannot enable analytics for App %s. %v\n", appName, err)
@@ -385,10 +380,9 @@ func (c *ControllerClient) EnableAppAnalytics(appID int, appName string) error {
 }
 
 func (c *ControllerClient) DeleteAppDNode(nodeID int) error {
-	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
 	path := fmt.Sprintf("restui/nodeUiService/deleteNode/%d", nodeID)
 
-	rc := NewRestClient((*c.ConfManager).Get(), logger)
+	rc := NewRestClient((*c.ConfManager).Get(), c.logger)
 	_, err := rc.CallAppDController(path, "DELETE", nil)
 	if err != nil {
 		return fmt.Errorf("Unable to delete node %d. %v", nodeID, err)

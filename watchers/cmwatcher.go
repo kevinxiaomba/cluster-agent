@@ -1,7 +1,6 @@
 package watchers
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -9,6 +8,8 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	log "github.com/sirupsen/logrus"
 
 	"k8s.io/client-go/kubernetes"
 
@@ -22,12 +23,13 @@ type ConfigWatcher struct {
 	ConfManager *config.MutexConfigManager
 	Listener    *WatchListener
 	UpdateDelay bool
+	Logger      *log.Logger
 }
 
 var lockConfigs = sync.RWMutex{}
 
-func NewConfigWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]v1.ConfigMap, l WatchListener) *ConfigWatcher {
-	sw := ConfigWatcher{Client: client, CMCache: *cache, ConfManager: cm, Listener: &l}
+func NewConfigWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]v1.ConfigMap, listener WatchListener, l *log.Logger) *ConfigWatcher {
+	sw := ConfigWatcher{Client: client, CMCache: *cache, ConfManager: cm, Listener: &listener, Logger: l}
 	sw.UpdateDelay = true
 	return &sw
 }
@@ -35,44 +37,45 @@ func NewConfigWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManage
 func (pw ConfigWatcher) WatchConfigs() {
 	api := pw.Client.CoreV1()
 	listOptions := metav1.ListOptions{}
-	fmt.Println("Starting Config Watcher...")
+	pw.Logger.Info("Starting Config Watcher...")
 	bag := (*pw.ConfManager).Get()
 	dashTimer := time.NewTimer(time.Second * time.Duration(bag.SnapshotSyncInterval))
 	go func() {
 		<-dashTimer.C
 		pw.UpdateDelay = false
-		fmt.Println("CM UpdateDelay lifted.")
+		pw.Logger.Info("CM UpdateDelay lifted.")
 	}()
 
 	watcher, err := api.ConfigMaps(metav1.NamespaceAll).Watch(listOptions)
 	if err != nil {
-		fmt.Printf("Issues when setting up cm watcher. %v", err)
-	}
+		pw.Logger.WithField("error", err).Error("Issues when setting up Config watcher. Aborting...")
+	} else {
 
-	ch := watcher.ResultChan()
+		ch := watcher.ResultChan()
 
-	for ev := range ch {
-		cm, ok := ev.Object.(*v1.ConfigMap)
-		if !ok {
-			fmt.Printf("Expected Config, but received an object of an unknown type. ")
-			continue
+		for ev := range ch {
+			cm, ok := ev.Object.(*v1.ConfigMap)
+			if !ok {
+				pw.Logger.Warn("Expected Config, but received an object of an unknown type.")
+				continue
+			}
+			switch ev.Type {
+			case watch.Added:
+				pw.onNewConfig(cm)
+				break
+
+			case watch.Deleted:
+				pw.onDeleteConfig(cm)
+				break
+
+			case watch.Modified:
+				pw.onUpdateConfig(cm)
+				break
+			}
+
 		}
-		switch ev.Type {
-		case watch.Added:
-			pw.onNewConfig(cm)
-			break
-
-		case watch.Deleted:
-			pw.onDeleteConfig(cm)
-			break
-
-		case watch.Modified:
-			pw.onUpdateConfig(cm)
-			break
-		}
-
 	}
-	fmt.Println("Exiting cm watcher.")
+	pw.Logger.Info("Exiting Config watcher.")
 }
 
 func (pw *ConfigWatcher) qualifies(cm *v1.ConfigMap) bool {
@@ -88,7 +91,6 @@ func (pw *ConfigWatcher) notifyListener(namespace string) {
 
 func (pw ConfigWatcher) onNewConfig(cm *v1.ConfigMap) {
 	if !pw.qualifies(cm) {
-		fmt.Printf("Config %s/%s is not qualified\n", cm.Name, cm.Namespace)
 		return
 	}
 	pw.updateMap(cm)
@@ -96,7 +98,7 @@ func (pw ConfigWatcher) onNewConfig(cm *v1.ConfigMap) {
 }
 
 func (pw ConfigWatcher) onDeleteConfig(cm *v1.ConfigMap) {
-	fmt.Printf("Config Map deleted %s/%s\n", cm.Name, cm.Namespace)
+	pw.Logger.WithFields(log.Fields{"name": cm.Name, "namespace": cm.Namespace}).Debug("Config Map deleted")
 	if !pw.qualifies(cm) {
 		return
 	}
@@ -127,9 +129,7 @@ func (pw ConfigWatcher) CloneMap() map[string]v1.ConfigMap {
 	defer lockConfigs.RUnlock()
 	m := make(map[string]v1.ConfigMap)
 	for key, val := range pw.CMCache {
-		fmt.Printf("Cloned configmap with key %s\n", key)
 		m[key] = val
 	}
-	fmt.Printf("Cloned %d Configs\n", len(m))
 	return m
 }

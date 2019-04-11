@@ -3,11 +3,11 @@ package workers
 import (
 	"encoding/json"
 	"fmt"
-	"log"
-	"os"
 	"strings"
 	"sync"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	app "github.com/sjeltuhin/clusterAgent/appd"
 	"k8s.io/api/core/v1"
@@ -35,12 +35,13 @@ type EventWorker struct {
 	WQ             workqueue.RateLimitingInterface
 	AppdController *app.ControllerClient
 	PodsWorker     *PodWorker
+	Logger         *log.Logger
 }
 
-func NewEventWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, appdController *app.ControllerClient, podsWorker *PodWorker) EventWorker {
+func NewEventWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, appdController *app.ControllerClient, podsWorker *PodWorker, l *log.Logger) EventWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 	ew := EventWorker{Client: client, ConfigManager: cm,
-		AppdController: appdController, SummaryMap: make(map[string]m.ClusterEventMetrics), WQ: queue, PodsWorker: podsWorker}
+		AppdController: appdController, SummaryMap: make(map[string]m.ClusterEventMetrics), WQ: queue, PodsWorker: podsWorker, Logger: l}
 	ew.informer = ew.initInformer(client)
 	return ew
 }
@@ -49,10 +50,10 @@ func (ew *EventWorker) initInformer(client *kubernetes.Clientset) cache.SharedIn
 	i := cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
-				return client.Core().Events(metav1.NamespaceAll).List(options)
+				return client.CoreV1().Events(metav1.NamespaceAll).List(options)
 			},
 			WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
-				return client.Core().Events(metav1.NamespaceAll).Watch(options)
+				return client.CoreV1().Events(metav1.NamespaceAll).Watch(options)
 			},
 		},
 		&v1.Event{},
@@ -180,8 +181,7 @@ func (ew *EventWorker) flushQueue() {
 
 func (ew *EventWorker) postEventRecords(objList *[]m.EventSchema) {
 	bag := (*ew.ConfigManager).Get()
-	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	rc := app.NewRestClient(bag, logger)
+	rc := app.NewRestClient(bag, ew.Logger)
 
 	schemaDefObj := m.NewEventSchemaDefWrapper()
 
@@ -262,7 +262,7 @@ func (ew *EventWorker) buildAppDMetrics() {
 		ew.informer.GetStore().Delete(old)
 	}
 
-	fmt.Printf("Ready to push %d node metrics\n", len(ml.Items))
+	ew.Logger.Infof("Ready to push %d Event metrics\n", len(ml.Items))
 
 	ew.AppdController.PostMetrics(ml)
 	ew.AppdController.StopBT(bth)
@@ -313,8 +313,7 @@ func (ew *EventWorker) processObject(e *v1.Event) m.EventSchema {
 	eventObject.SubCategory = sub
 
 	if ew.PodsWorker != nil && eventObject.ObjectKind == "Pod" && eventObject.Category == "error" {
-		elapsedTime := time.Now().Sub(eventObject.LastTimestamp)
-		ew.PodsWorker.OnPodrrorEvent(eventObject.ObjectName, eventObject.Namespace, eventObject.Reason, int64(elapsedTime))
+		ew.PodsWorker.OnPodErrorEvent(eventObject.ObjectName, eventObject)
 	}
 
 	return eventObject
@@ -467,7 +466,7 @@ func (ew *EventWorker) addMetricToList(objMap map[string]interface{}, metric m.A
 func EmitInstrumentationEvent(pod *v1.Pod, client *kubernetes.Clientset, reason, message, eventType string) error {
 	fmt.Printf("About to emit event: %s %s %s for pod %s-%s\n", reason, message, eventType, pod.Namespace, pod.Name)
 	event := eventFromPod(pod, reason, message, eventType)
-	_, err := client.Core().Events(pod.Namespace).Create(event)
+	_, err := client.CoreV1().Events(pod.Namespace).Create(event)
 	if err != nil {
 		fmt.Printf("Issues when emitting instrumentation event %v\n", err)
 	}
@@ -536,7 +535,7 @@ func (ew *EventWorker) GetEventCategory(eventSchema *m.EventSchema) (string, str
 		cat = "error"
 		break
 	case "Failed":
-		if strings.Contains(msg, "ImagePullBackOff") {
+		if strings.Contains(msg, "ImagePullBackOff") || strings.Contains(msg, "image") {
 			sub = "image"
 		} else {
 			sub = "pod"

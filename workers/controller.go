@@ -3,11 +3,12 @@ package workers
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/sjeltuhin/clusterAgent/config"
 	m "github.com/sjeltuhin/clusterAgent/models"
@@ -28,12 +29,13 @@ const (
 )
 
 type MainController struct {
-	ConfManager *config.MutexConfigManager
-	K8sClient   *kubernetes.Clientset
-	Logger      *log.Logger
-	K8sConfig   *rest.Config
-	PodsWorker  *PodWorker
-	NodesWorker *NodesWorker
+	ConfManager    *config.MutexConfigManager
+	K8sClient      *kubernetes.Clientset
+	Logger         *log.Logger
+	K8sConfig      *rest.Config
+	PodsWorker     *PodWorker
+	NodesWorker    *NodesWorker
+	AppdController *app.ControllerClient
 }
 
 func NewController(cm *config.MutexConfigManager, client *kubernetes.Clientset, l *log.Logger, config *rest.Config) MainController {
@@ -92,7 +94,7 @@ func (c *MainController) ValidateParameters() error {
 
 		path := "restui/user/account"
 
-		c.Logger.Printf("Loading account info... \n")
+		c.Logger.Info("Loading account info...")
 
 		rc := app.NewRestClient(bag, c.Logger)
 		data, err := rc.CallAppDController(path, "GET", nil)
@@ -140,7 +142,12 @@ func (c *MainController) ValidateParameters() error {
 		bag.RemoteBiqPort = port
 	}
 	c.ConfManager.Set(bag)
-	c.Logger.Printf("Account info: %s %s\n", bag.AccessKey, bag.GlobalAccount)
+	c.Logger.WithFields(log.Fields{"accessKey": bag.AccessKey, "global account": bag.GlobalAccount}).Debug("Account info")
+	appdC, errInitSdk := app.NewControllerClient(c.ConfManager, c.Logger)
+	if errInitSdk != nil {
+		return fmt.Errorf("Unable to initialize AppDynamics Golang SDK. Metrics collection will not be possible")
+	}
+	c.AppdController = appdC
 	return nil
 }
 
@@ -150,30 +157,28 @@ func (c *MainController) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	wg.Add(1)
 	go ws.RunServer()
 
-	appdController := app.NewControllerClient(c.ConfManager, c.Logger)
-
 	wg.Add(3)
-	go c.startNodeWorker(stopCh, c.K8sClient, wg, appdController)
+	go c.startNodeWorker(stopCh, c.K8sClient, wg, c.AppdController)
 
 	wg.Add(1)
-	go c.startDeployWorker(stopCh, c.K8sClient, wg, appdController)
+	go c.startDeployWorker(stopCh, c.K8sClient, wg, c.AppdController)
 
 	wg.Add(1)
-	go c.startDaemonWorker(stopCh, c.K8sClient, wg, appdController)
+	go c.startDaemonWorker(stopCh, c.K8sClient, wg, c.AppdController)
 
 	wg.Add(1)
-	go c.startRsWorker(stopCh, c.K8sClient, wg, appdController)
+	go c.startRsWorker(stopCh, c.K8sClient, wg, c.AppdController)
 
 	wg.Add(1)
-	go c.startJobsWorker(stopCh, c.K8sClient, wg, appdController)
+	go c.startJobsWorker(stopCh, c.K8sClient, wg, c.AppdController)
 
 	//	<-stopCh
 }
 
 func (c *MainController) startNodeWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
-	fmt.Println("Starting Nodes worker")
+	c.Logger.Info("Starting Nodes worker...")
 	defer wg.Done()
-	nw := NewNodesWorker(client, c.ConfManager, appdController)
+	nw := NewNodesWorker(client, c.ConfManager, appdController, c.Logger)
 	c.NodesWorker = &nw
 	go c.startPodsWorker(stopCh, client, wg, appdController)
 	nw.Observe(stopCh, wg)
@@ -182,65 +187,53 @@ func (c *MainController) startNodeWorker(stopCh <-chan struct{}, client *kuberne
 }
 
 func (c *MainController) startDeployWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
-	fmt.Println("Starting Deployment worker")
+	c.Logger.Info("Starting Deployment worker...")
 	defer wg.Done()
-	pw := NewDeployWorker(client, c.ConfManager, appdController)
+	pw := NewDeployWorker(client, c.ConfManager, appdController, c.Logger)
 	pw.Observe(stopCh, wg)
 	<-stopCh
 }
 
 func (c *MainController) startDaemonWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
-	fmt.Println("Starting Daemon worker")
+	c.Logger.Info("Starting Daemon worker...")
 	defer wg.Done()
-	pw := NewDaemonWorker(client, c.ConfManager, appdController)
+	pw := NewDaemonWorker(client, c.ConfManager, appdController, c.Logger)
 	pw.Observe(stopCh, wg)
 	<-stopCh
 }
 
 func (c *MainController) startRsWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
-	fmt.Println("Starting ReplicaSet worker")
+	c.Logger.Info("Starting ReplicaSet worker...")
 	defer wg.Done()
-	pw := NewRsWorker(client, c.ConfManager, appdController)
+	pw := NewRsWorker(client, c.ConfManager, appdController, c.Logger)
 	pw.Observe(stopCh, wg)
 	<-stopCh
 }
 
 func (c *MainController) startEventsWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
-	fmt.Println("Starting Events worker")
+	c.Logger.Info("Starting Events worker...")
 	defer wg.Done()
-	ew := NewEventWorker(client, c.ConfManager, appdController, c.PodsWorker)
+	ew := NewEventWorker(client, c.ConfManager, appdController, c.PodsWorker, c.Logger)
 	ew.Observe(stopCh, wg)
 	<-stopCh
 }
 
 func (c *MainController) startJobsWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
-	fmt.Println("Starting jobs worker")
+	c.Logger.Info("Starting Jobs worker...")
 	defer wg.Done()
-	ew := NewJobsWorker(client, c.ConfManager, appdController, c.K8sConfig)
+	ew := NewJobsWorker(client, c.ConfManager, appdController, c.K8sConfig, c.Logger)
 	ew.Observe(stopCh, wg)
 	<-stopCh
 }
 
 func (c *MainController) startPodsWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {
-	fmt.Println("Starting Pods worker")
+	c.Logger.Info("Starting Pods worker...")
 	defer wg.Done()
 	pw := NewPodWorker(client, c.ConfManager, appdController, c.K8sConfig, c.Logger, c.NodesWorker)
 	c.PodsWorker = &pw
 	go c.startEventsWorker(stopCh, c.K8sClient, wg, appdController)
 	c.PodsWorker.Observe(stopCh, wg)
 	<-stopCh
-}
-
-func nodesWorker(finished chan *v1.NodeList, client *kubernetes.Clientset, wg *sync.WaitGroup) {
-	defer wg.Done()
-	fmt.Println("Nodes Worker: Started")
-	api := client.CoreV1()
-	nodes, err := api.Nodes().List(metav1.ListOptions{})
-	if err != nil {
-		fmt.Printf("Issues getting Nodes %s\n", err)
-	}
-	fmt.Println("Nodes Worker: Finished")
-	finished <- nodes
 }
 
 func (c *MainController) EnsureEventAPIKey(bag *m.AppDBag) (string, error) {
@@ -251,13 +244,14 @@ func (c *MainController) EnsureEventAPIKey(bag *m.AppDBag) (string, error) {
 
 	secrets, err := api.Secrets(bag.AgentNamespace).List(listOptions)
 	if err != nil {
-		c.Logger.Printf("WARNING. Unable to load secrets in namespace %s. Proceeding to generate new key. %v", bag.AgentNamespace, err)
+		c.Logger.WithFields(log.Fields{"Namespace": bag.AgentNamespace, "Error": err}).
+			Warn("Unable to load secrets in namespace. Proceeding to generate new key")
 	} else {
 		for _, s := range secrets.Items {
 			if s.Name == AGENT_EVENT_SECRET {
 				keyData := s.Data[AGENT_EVENT_KEY]
 				key = string(keyData)
-				c.Logger.Printf("Saved secret data: %s\n", key)
+				c.Logger.Info("Saved secret data")
 				break
 			}
 		}
@@ -269,17 +263,19 @@ func (c *MainController) EnsureEventAPIKey(bag *m.AppDBag) (string, error) {
 		found := false
 		data, err := rc.CallAppDController(p, "GET", nil)
 		if err != nil {
-			c.Logger.Printf("WARNING. Unable to load list of API keys from AppD Analytics. Proceeding to generate new key. %v", err)
+			c.Logger.WithField("Error", err).
+				Warn("Unable to load list of API keys from AppD Analytics. Proceeding to generate new key")
 		} else {
 			var list []map[string]interface{}
 			eList := json.Unmarshal(data, &list)
 			if eList != nil {
-				c.Logger.Printf("WARNING. Unable to deserialize the list of API keys from AppD Analytics. Proceeding to generate new key. %v", err)
+				c.Logger.WithField("Error", eList).
+					Warn("Unable to deserialize the list of API keys from AppD Analytics. Proceeding to generate new key")
 			} else {
 				last4 := key[len(key)-4:]
-				c.Logger.Printf("Last 4 digits of the key: %s", last4)
+				c.Logger.WithField("key", last4).Debug("Last 4 digits of the key")
 				for _, obj := range list {
-					c.Logger.Printf("Suffix of the key: %s", obj["suffix"])
+					c.Logger.WithField("suffix", obj["suffix"]).Debug("Suffix of the key")
 					if obj["enabled"] == true &&
 						obj["suffix"] == last4 {
 						found = true
@@ -300,16 +296,15 @@ func (c *MainController) EnsureEventAPIKey(bag *m.AppDBag) (string, error) {
 		body := []byte(jsonStr)
 		path := "restui/analyticsApiKeyGen/create"
 
-		c.Logger.Printf("Generating event API key... \n")
+		c.Logger.Info("Generating event API key...")
 
 		rc := app.NewRestClient(bag, c.Logger)
 		data, err := rc.CallAppDController(path, "POST", body)
-		c.Logger.Printf("Call to generating event API key: %v %s \n", err, data)
 		if err != nil {
 			return key, fmt.Errorf("Unable to generate event API key. %v", err)
 		}
 		key = string(data)
-		c.Logger.Printf("Generated event API key: %s", key)
+		c.Logger.WithField("key", key).Debug("Generated event API key")
 
 		keyData := make(map[string]string)
 		keyData[AGENT_EVENT_KEY] = key
@@ -326,9 +321,10 @@ func (c *MainController) EnsureEventAPIKey(bag *m.AppDBag) (string, error) {
 		}
 		_, errCreate := api.Secrets(bag.AgentNamespace).Create(secret)
 		if errCreate != nil {
-			c.Logger.Printf("WARNING. Unable to save secret with event API key in namespace %s. %v", bag.AgentNamespace, errCreate)
+			c.Logger.WithFields(log.Fields{"namespace": bag.AgentNamespace, "error": errCreate}).
+				Warn("Unable to save secret with event API key in namespace")
 		} else {
-			c.Logger.Printf("Persisted event API key in secret: %s", AGENT_EVENT_KEY)
+			c.Logger.WithField("secret key", AGENT_EVENT_KEY).Info("Persisted event API key in secret")
 		}
 	}
 	return key, nil

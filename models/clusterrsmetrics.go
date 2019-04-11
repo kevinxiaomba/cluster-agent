@@ -10,6 +10,7 @@ type ClusterRsMetrics struct {
 	Path                  string
 	Namespace             string
 	RsCount               int64
+	RsStaleCount          int64
 	RsReplicas            int64
 	RsReplicasAvailable   int64
 	RsReplicasUnAvailable int64

@@ -87,4 +87,17 @@ type AppDBag struct {
 	RemoteBiqHost               string
 	RemoteBiqPort               int
 	SchemaUpdateCache           []string
+	LogLevel                    string
+	OverconsumptionThreshold    int //percent
+}
+
+func IsUpdatable(fieldName string) bool {
+	arr := []string{"AgentNamespace", "AppName", "TierName", "NodeName", "AppID", "TierID", "NodeID", "Account", "GlobalAccount", "AccessKey", "ControllerUrl",
+		"ControllerPort", "RestAPIUrl", "SSLEnabled", "SystemSSLCert", "AgentSSLCert", "EventKey", "EventServiceUrl", "RestAPICred"}
+	for _, s := range arr {
+		if s == fieldName {
+			return false
+		}
+	}
+	return true
 }

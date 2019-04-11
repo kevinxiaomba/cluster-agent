@@ -3,10 +3,10 @@ package workers
 import (
 	"encoding/json"
 	"fmt"
-	"log"
-	"os"
 	"sync"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	app "github.com/sjeltuhin/clusterAgent/appd"
 	"github.com/sjeltuhin/clusterAgent/config"
@@ -33,12 +33,13 @@ type DaemonWorker struct {
 	AppdController *app.ControllerClient
 	PendingCache   []string
 	FailedCache    map[string]m.AttachStatus
+	Logger         *log.Logger
 }
 
-func NewDaemonWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient) DaemonWorker {
+func NewDaemonWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient, l *log.Logger) DaemonWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 	dw := DaemonWorker{Client: client, ConfigManager: cm, SummaryMap: make(map[string]m.ClusterDaemonMetrics), WQ: queue,
-		AppdController: controller, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus)}
+		AppdController: controller, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus), Logger: l}
 	dw.initDaemonInformer(client)
 	return dw
 }
@@ -192,8 +193,7 @@ func (pw *DaemonWorker) flushQueue() {
 
 func (pw *DaemonWorker) postDaemonRecords(objList *[]m.DaemonSchema) {
 	bag := (*pw.ConfigManager).Get()
-	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	rc := app.NewRestClient(bag, logger)
+	rc := app.NewRestClient(bag, pw.Logger)
 
 	schemaDefObj := m.NewDaemonSchemaDefWrapper()
 
@@ -237,7 +237,7 @@ func (pw *DaemonWorker) buildAppDMetrics() {
 
 	ml := pw.builAppDMetricsList()
 
-	fmt.Printf("Ready to push %d DaemonSet metrics\n", len(ml.Items))
+	pw.Logger.Infof("Ready to push %d Daemonset metrics\n", len(ml.Items))
 
 	pw.AppdController.PostMetrics(ml)
 	pw.AppdController.StopBT(bth)

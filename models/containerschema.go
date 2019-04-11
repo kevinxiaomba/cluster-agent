@@ -45,6 +45,11 @@ type ContainerSchemaDef struct {
 	MissingServices   string `json:"missingServices"`
 }
 
+func (sd ContainerSchemaDef) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(sd)
+	return &objMap
+}
+
 func NewContainerSchemaDefWrapper() ContainerSchemaDefWrapper {
 	schema := NewContainerSchemaDef()
 	wrapper := ContainerSchemaDefWrapper{Schema: schema}

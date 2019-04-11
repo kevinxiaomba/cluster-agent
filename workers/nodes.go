@@ -3,11 +3,11 @@ package workers
 import (
 	"encoding/json"
 	"fmt"
-	"log"
-	"os"
 	"strings"
 	"sync"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/sjeltuhin/clusterAgent/config"
 	m "github.com/sjeltuhin/clusterAgent/models"
@@ -31,13 +31,15 @@ type NodesWorker struct {
 	WQ             workqueue.RateLimitingInterface
 	AppdController *app.ControllerClient
 	CapacityMap    map[string]m.NodeSchema
+	Logger         *log.Logger
 }
 
 var lockCapacityMap = sync.RWMutex{}
 
-func NewNodesWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient) NodesWorker {
+func NewNodesWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient, l *log.Logger) NodesWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
-	pw := NodesWorker{Client: client, ConfigManager: cm, SummaryMap: make(map[string]m.ClusterNodeMetrics), WQ: queue, AppdController: controller, CapacityMap: make(map[string]m.NodeSchema)}
+	pw := NodesWorker{Client: client, ConfigManager: cm, SummaryMap: make(map[string]m.ClusterNodeMetrics), WQ: queue, AppdController: controller,
+		CapacityMap: make(map[string]m.NodeSchema), Logger: l}
 	pw.initNodeInformer(client)
 	return pw
 }
@@ -46,10 +48,10 @@ func (nw *NodesWorker) initNodeInformer(client *kubernetes.Clientset) cache.Shar
 	i := cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
-				return client.Core().Nodes().List(options)
+				return client.CoreV1().Nodes().List(options)
 			},
 			WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
-				return client.Core().Nodes().Watch(options)
+				return client.CoreV1().Nodes().Watch(options)
 			},
 		},
 		&v1.Node{},
@@ -207,8 +209,8 @@ func (pw *NodesWorker) flushQueue() {
 
 func (pw *NodesWorker) postNodeRecords(objList *[]m.NodeSchema) {
 	bag := (*pw.ConfigManager).Get()
-	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	rc := app.NewRestClient(bag, logger)
+
+	rc := app.NewRestClient(bag, pw.Logger)
 
 	schemaDefObj := m.NewNodeSchemaDefWrapper()
 	err := rc.EnsureSchema(bag.NodeSchemaName, &schemaDefObj)
@@ -247,11 +249,9 @@ func (pw *NodesWorker) buildAppDMetrics() {
 		count++
 	}
 
-	fmt.Printf("Unique node metrics: %d\n", count)
-
 	ml := pw.builAppDMetricsList()
 
-	fmt.Printf("Ready to push %d node metrics\n", len(ml.Items))
+	pw.Logger.Infof("Ready to push %d Node metrics\n", len(ml.Items))
 
 	pw.AppdController.PostMetrics(ml)
 	pw.AppdController.StopBT(bth)

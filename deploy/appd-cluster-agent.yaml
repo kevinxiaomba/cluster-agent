@@ -1,50 +1,59 @@
 apiVersion: extensions/v1beta1
 kind: Deployment
-metadata:
+metadata: 
   name: appd-cluster-agent
-spec:
+spec: 
   replicas: 1
-  template:
-    metadata:
-      labels:
+  template: 
+    metadata: 
+      annotations: 
+        appd-agent-id: appdynamics-cluster-agent
+      labels: 
         name: cluster-agent
-    spec:
-      serviceAccountName: appdynamics-operator
-      containers:
-      - name: cluster-agent
-        image: appdynamics/cluster-agent:latest
-        imagePullPolicy: IfNotPresent
-        envFrom:
-        - configMapRef:
-            name: cluster-agent-config
-        env:
-        - name: APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              key: controller-key
-              name: cluster-agent-secret
-        - name: APPDYNAMICS_EVENT_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              key: event-key
-              name: cluster-agent-secret
-        - name: APPDYNAMICS_REST_API_CREDENTIALS
-          valueFrom:
-            secretKeyRef:
-              key: api-user
-              name: cluster-agent-secret
-		- name: APPDYNAMICS_AGENT_NAMESPACE
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
-		volumeMounts:
-        - name: agent-config
-          mountPath: /opt/appdynamics/config/
-        ports:
-        - containerPort: 8989
-          protocol: TCP
-	volumes:
-      - name: agent-config
-        configMap:
-          name: cluster-agent-config
     restartPolicy: Always
+    spec: 
+      containers: 
+        - env: 
+            - name: APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY
+              valueFrom: 
+                secretKeyRef: 
+                  key: controller-key
+                  name: cluster-agent-secret
+            - name: APPDYNAMICS_EVENT_ACCESS_KEY
+              valueFrom: 
+                secretKeyRef: 
+                  key: event-key
+                  name: cluster-agent-secret
+            - name: APPDYNAMICS_REST_API_CREDENTIALS
+              valueFrom: 
+                secretKeyRef: 
+                  key: api-user
+                  name: cluster-agent-secret
+            - name: APPDYNAMICS_AGENT_NAMESPACE
+              valueFrom: 
+                fieldRef: 
+                  fieldPath: metadata.namespace
+          envFrom: 
+            - configMapRef: 
+                name: cluster-agent-config
+          image: "sashaz/cluster-agent@sha256:9c4c045046119e1cbec5fa88ab1647ad7576c4bbea0935d77c62d990c86ab989"
+          imagePullPolicy: IfNotPresent
+          name: cluster-agent
+          ports: 
+            - containerPort: 8989
+              protocol: TCP
+          resources: 
+            limits: 
+              cpu: 200m
+              memory: 300M
+            requests: 
+              cpu: 100m
+              memory: 100M
+          volumeMounts: 
+            - mountPath: /opt/appdynamics/config/
+              name: agent-config
+      serviceAccountName: appdynamics-operator
+      volumes: 
+        - configMap: 
+            name: cluster-agent-config
+          name: agent-config

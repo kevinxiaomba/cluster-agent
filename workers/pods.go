@@ -6,12 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 
-	//	"io"
-	"log"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
+
+	log "github.com/sirupsen/logrus"
 
 	"time"
 
@@ -72,7 +71,7 @@ type PodWorker struct {
 	DashboardCache          map[string]m.PodSchema
 	DelayDashboard          bool
 	PendingAssociationQueue map[string]m.AgentRetryRequest
-	EventMap                map[string][]string
+	EventMap                map[string][]m.EventSchema
 	NodesMonitor            *NodesWorker
 	//	MetricsServerExists     bool
 }
@@ -93,17 +92,17 @@ func NewPodWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, c
 		ContainerSummaryMap: make(map[string]m.ClusterContainerMetrics), InstanceSummaryMap: make(map[string]m.ClusterInstanceMetrics),
 		WQ: queue, AppdController: controller, K8sConfig: config, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus),
 		ServiceCache: make(map[string]m.ServiceSchema), EndpointCache: make(map[string]v1.Endpoints),
-		OwnerMap: make(map[string]string), NamespaceMap: make(map[string]string), EventMap: make(map[string][]string),
+		OwnerMap: make(map[string]string), NamespaceMap: make(map[string]string), EventMap: make(map[string][]m.EventSchema),
 		RQCache: make(map[string]v1.ResourceQuota), PVCCache: make(map[string]v1.PersistentVolumeClaim), PendingAssociationQueue: make(map[string]m.AgentRetryRequest),
 		CMCache: make(map[string]v1.ConfigMap), SecretCache: make(map[string]v1.Secret), NSCache: make(map[string]m.NsSchema), DashboardCache: make(map[string]m.PodSchema)}
 	pw.initPodInformer(client)
-	pw.ServiceWatcher = w.NewServiceWatcher(client, cm, &pw.ServiceCache, pw)
-	pw.EndpointWatcher = w.NewEndpointWatcher(client, cm, &pw.EndpointCache)
-	pw.PVCWatcher = w.NewPVCWatcher(client, cm, &pw.PVCCache)
-	pw.RQWatcher = w.NewRQWatcher(client, cm, &pw.RQCache)
-	pw.CMWatcher = w.NewConfigWatcher(client, cm, &pw.CMCache, pw)
-	pw.SecretWatcher = w.NewSecretWathcer(client, cm, &pw.SecretCache, pw)
-	pw.NSWatcher = w.NewNSWatcher(client, cm, &pw.NSCache)
+	pw.ServiceWatcher = w.NewServiceWatcher(client, cm, &pw.ServiceCache, pw, l)
+	pw.EndpointWatcher = w.NewEndpointWatcher(client, cm, &pw.EndpointCache, l)
+	pw.PVCWatcher = w.NewPVCWatcher(client, cm, &pw.PVCCache, l)
+	pw.RQWatcher = w.NewRQWatcher(client, cm, &pw.RQCache, pw.Logger)
+	pw.CMWatcher = w.NewConfigWatcher(client, cm, &pw.CMCache, pw, l)
+	pw.SecretWatcher = w.NewSecretWathcer(client, cm, &pw.SecretCache, pw, l)
+	pw.NSWatcher = w.NewNSWatcher(client, cm, &pw.NSCache, l)
 	pw.DelayDashboard = true
 	pw.NodesMonitor = nw
 	//	pw.MetricsServerExists = false
@@ -114,10 +113,10 @@ func (pw *PodWorker) initPodInformer(client *kubernetes.Clientset) cache.SharedI
 	i := cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
-				return client.Core().Pods(metav1.NamespaceAll).List(options)
+				return client.CoreV1().Pods(metav1.NamespaceAll).List(options)
 			},
 			WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
-				return client.Core().Pods(metav1.NamespaceAll).Watch(options)
+				return client.CoreV1().Pods(metav1.NamespaceAll).Watch(options)
 			},
 		},
 		&v1.Pod{},
@@ -148,7 +147,7 @@ func (pw *PodWorker) onNewPod(obj interface{}) {
 	if !pw.qualifies(podObj) {
 		return
 	}
-	fmt.Printf("Added Pod: %s %s\n", podObj.Namespace, podObj.Name)
+	pw.Logger.Debugf("Added Pod: %s %s\n", podObj.Namespace, podObj.Name)
 	podRecord, _ := pw.processObject(podObj, nil)
 	pw.tryDashboardCache(&podRecord)
 	pw.WQ.Add(&podRecord)
@@ -163,7 +162,7 @@ func (pw *PodWorker) onNewPod(obj interface{}) {
 
 func (pw *PodWorker) instrument(statusChannel chan m.AttachStatus, podObj *v1.Pod, podSchema *m.PodSchema) {
 	bag := (*pw.ConfManager).Get()
-	fmt.Printf("Attempting instrumentation %s...\n", podObj.Name)
+	pw.Logger.Infof("Attempting instrumentation %s...\n", podObj.Name)
 	injector := instr.NewAgentInjector(pw.Client, pw.K8sConfig, bag, pw.AppdController)
 	injector.EnsureInstrumentation(statusChannel, podObj, podSchema)
 }
@@ -233,7 +232,7 @@ func (pw *PodWorker) flushQueue() {
 	bth := pw.AppdController.StartBT("FlushPodDataQueue")
 	count := pw.WQ.Len()
 	if count > 0 {
-		fmt.Printf("Flushing the queue of %d records\n", count)
+		pw.Logger.Infof("Flushing the queue of %d Pod records\n", count)
 	}
 	if count == 0 {
 		pw.AppdController.StopBT(bth)
@@ -255,10 +254,10 @@ func (pw *PodWorker) flushQueue() {
 				containerList = append(containerList, c)
 			}
 		} else {
-			fmt.Println("Queue shut down")
+			pw.Logger.Info("Queue shut down")
 		}
 		if count == 0 || len(objList) >= bag.EventAPILimit {
-			fmt.Printf("Sending %d pod records to AppD events API\n", len(objList))
+			pw.Logger.Debugf("Sending %d pod records to AppD events API\n", len(objList))
 			pw.postPodRecords(&objList)
 			pw.postContainerRecords(containerList)
 			pw.AppdController.StopBT(bth)
@@ -288,17 +287,16 @@ func (pw *PodWorker) postContainerRecords(objList []m.ContainerSchema) {
 
 func (pw *PodWorker) postContainerBatchRecords(objList *[]m.ContainerSchema) {
 	bag := (*pw.ConfManager).Get()
-	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	rc := app.NewRestClient(bag, logger)
+	rc := app.NewRestClient(bag, pw.Logger)
 
 	schemaDefObj := m.NewContainerSchemaDefWrapper()
 	err := rc.EnsureSchema(bag.ContainerSchemaName, &schemaDefObj)
 	if err != nil {
-		fmt.Printf("Issues when ensuring %s schema. %v\n", bag.ContainerSchemaName, err)
+		pw.Logger.Errorf("Issues when ensuring %s schema. %v\n", bag.ContainerSchemaName, err)
 	} else {
 		data, err := json.Marshal(objList)
 		if err != nil {
-			fmt.Printf("Problems when serializing array of container schemas. %v", err)
+			pw.Logger.Errorf("Problems when serializing array of container schemas. %v", err)
 		}
 		rc.PostAppDEvents(bag.ContainerSchemaName, data)
 	}
@@ -307,17 +305,16 @@ func (pw *PodWorker) postContainerBatchRecords(objList *[]m.ContainerSchema) {
 
 func (pw *PodWorker) postPodRecords(objList *[]m.PodSchema) {
 	bag := (*pw.ConfManager).Get()
-	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	rc := app.NewRestClient(bag, logger)
+	rc := app.NewRestClient(bag, pw.Logger)
 	schemaDefObj := m.NewPodSchemaDefWrapper()
 
 	err := rc.EnsureSchema(bag.PodSchemaName, &schemaDefObj)
 	if err != nil {
-		fmt.Printf("Issues when ensuring %s schema. %v\n", bag.PodSchemaName, err)
+		pw.Logger.Errorf("Issues when ensuring %s schema. %v\n", bag.PodSchemaName, err)
 	} else {
 		data, err := json.Marshal(objList)
 		if err != nil {
-			fmt.Printf("Problems when serializing array of pod schemas. %v", err)
+			pw.Logger.Errorf("Problems when serializing array of pod schemas. %v", err)
 		}
 		rc.PostAppDEvents(bag.PodSchemaName, data)
 	}
@@ -325,18 +322,18 @@ func (pw *PodWorker) postPodRecords(objList *[]m.PodSchema) {
 
 func (pw *PodWorker) postEPBatchRecords(objList *[]m.EpSchema) {
 	bag := (*pw.ConfManager).Get()
-	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	rc := app.NewRestClient(bag, logger)
+
+	rc := app.NewRestClient(bag, pw.Logger)
 
 	schemaDefObj := m.NewEpSchemaDefWrapper()
 
 	err := rc.EnsureSchema(bag.EpSchemaName, &schemaDefObj)
 	if err != nil {
-		fmt.Printf("Issues when ensuring %s schema. %v\n", bag.EpSchemaName, err)
+		pw.Logger.Errorf("Issues when ensuring %s schema. %v\n", bag.EpSchemaName, err)
 	} else {
 		data, err := json.Marshal(objList)
 		if err != nil {
-			fmt.Printf("Problems when serializing array of endpoint schemas. %v", err)
+			pw.Logger.Errorf("Problems when serializing array of endpoint schemas. %v", err)
 		}
 		rc.PostAppDEvents(bag.EpSchemaName, data)
 	}
@@ -345,18 +342,18 @@ func (pw *PodWorker) postEPBatchRecords(objList *[]m.EpSchema) {
 
 func (pw *PodWorker) postNSBatchRecords(objList *[]m.NsSchema) {
 	bag := (*pw.ConfManager).Get()
-	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	rc := app.NewRestClient(bag, logger)
+
+	rc := app.NewRestClient(bag, pw.Logger)
 
 	schemaDefObj := m.NewNsSchemaDefWrapper()
 
 	err := rc.EnsureSchema(bag.NsSchemaName, &schemaDefObj)
 	if err != nil {
-		fmt.Printf("Issues when ensuring %s schema. %v\n", bag.NsSchemaName, err)
+		pw.Logger.Errorf("Issues when ensuring %s schema. %v\n", bag.NsSchemaName, err)
 	} else {
 		data, err := json.Marshal(objList)
 		if err != nil {
-			fmt.Printf("Problems when serializing array of namespace schemas. %v", err)
+			pw.Logger.Errorf("Problems when serializing array of namespace schemas. %v", err)
 		}
 		rc.PostAppDEvents(bag.NsSchemaName, data)
 	}
@@ -383,7 +380,7 @@ func (pw *PodWorker) onDeletePod(obj interface{}) {
 	if !pw.qualifies(podObj) {
 		return
 	}
-	fmt.Printf("Deleted Pod: %s %s\n", podObj.Namespace, podObj.Name)
+	pw.Logger.Debugf("Deleted Pod: %s %s\n", podObj.Namespace, podObj.Name)
 	podRecord, _ := pw.processObject(podObj, nil)
 	pw.WQ.Add(&podRecord)
 	if podRecord.NodeID > 0 {
@@ -405,19 +402,18 @@ func (pw *PodWorker) onUpdatePod(objOld interface{}, objNew interface{}) {
 	podRecord, changed := pw.processObject(podObj, podOldObj)
 	pw.tryDashboardCache(&podRecord)
 	if changed {
-		fmt.Printf("Pod changed: %s %s\n", podObj.Namespace, podObj.Name)
+		pw.Logger.Debugf("Pod changed: %s %s\n", podObj.Namespace, podObj.Name)
 		pw.WQ.Add(&podRecord)
 	}
-	//	fmt.Printf("Pod %s update called\n", podObj.Name)
 	pw.checkForInstrumentation(podObj, &podRecord)
 }
 
 func (pw *PodWorker) checkForInstrumentation(podObj *v1.Pod, podSchema *m.PodSchema) {
 	//check if already instrumented
-	fmt.Printf("Checking updated pods %s for instrumentation...\n", podObj.Name)
+	pw.Logger.Infof("Checking updated pods %s for instrumentation...\n", podObj.Name)
 	if instr.IsPodInstrumented(podObj) {
 		pw.PendingCache = utils.RemoveFromSlice(utils.GetPodKey(podObj), pw.PendingCache)
-		fmt.Printf("Pod %s already instrumented. Skipping...\n", podObj.Name)
+		pw.Logger.Infof("Pod %s already instrumented. Skipping...\n", podObj.Name)
 		return
 	}
 
@@ -425,13 +421,13 @@ func (pw *PodWorker) checkForInstrumentation(podObj *v1.Pod, podSchema *m.PodSch
 	status, ok := pw.FailedCache[utils.GetPodKey(podObj)]
 	if ok && status.Count >= instr.MAX_INSTRUMENTATION_ATTEMPTS {
 		pw.PendingCache = utils.RemoveFromSlice(utils.GetPodKey(podObj), pw.PendingCache)
-		fmt.Printf("Pod %s exceeded the number of instrumentaition attempts. Skipping...\n", podObj.Name)
+		pw.Logger.Infof("Pod %s exceeded the number of instrumentaition attempts. Skipping...\n", podObj.Name)
 		return
 	}
 
 	if utils.IsPodRunnnig(podObj) {
 		if utils.StringInSlice(utils.GetPodKey(podObj), pw.PendingCache) {
-			fmt.Printf("Pod %s is in already process of instrumentation. Skipping...\n", podObj.Name)
+			pw.Logger.Infof("Pod %s is in already process of instrumentation. Skipping...\n", podObj.Name)
 			return
 		}
 
@@ -444,7 +440,7 @@ func (pw *PodWorker) checkForInstrumentation(podObj *v1.Pod, podSchema *m.PodSch
 			if st.LastMessage != "" {
 				EmitInstrumentationEvent(podObj, pw.Client, "AppDInstrumentation", st.LastMessage, v1.EventTypeWarning)
 				if st.RetryAssociation {
-					fmt.Printf("Adding pod %s to Pending Association Queue", podObj.Name)
+					pw.Logger.Infof("Adding pod %s to Pending Association Queue", podObj.Name)
 					retryObj := m.AgentRetryRequest{Pod: podObj, Request: st.Request}
 					pw.addToAssociationQueue(&retryObj)
 				}
@@ -474,9 +470,9 @@ func (pw PodWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	go pw.informer.Run(stopCh)
 
 	if !cache.WaitForCacheSync(stopCh, pw.HasSynced) {
-		fmt.Errorf("Timed out waiting for caches to sync")
+		pw.Logger.Errorf("Timed out waiting for caches to sync")
 	}
-	fmt.Println("Pod Cache syncronized. Starting the processing...")
+	pw.Logger.Infof("Pod Cache syncronized. Starting the processing...")
 
 	wg.Add(1)
 	go pw.startMetricsWorker(stopCh)
@@ -504,7 +500,7 @@ func (pw PodWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	go func() {
 		<-dashTimer.C
 		pw.DelayDashboard = false
-		fmt.Println("Dashboard delay lifted")
+		pw.Logger.Debug("Dashboard generation delay lifted")
 	}()
 
 	<-stopCh
@@ -544,7 +540,7 @@ func (pw *PodWorker) eventQueueTicker(stop <-chan struct{}, ticker *time.Ticker)
 	}
 }
 func (pw PodWorker) CacheUpdated(namespace string) {
-	fmt.Printf("CacheUpdated called for namespace %s\n", namespace)
+	pw.Logger.Debugf("CacheUpdated called for namespace %s\n", namespace)
 	//queue up pod records of the namespace to update
 	for _, obj := range pw.informer.GetStore().List() {
 		podObject := obj.(*v1.Pod)
@@ -573,7 +569,7 @@ func (pw *PodWorker) buildAppDMetrics() {
 	}
 
 	dash := make(map[string]m.DashboardBag)
-	fmt.Printf("Deployments configured for dashboarding: %s \n", bag.DeploysToDashboard)
+	pw.Logger.Debugf("Deployments configured for dashboarding: %s \n", bag.DeploysToDashboard)
 
 	var clusterBag *m.DashboardBag = nil
 	if !pw.DelayDashboard {
@@ -619,13 +615,11 @@ func (pw *PodWorker) buildAppDMetrics() {
 
 	pw.processNamespaces()
 
-	fmt.Printf("Unique pod metrics: %d\n", count)
 	ml := pw.builAppDMetricsList()
 
-	//	fmt.Println("Updating endpoint records...")
 	pw.postEPBatchRecords(&epList)
 
-	fmt.Printf("Ready to push %d metrics\n", len(ml.Items))
+	pw.Logger.Infof("Ready to push %d Pod metrics\n", len(ml.Items))
 	pw.AppdController.PostMetrics(ml)
 	pw.AppdController.StopBT(bth)
 
@@ -637,7 +631,7 @@ func (pw *PodWorker) buildAppDMetrics() {
 		clusterBag.ClusterTierID = bag.TierID
 		clusterBag.ClusterNodeID = bag.NodeID
 		dash[bag.AppName] = *clusterBag
-		fmt.Printf("Number of dashboards to be updated %d\n", len(dash))
+		pw.Logger.Debugf("Number of dashboards to be updated %d\n", len(dash))
 		go pw.buildDashboards(dash)
 	}
 }
@@ -1072,6 +1066,12 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 		if k == instr.APPD_NODENAME {
 			podObject.APMNodeName = v
 		}
+
+		if k == instr.APPD_AGENT_ID {
+			podObject.AppID = bag.AppID
+			podObject.TierID = bag.TierID
+			podObject.NodeID = bag.NodeID
+		}
 	}
 	podObject.Annotations = sb.String()
 
@@ -1414,6 +1414,7 @@ func (pw PodWorker) processContainer(podObj *v1.Pod, podSchema *m.PodSchema, c v
 	var limitsDefined bool = false
 	containerObj := m.NewContainerObj()
 	containerObj.Name = c.Name
+	containerObj.ClusterName = podSchema.ClusterName
 	containerObj.Namespace = podSchema.Namespace
 	containerObj.NodeName = podSchema.NodeName
 	containerObj.PodName = podSchema.Name
@@ -1600,7 +1601,7 @@ func compareInt64(val1, val2 int64, differ bool) bool {
 }
 
 func (pw PodWorker) saveLogs(clusterName string, namespace string, podOwner string, podName string, logOptions *v1.PodLogOptions) error {
-	req := pw.Client.Core().RESTClient().Get().
+	req := pw.Client.CoreV1().RESTClient().Get().
 		Namespace(namespace).
 		Name(podName).
 		Resource("pods").
@@ -1673,8 +1674,8 @@ func (pw PodWorker) saveLogs(clusterName string, namespace string, podOwner stri
 
 func (pw *PodWorker) postLogRecords(objList *[]m.LogSchema) {
 	bag := (*pw.ConfManager).Get()
-	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	rc := app.NewRestClient(bag, logger)
+
+	rc := app.NewRestClient(bag, pw.Logger)
 	data, err := json.Marshal(objList)
 	schemaDefObj := m.NewLogSchemaDefWrapper()
 	schemaDef, e := json.Marshal(schemaDefObj)
@@ -1906,29 +1907,37 @@ func (pw *PodWorker) purgeAssociationQueue(retryObjects []m.AgentRetryRequest) {
 	}
 }
 
-func (pw *PodWorker) OnPodrrorEvent(podName string, namespace string, message string, since int64) {
+func (pw *PodWorker) OnPodErrorEvent(podName string, eventSchema m.EventSchema) {
 	bag := (*pw.ConfManager).Get()
 	lockEventLock.Lock()
 	defer lockEventLock.Unlock()
-	key := utils.GetKey(namespace, podName)
+	key := utils.GetKey(eventSchema.Namespace, podName)
 	list, ok := pw.EventMap[key]
 	if !ok {
-		list = []string{}
+		list = []m.EventSchema{}
 	}
 	limit := len(list)
 	for limit >= bag.PodEventNumber {
 		list = append(list[:0], list[1:]...)
 		limit = len(list)
 	}
-	eventMessage := fmt.Sprintf("%s. %s", utils.FormatDuration(since), message)
-	list = append(list, eventMessage)
+	pw.Logger.Debugf("Adding pod event %s", eventSchema.Reason)
+	list = append(list, eventSchema)
+
 	pw.EventMap[key] = list
 }
 
 func (pw *PodWorker) GetPodEvents(podSchema *m.PodSchema) []string {
 	key := utils.GetKey(podSchema.Namespace, podSchema.Name)
 	if list, ok := pw.EventMap[key]; ok {
-		return list
+		messages := []string{}
+		for _, eventSchema := range list {
+			elapsedTime := time.Now().Sub(eventSchema.LastTimestamp)
+			eventMessage := fmt.Sprintf("%s. %s", utils.FormatDuration(int64(elapsedTime)), eventSchema.Reason)
+			pw.Logger.Debugf("Adding pod event message %s", eventMessage)
+			messages = append(messages, eventMessage)
+		}
+		return messages
 	}
 
 	return []string{}
@@ -1971,10 +1980,12 @@ func (pw *PodWorker) GetMemUtilization(podSchema *m.PodSchema, containerSchema *
 }
 
 func (pw *PodWorker) GetPodUtilization(podSchema *m.PodSchema) map[string]m.Utilization {
+	bag := (*pw.ConfManager).Get()
 	mu := make(map[string]m.Utilization)
 	for _, c := range podSchema.Containers {
 		if !c.Init {
 			cu := m.Utilization{CpuUse: pw.GetCpuUtilization(podSchema, &c), MemUse: pw.GetMemUtilization(podSchema, &c)}
+			cu.CheckStatus(float64(bag.OverconsumptionThreshold), float64(c.CpuRequest), float64(c.MemRequest))
 			mu[c.Name] = cu
 		}
 	}

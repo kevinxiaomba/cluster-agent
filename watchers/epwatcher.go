@@ -1,12 +1,12 @@
 package watchers
 
 import (
-	"fmt"
 	"sync"
 
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/watch"
 
+	log "github.com/sirupsen/logrus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"k8s.io/client-go/kubernetes"
@@ -20,14 +20,15 @@ type EndpointWatcher struct {
 	EndpointCache map[string]v1.Endpoints
 	UpdatedCache  map[string]v1.Endpoints
 	ConfManager   *config.MutexConfigManager
+	Logger        *log.Logger
 }
 
 var lockEP = sync.RWMutex{}
 var lockUpdated = sync.RWMutex{}
 
-func NewEndpointWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]v1.Endpoints) *EndpointWatcher {
+func NewEndpointWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]v1.Endpoints, l *log.Logger) *EndpointWatcher {
 	epw := EndpointWatcher{Client: client, EndpointCache: *cache, UpdatedCache: make(map[string]v1.Endpoints),
-		ConfManager: cm}
+		ConfManager: cm, Logger: l}
 	return &epw
 }
 
@@ -40,42 +41,42 @@ func (pw *EndpointWatcher) qualifies(p *v1.Endpoints) bool {
 func (pw EndpointWatcher) WatchEndpoints() {
 	api := pw.Client.CoreV1()
 	listOptions := metav1.ListOptions{}
-	fmt.Println("Starting Endpoint Watcher...")
+	pw.Logger.Info("Starting Endpoint Watcher...")
 
 	watcher, err := api.Endpoints(metav1.NamespaceAll).Watch(listOptions)
 	if err != nil {
-		fmt.Printf("Issues when setting up endpoint watcher. %v", err)
-	}
+		pw.Logger.WithField("error", err).Error("Issues when setting up Endpoint watcher. Aborting...")
+	} else {
 
-	ch := watcher.ResultChan()
+		ch := watcher.ResultChan()
 
-	for ev := range ch {
-		ep, ok := ev.Object.(*v1.Endpoints)
-		if !ok {
-			fmt.Printf("Expected endpoints, but received an object of an unknown type. ")
-			continue
+		for ev := range ch {
+			ep, ok := ev.Object.(*v1.Endpoints)
+			if !ok {
+				pw.Logger.Warn("Expected endpoints, but received an object of an unknown type. ")
+				continue
+			}
+			switch ev.Type {
+			case watch.Added:
+				pw.onNewEndpoint(ep)
+				break
+
+			case watch.Deleted:
+				pw.onDeleteEndpoint(ep)
+				break
+
+			case watch.Modified:
+				pw.onUpdateEndpoint(ep)
+				break
+			}
+
 		}
-		switch ev.Type {
-		case watch.Added:
-			pw.onNewEndpoint(ep)
-			break
-
-		case watch.Deleted:
-			pw.onDeleteEndpoint(ep)
-			break
-
-		case watch.Modified:
-			pw.onUpdateEndpoint(ep)
-			break
-		}
-
 	}
-	fmt.Println("Exiting endpoint watcher.")
+	pw.Logger.Info("Exiting endpoint watcher.")
 }
 
 func (pw EndpointWatcher) onNewEndpoint(ep *v1.Endpoints) {
 	if !pw.qualifies(ep) {
-		fmt.Printf("EP %s/%s is not qualified\n", ep.Name, ep.Namespace)
 		return
 	}
 	pw.updateMap(ep)
@@ -120,7 +121,6 @@ func (pw EndpointWatcher) CloneMap() map[string]v1.Endpoints {
 	for key, val := range pw.EndpointCache {
 		m[key] = val
 	}
-	fmt.Printf("Cloned %d endpoints\n", len(m))
 	return m
 }
 

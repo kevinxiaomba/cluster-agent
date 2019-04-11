@@ -28,6 +28,7 @@ const (
 	APPD_APPID                   string = "appd-appid"
 	APPD_TIERID                  string = "appd-tierid"
 	APPD_NODEID                  string = "appd-nodeid"
+	APPD_AGENT_ID                string = "appd-agent-id"
 	APPD_NODENAME                string = "appd-nodename"
 	MAX_INSTRUMENTATION_ATTEMPTS int    = 1
 	ANNOTATION_UPDATE_ERROR      string = "ANNOTATION-UPDATE-FAILURE"
@@ -584,7 +585,7 @@ func (ai AgentInjector) Associate(podObj *v1.Pod, exec *Executor, agentRequest *
 			fmt.Printf("Unable to enable analytics for application %s. %v\n", agentRequest.AppName, analyticsErr)
 		}
 	}
-	_, updateErr := ai.ClientSet.Core().Pods(podObj.Namespace).Update(podObj)
+	_, updateErr := ai.ClientSet.CoreV1().Pods(podObj.Namespace).Update(podObj)
 	if updateErr != nil {
 		fmt.Printf("%s, Error: %v\n", ANNOTATION_UPDATE_ERROR, updateErr)
 		return fmt.Errorf("%s, Error: %v\n", ANNOTATION_UPDATE_ERROR, updateErr)

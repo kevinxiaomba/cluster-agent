@@ -15,6 +15,8 @@ rules:
   - events
   - configmaps
   - secrets
+  - resourcequotas
+  - nodes
   verbs:
   - '*'
 - apiGroups:
@@ -23,6 +25,8 @@ rules:
   - namespaces
   verbs:
   - get
+  - watch
+  - list
 - apiGroups:
   - ""
   resources:
@@ -38,6 +42,15 @@ rules:
   - statefulsets
   verbs:
   - '*'
+- apiGroups: 
+  - "batch"
+  - "extensions"
+  resources: 
+  - "jobs"
+  verbs: 
+  - "get"
+  - "list"
+  - "watch"
 - apiGroups:
   - monitoring.coreos.com
   resources:
@@ -45,6 +58,15 @@ rules:
   verbs:
   - get
   - create
+- apiGroups:
+  - metrics.k8s.io
+  resources:
+  - pods
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - appdynamics.com
   resources:

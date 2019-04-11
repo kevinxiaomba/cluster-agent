@@ -2,12 +2,16 @@ package config
 
 import (
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"os"
+	"reflect"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/sjeltuhin/clusterAgent/utils"
+
+	log "github.com/sirupsen/logrus"
 	m "github.com/sjeltuhin/clusterAgent/models"
 )
 
@@ -27,24 +31,25 @@ type ConfigManager interface {
  preforming locking around access to the Config struct.
 */
 type MutexConfigManager struct {
-	Conf  *m.AppDBag
-	Mutex *sync.Mutex
-	Watch *ConfigWatcher
+	Conf   *m.AppDBag
+	Mutex  *sync.Mutex
+	Watch  *ConfigWatcher
+	Logger *log.Logger
 }
 
-func NewMutexConfigManager(env *m.AppDBag) *MutexConfigManager {
-	conf, e := loadConfig(CONFIG_FILE)
+func NewMutexConfigManager(env *m.AppDBag, l *log.Logger) *MutexConfigManager {
+	conf, e := loadConfig(CONFIG_FILE, l)
 	if e != nil {
-		fmt.Printf("Config file not found. Using env vars and passed-in parameters\n")
+		l.Warn("Config file not found. Using env vars and passed-in parameters")
 		return &MutexConfigManager{Conf: env, Mutex: &sync.Mutex{}}
 	} else {
-		fmt.Printf("Using config file %s\n", CONFIG_FILE)
+		l.WithField("configFile", CONFIG_FILE).Info("Using config file\n")
 	}
-	cm := MutexConfigManager{Conf: conf, Mutex: &sync.Mutex{}}
+	cm := MutexConfigManager{Conf: conf, Mutex: &sync.Mutex{}, Logger: l}
 	cm.setDefaults(env)
 	watcher, err := WatchFile(CONFIG_FILE, time.Second, cm.onConfigUpdate)
 	if err != nil {
-		fmt.Printf("Enable to start config watcher. %v", err)
+		l.WithField("error", err).Error("Enable to start config watcher")
 	}
 	cm.Watch = watcher
 	return &cm
@@ -57,13 +62,13 @@ func (self *MutexConfigManager) setDefaults(env *m.AppDBag) {
 }
 
 func (self *MutexConfigManager) onConfigUpdate() {
-	fmt.Printf("Config file Updated\n")
-	conf, e := loadConfig(CONFIG_FILE)
+	self.Logger.Info("Config file updated")
+	conf, e := loadConfig(CONFIG_FILE, self.Logger)
 	if e != nil {
-		fmt.Printf("Unable to read the config file. %v", e)
+		self.Logger.WithField("error", e).Error("Unable to read the config file")
 		return
 	}
-	self.Set(conf)
+	self.reconcile(conf)
 }
 
 func (self *MutexConfigManager) Set(conf *m.AppDBag) {
@@ -72,6 +77,14 @@ func (self *MutexConfigManager) Set(conf *m.AppDBag) {
 		conf.SchemaUpdateCache = self.Conf.SchemaUpdateCache
 	}
 	self.Conf = conf
+
+	self.validate()
+
+	self.Mutex.Unlock()
+	self.Logger.WithField("bag", self.Conf).Debug("Config bag:")
+}
+
+func (self *MutexConfigManager) validate() {
 	if self.Conf.NSInstrumentRule == nil {
 		self.Conf.NSInstrumentRule = []m.AgentRequest{}
 	}
@@ -81,8 +94,48 @@ func (self *MutexConfigManager) Set(conf *m.AppDBag) {
 	if self.Conf.SchemaUpdateCache == nil {
 		self.Conf.SchemaUpdateCache = []string{}
 	}
+	//update log level
+	l, errLevel := log.ParseLevel(self.Conf.LogLevel)
+	if errLevel != nil {
+		self.Logger.SetLevel(log.InfoLevel)
+		self.Logger.WithField("level", self.Conf.LogLevel).Error("Invalid logging level configured. Setting to Info...")
+	} else {
+		self.Logger.SetLevel(l)
+		self.Logger.WithField("level", l).Info("New logging level configured")
+	}
+
+	if self.Conf.ProxyUrl != "" {
+		arr := strings.Split(self.Conf.ProxyUrl, ":")
+		if len(arr) != 3 {
+			self.Logger.Error("ProxyUrl Url is invalid. Use this format: protocol://url:port")
+		}
+		self.Conf.ProxyHost = strings.TrimLeft(arr[1], "//")
+		self.Conf.ProxyPort = arr[2]
+	}
+	if self.Conf.AnalyticsAgentUrl != "" {
+		protocol, host, port, err := utils.SplitUrl(self.Conf.AnalyticsAgentUrl)
+		if err != nil {
+			self.Logger.Error("Analytics agent Url is invalid. Use this format: protocol://url:port")
+		}
+		self.Conf.RemoteBiqProtocol = protocol
+		self.Conf.RemoteBiqHost = host
+		self.Conf.RemoteBiqPort = port
+	}
+}
+
+func (self *MutexConfigManager) reconcile(updated *m.AppDBag) {
+	self.Mutex.Lock()
+	updatedVal := reflect.ValueOf(updated)
+	currentVal := reflect.ValueOf(self.Conf)
+	for i := 0; i < updatedVal.Type().NumField(); i++ {
+		field := updatedVal.Type().Field(i)
+		if m.IsUpdatable(field.Name) {
+			val := updatedVal.Elem().FieldByName(field.Name)
+			currentVal.Elem().FieldByName(field.Name).Set(val)
+		}
+	}
+	self.validate()
 	self.Mutex.Unlock()
-	fmt.Printf("Config bag: %v\n", self.Conf)
 }
 
 func (self *MutexConfigManager) Get() *m.AppDBag {
@@ -98,20 +151,20 @@ func (self *MutexConfigManager) Close() {
 	}
 }
 
-func loadConfig(configFile string) (*m.AppDBag, error) {
+func loadConfig(configFile string, l *log.Logger) (*m.AppDBag, error) {
 	if _, e := os.Stat(configFile); e != nil {
 		return nil, e
 	}
 	conf := &m.AppDBag{}
 	configData, err := ioutil.ReadFile(configFile)
 	if err != nil {
-		fmt.Printf("Cannot read the config file. %v", err)
+		l.WithField("error", err).Error("Cannot read the config file")
 		return conf, err
 	}
 
 	err = json.Unmarshal(configData, conf)
 	if err != nil {
-		fmt.Printf("Cannot deserialize the config file. %v", err)
+		l.WithField("error", err).Error("Cannot deserialize the config file")
 		return conf, err
 	}
 	return conf, nil

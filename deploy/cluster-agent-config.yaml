@@ -5,9 +5,7 @@ data:
     "Account": "",
     "GlobalAccount": "",
     "ControllerUrl": "http://455controllernossh-k8sbiqtest-eq2w7bwd.srv.ravcloud.com:8090",
-    "EventServiceUrl": "http://455controllernossh-k8sbiqtest-eq2w7bwd.srv.ravcloud.com:9080",
-    "EventKey": "5be04dca-5c04-491e-b055-bc580ba9d7aa",
-    "RestAPICred": "k8sresty@customer1:k8sresty",
+    "EventServiceUrl": "",
     "AppName": "K8s-Cluster-Agent",
     "TierName": "ClusterAgent",
     "NodeName": "Node1",
@@ -74,7 +72,9 @@ data:
     "BiqRequestMem": "500",
     "BiqRequestCpu": "0.1",
     "LogLines": 0,
-    "PodEventNumber": 3
+    "PodEventNumber": 1,
+    "LogLevel": "info",
+	"OverconsumptionThreshold": 80
     }
 kind: ConfigMap
 metadata:

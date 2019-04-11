@@ -3,8 +3,8 @@ package workers
 import (
 	"encoding/json"
 	"fmt"
-	"log"
-	"os"
+
+	log "github.com/sirupsen/logrus"
 
 	"sync"
 	"time"
@@ -34,12 +34,13 @@ type RsWorker struct {
 	AppdController *app.ControllerClient
 	PendingCache   []string
 	FailedCache    map[string]m.AttachStatus
+	Logger         *log.Logger
 }
 
-func NewRsWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient) RsWorker {
+func NewRsWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient, l *log.Logger) RsWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 	dw := RsWorker{Client: client, ConfigManager: cm, SummaryMap: make(map[string]m.ClusterRsMetrics), WQ: queue,
-		AppdController: controller, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus)}
+		AppdController: controller, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus), Logger: l}
 	dw.initRsInformer(client)
 	return dw
 }
@@ -193,8 +194,8 @@ func (pw *RsWorker) flushQueue() {
 
 func (pw *RsWorker) postRsRecords(objList *[]m.RsSchema) {
 	bag := (*pw.ConfigManager).Get()
-	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	rc := app.NewRestClient(bag, logger)
+
+	rc := app.NewRestClient(bag, pw.Logger)
 
 	schemaDefObj := m.NewRsSchemaDefWrapper()
 
@@ -234,11 +235,9 @@ func (pw *RsWorker) buildAppDMetrics() {
 		count++
 	}
 
-	fmt.Printf("Unique ReplicaSet metrics: %d\n", count)
-
 	ml := pw.builAppDMetricsList()
 
-	fmt.Printf("Ready to push %d ReplicaSet metrics\n", len(ml.Items))
+	pw.Logger.Infof("Ready to push %d ReplicaSet metrics\n", len(ml.Items))
 
 	pw.AppdController.PostMetrics(ml)
 	pw.AppdController.StopBT(bth)
@@ -262,6 +261,11 @@ func (pw *RsWorker) summarize(RsObject *m.RsSchema) {
 
 	summary.RsCount++
 	summaryNS.RsCount++
+
+	if RsObject.RsReplicas == 0 {
+		summary.RsStaleCount++
+		summaryNS.RsStaleCount++
+	}
 
 	summary.RsReplicas = summary.RsReplicas + int64(RsObject.RsReplicas)
 	summaryNS.RsReplicas = summaryNS.RsReplicas + int64(RsObject.RsReplicas)

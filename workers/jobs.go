@@ -3,11 +3,11 @@ package workers
 import (
 	"encoding/json"
 	"fmt"
-	"log"
-	"os"
 	"strings"
 	"sync"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/fatih/structs"
 
@@ -36,11 +36,12 @@ type JobsWorker struct {
 	WQ             workqueue.RateLimitingInterface
 	AppdController *app.ControllerClient
 	K8sConfig      *rest.Config
+	Logger         *log.Logger
 }
 
-func NewJobsWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient, config *rest.Config) JobsWorker {
+func NewJobsWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient, config *rest.Config, l *log.Logger) JobsWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
-	pw := JobsWorker{Client: client, ConfigManager: cm, SummaryMap: make(map[string]m.ClusterJobMetrics), WQ: queue, AppdController: controller, K8sConfig: config}
+	pw := JobsWorker{Client: client, ConfigManager: cm, SummaryMap: make(map[string]m.ClusterJobMetrics), WQ: queue, AppdController: controller, K8sConfig: config, Logger: l}
 	pw.initJobInformer(client)
 	return pw
 }
@@ -160,11 +161,10 @@ func (pw *JobsWorker) buildAppDMetrics() {
 		pw.summarize(&jobSchema)
 		count++
 	}
-	fmt.Printf("Total: %d\n", count)
 
 	ml := pw.builAppDMetricsList()
 
-	fmt.Printf("Ready to push %d metrics\n", len(ml.Items))
+	pw.Logger.Infof("Ready to push %d Job metrics\n", len(ml.Items))
 
 	pw.AppdController.PostMetrics(ml)
 	pw.AppdController.StopBT(bth)
@@ -332,8 +332,7 @@ func (pw *JobsWorker) flushQueue() {
 
 func (pw *JobsWorker) postJobRecords(objList *[]m.JobSchema) {
 	bag := (*pw.ConfigManager).Get()
-	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	rc := app.NewRestClient(bag, logger)
+	rc := app.NewRestClient(bag, pw.Logger)
 
 	schemaDefObj := m.NewJobSchemaDefWrapper()
 

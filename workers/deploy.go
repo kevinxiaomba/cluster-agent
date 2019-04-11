@@ -3,12 +3,12 @@ package workers
 import (
 	"encoding/json"
 	"fmt"
-	"log"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	app "github.com/sjeltuhin/clusterAgent/appd"
 	"github.com/sjeltuhin/clusterAgent/config"
@@ -37,12 +37,13 @@ type DeployWorker struct {
 	AppdController *app.ControllerClient
 	PendingCache   []string
 	FailedCache    map[string]m.AttachStatus
+	Logger         *log.Logger
 }
 
-func NewDeployWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient) DeployWorker {
+func NewDeployWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient, l *log.Logger) DeployWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 	dw := DeployWorker{Client: client, ConfigManager: cm, SummaryMap: make(map[string]m.ClusterDeployMetrics), WQ: queue,
-		AppdController: controller, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus)}
+		AppdController: controller, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus), Logger: l}
 	dw.initDeployInformer(client)
 	return dw
 }
@@ -206,8 +207,7 @@ func (pw *DeployWorker) flushQueue() {
 
 func (pw *DeployWorker) postDeployRecords(objList *[]m.DeploySchema) {
 	bag := (*pw.ConfigManager).Get()
-	logger := log.New(os.Stdout, "[APPD_CLUSTER_MONITOR]", log.Lshortfile)
-	rc := app.NewRestClient(bag, logger)
+	rc := app.NewRestClient(bag, pw.Logger)
 
 	schemaDefObj := m.NewDeploySchemaDefWrapper()
 
@@ -247,11 +247,9 @@ func (pw *DeployWorker) buildAppDMetrics() {
 		count++
 	}
 
-	fmt.Printf("Unique deployment metrics: %d\n", count)
-
 	ml := pw.builAppDMetricsList()
 
-	fmt.Printf("Ready to push %d deployment metrics\n", len(ml.Items))
+	pw.Logger.Infof("Ready to push %d Deployment metrics\n", len(ml.Items))
 
 	pw.AppdController.PostMetrics(ml)
 	pw.AppdController.StopBT(bth)

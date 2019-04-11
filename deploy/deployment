@@ -1,2 +1,0 @@
-#secret
-ocn create secret generic appd-clusteragent  --from-literal=APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY=<controller access key> --from-literal=APPDYNAMICS_EVENT_ACCESS_KEY=<events api key> --from-literal=APPDYNAMICS_REST_API_CREDENTIALS=<username>@<account>:<password>

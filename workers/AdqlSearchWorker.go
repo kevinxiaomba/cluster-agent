@@ -3,9 +3,10 @@ package workers
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"reflect"
 	"strings"
+
+	log "github.com/sirupsen/logrus"
 
 	app "github.com/sjeltuhin/clusterAgent/appd"
 	m "github.com/sjeltuhin/clusterAgent/models"
@@ -102,7 +103,7 @@ func (aw *AdqlSearchWorker) CreateSearch(searchObj *m.AdqlSearch) (*m.AdqlSearch
 	}
 
 	jsonStr := fmt.Sprintf(`{"name": "%s", "adqlQueries": ["%s"], "searchType": "SINGLE", "searchMode": "ADVANCED", "viewMode": "DATA", "visualization": "TABLE", "selectedFields": [%s], "widgets": [], "searchName": "%s"}`, name, searchObj.Query, strings.Join(cols, ","), searchObj.SearchName)
-	fmt.Printf("Create search body: %v\n", jsonStr)
+	aw.Logger.WithField("payload", jsonStr).Debug("Create search body.")
 	body := []byte(jsonStr)
 
 	rc := app.NewRestClient(aw.Bag, aw.Logger)
@@ -144,13 +145,29 @@ func (aw *AdqlSearchWorker) getQueryMap() map[string]m.AdqlSearch {
 		BASE_PATH + "EvictionThreats": m.AdqlSearch{SchemaDef: m.EventSchemaDef{}, SearchName: aw.buildFullMetricName("EvictionThreats"), SchemaName: aw.Bag.EventSchemaName,
 			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and subCategory = 'eviction' ORDER BY creationTimestamp DESC", aw.Bag.EventSchemaName, aw.Bag.AppName)},
 		BASE_PATH + "PodRunning": m.AdqlSearch{SchemaDef: m.PodSchemaDef{}, SearchName: aw.buildFullMetricName("PodRunning"), SchemaName: aw.Bag.PodSchemaName,
-			Query: fmt.Sprintf("SELECT * FROM kube_pod_snapshots where phase = 'Running' ORDER BY pickupTimestamp DESC", aw.Bag.PodSchemaName, aw.Bag.AppName)},
+			Query: fmt.Sprintf("SELECT * FROM %s where clusterName = '%s' and  phase = 'Running' ORDER BY pickupTimestamp DESC", aw.Bag.PodSchemaName, aw.Bag.AppName)},
 		BASE_PATH + "PodFailed": m.AdqlSearch{SchemaDef: m.PodSchemaDef{}, SearchName: aw.buildFullMetricName("PodFailed"), SchemaName: aw.Bag.PodSchemaName,
-			Query: fmt.Sprintf("SELECT * FROM kube_pod_snapshots where phase = 'Failed' ORDER BY pickupTimestamp DESC", aw.Bag.PodSchemaName, aw.Bag.AppName)},
+			Query: fmt.Sprintf("SELECT * FROM %s where clusterName = '%s' and  phase = 'Failed' ORDER BY pickupTimestamp DESC", aw.Bag.PodSchemaName, aw.Bag.AppName)},
 		BASE_PATH + "PodPending": m.AdqlSearch{SchemaDef: m.PodSchemaDef{}, SearchName: aw.buildFullMetricName("PodPending"), SchemaName: aw.Bag.PodSchemaName,
-			Query: fmt.Sprintf("SELECT * FROM kube_pod_snapshots where phase = 'Pending' ORDER BY pickupTimestamp DESC", aw.Bag.PodSchemaName, aw.Bag.AppName)},
+			Query: fmt.Sprintf("SELECT * FROM %s where clusterName = '%s' and  phase = 'Pending' ORDER BY pickupTimestamp DESC", aw.Bag.PodSchemaName, aw.Bag.AppName)},
 		BASE_PATH + "Evictions": m.AdqlSearch{SchemaDef: m.PodSchemaDef{}, SearchName: aw.buildFullMetricName("Evictions"), SchemaName: aw.Bag.PodSchemaName,
-			Query: fmt.Sprintf("SELECT * FROM kube_pod_snapshots where reason = 'Evicted' ORDER BY pickupTimestamp DESC", aw.Bag.PodSchemaName, aw.Bag.AppName)},
+			Query: fmt.Sprintf("SELECT * FROM %s where clusterName = '%s' and  reason = 'Evicted'  ORDER BY pickupTimestamp DESC", aw.Bag.PodSchemaName, aw.Bag.AppName)},
+		BASE_PATH + "PodRestarts": m.AdqlSearch{SchemaDef: m.PodSchemaDef{}, SearchName: aw.buildFullMetricName("PodRestarts"), SchemaName: aw.Bag.PodSchemaName,
+			Query: fmt.Sprintf("SELECT * FROM %s where clusterName = '%s' and podRestarts > 0 ORDER BY pickupTimestamp DESC", aw.Bag.PodSchemaName, aw.Bag.AppName)},
+		BASE_PATH + "MemoryPressureNodes": m.AdqlSearch{SchemaDef: m.NodeSchemaDef{}, SearchName: aw.buildFullMetricName("MemoryPressureNodes"), SchemaName: aw.Bag.NodeSchemaName,
+			Query: fmt.Sprintf("SELECT * FROM %s where clusterName = '%s' and  memoryPressure = true ORDER BY pickupTimestamp DESC", aw.Bag.NodeSchemaName, aw.Bag.AppName)},
+		BASE_PATH + "DiskPressureNodes": m.AdqlSearch{SchemaDef: m.NodeSchemaDef{}, SearchName: aw.buildFullMetricName("DiskPressureNodes"), SchemaName: aw.Bag.NodeSchemaName,
+			Query: fmt.Sprintf("SELECT * FROM %s where clusterName = '%s' and diskPressure = true ORDER BY pickupTimestamp DESC", aw.Bag.NodeSchemaName, aw.Bag.AppName)},
+		BASE_PATH + "PodIssues": m.AdqlSearch{SchemaDef: m.EventSchemaDef{}, SearchName: fmt.Sprintf("%s. PodIssues", aw.Bag.AppName), SchemaName: aw.Bag.EventSchemaName,
+			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and category = 'error' AND subCategory = 'pod' ORDER BY creationTimestamp DESC", aw.Bag.EventSchemaName, aw.Bag.AppName)},
+		BASE_PATH + "ImagePullErrors": m.AdqlSearch{SchemaDef: m.EventSchemaDef{}, SearchName: fmt.Sprintf("%s. ImagePullErrors", aw.Bag.AppName), SchemaName: aw.Bag.EventSchemaName,
+			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and category = 'error' AND subCategory = 'image' ORDER BY creationTimestamp DESC", aw.Bag.EventSchemaName, aw.Bag.AppName)},
+		BASE_PATH + "StorageIssues": m.AdqlSearch{SchemaDef: m.EventSchemaDef{}, SearchName: fmt.Sprintf("%s. StorageIssues", aw.Bag.AppName), SchemaName: aw.Bag.EventSchemaName,
+			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and category = 'error' AND subCategory IN ('storage', 'quota') ORDER BY creationTimestamp DESC", aw.Bag.EventSchemaName, aw.Bag.AppName)},
+		BASE_PATH + "MissingDependencies": m.AdqlSearch{SchemaDef: m.ContainerSchemaDef{}, SearchName: fmt.Sprintf("%s. MissingDependencies", aw.Bag.AppName), SchemaName: aw.Bag.ContainerSchemaName,
+			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and (missingConfigs != ;' OR missingSecrets != '') ORDER BY creationTimestamp DESC", aw.Bag.ContainerSchemaName, aw.Bag.AppName)},
+		BASE_PATH + "NoConnectivity": m.AdqlSearch{SchemaDef: m.ContainerSchemaDef{}, SearchName: fmt.Sprintf("%s. NoConnectivity", aw.Bag.AppName), SchemaName: aw.Bag.ContainerSchemaName,
+			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and missingServices != '' ORDER BY creationTimestamp DESC", aw.Bag.ContainerSchemaName, aw.Bag.AppName)},
 	}
 
 	return queryMap

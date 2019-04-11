@@ -10,6 +10,7 @@ import (
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/watch"
 
+	log "github.com/sirupsen/logrus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"k8s.io/client-go/kubernetes"
@@ -25,12 +26,13 @@ type ServiceWatcher struct {
 	ConfManager *config.MutexConfigManager
 	Listener    *WatchListener
 	UpdateDelay bool
+	Logger      *log.Logger
 }
 
 var lockServices = sync.RWMutex{}
 
-func NewServiceWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]m.ServiceSchema, l WatchListener) *ServiceWatcher {
-	sw := ServiceWatcher{Client: client, SvcCache: *cache, ConfManager: cm, Listener: &l}
+func NewServiceWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]m.ServiceSchema, listener WatchListener, l *log.Logger) *ServiceWatcher {
+	sw := ServiceWatcher{Client: client, SvcCache: *cache, ConfManager: cm, Listener: &listener, Logger: l}
 	sw.UpdateDelay = true
 	return &sw
 }
@@ -38,7 +40,7 @@ func NewServiceWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManag
 func (pw ServiceWatcher) WatchServices() {
 	api := pw.Client.CoreV1()
 	listOptions := metav1.ListOptions{}
-	fmt.Println("Starting Service Watcher...")
+	pw.Logger.Info("Starting Service Watcher...")
 
 	bag := (*pw.ConfManager).Get()
 	dashTimer := time.NewTimer(time.Second * time.Duration(bag.SnapshotSyncInterval))
@@ -50,33 +52,34 @@ func (pw ServiceWatcher) WatchServices() {
 
 	watcher, err := api.Services(metav1.NamespaceAll).Watch(listOptions)
 	if err != nil {
-		fmt.Printf("Issues when setting up svc watcher. %v", err)
-	}
+		pw.Logger.WithField("error", err).Error("Issues when setting up Service watcher. Aborting...")
+	} else {
 
-	ch := watcher.ResultChan()
+		ch := watcher.ResultChan()
 
-	for ev := range ch {
-		svc, ok := ev.Object.(*v1.Service)
-		if !ok {
-			fmt.Printf("Expected Service, but received an object of an unknown type. ")
-			continue
+		for ev := range ch {
+			svc, ok := ev.Object.(*v1.Service)
+			if !ok {
+				pw.Logger.Warn("Expected Service, but received an object of an unknown type. ")
+				continue
+			}
+			switch ev.Type {
+			case watch.Added:
+				pw.onNewService(svc)
+				break
+
+			case watch.Deleted:
+				pw.onDeleteService(svc)
+				break
+
+			case watch.Modified:
+				pw.onUpdateService(svc)
+				break
+			}
+
 		}
-		switch ev.Type {
-		case watch.Added:
-			pw.onNewService(svc)
-			break
-
-		case watch.Deleted:
-			pw.onDeleteService(svc)
-			break
-
-		case watch.Modified:
-			pw.onUpdateService(svc)
-			break
-		}
-
 	}
-	fmt.Println("Exiting svc watcher.")
+	pw.Logger.Info("Exiting Service watcher.")
 }
 
 func (pw *ServiceWatcher) qualifies(svc *v1.Service) bool {

@@ -59,6 +59,11 @@ Is there a namespace-wide rule that matches the deployment
 
 ## Quick start
 The ClusterAgent can be deployed and managed manually or with a Kuberenetes Operator. The Kubernetes Operator is a recommended approach, as it hides a number of steps and compexities.
+Create namespace for AppDynamics components
+Kubernetes
+`kubectl create namespace appdynamics-infra`
+OpenShift
+`oca new-project appdynamics-infra --description="AppDynamics Infrastructure"`
 Update controller URL in the configMap
 Create an AppDynamics account
 Create a Secret

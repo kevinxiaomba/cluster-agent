@@ -1,7 +1,6 @@
 package watchers
 
 import (
-	"fmt"
 	"sync"
 
 	"k8s.io/api/core/v1"
@@ -12,6 +11,7 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 
+	log "github.com/sirupsen/logrus"
 	m "github.com/sjeltuhin/clusterAgent/models"
 	"github.com/sjeltuhin/clusterAgent/utils"
 )
@@ -22,10 +22,11 @@ type NSWatcher struct {
 	Client      *kubernetes.Clientset
 	NSCache     map[string]m.NsSchema
 	ConfManager *config.MutexConfigManager
+	Logger      *log.Logger
 }
 
-func NewNSWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]m.NsSchema) *NSWatcher {
-	epw := NSWatcher{Client: client, NSCache: *cache, ConfManager: cm}
+func NewNSWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]m.NsSchema, l *log.Logger) *NSWatcher {
+	epw := NSWatcher{Client: client, NSCache: *cache, ConfManager: cm, Logger: l}
 	return &epw
 }
 
@@ -39,37 +40,38 @@ func (pw *NSWatcher) qualifies(p *v1.Namespace) bool {
 func (pw NSWatcher) WatchNamespaces() {
 	api := pw.Client.CoreV1()
 	listOptions := metav1.ListOptions{}
-	fmt.Println("Starting Namespace Watcher...")
+	pw.Logger.Info("Starting Namespace Watcher...")
 
 	watcher, err := api.Namespaces().Watch(listOptions)
 	if err != nil {
-		fmt.Printf("Issues when setting up Namespace watcher. %v", err)
-	}
+		pw.Logger.WithField("error", err).Error("Issues when setting up Namespace watcher. Aborting...")
+	} else {
 
-	ch := watcher.ResultChan()
+		ch := watcher.ResultChan()
 
-	for ev := range ch {
-		ns, ok := ev.Object.(*v1.Namespace)
-		if !ok {
-			fmt.Printf("Expected Namespace, but received an object of an unknown type. ")
-			continue
+		for ev := range ch {
+			ns, ok := ev.Object.(*v1.Namespace)
+			if !ok {
+				pw.Logger.Warn("Expected Namespace, but received an object of an unknown type. ")
+				continue
+			}
+			switch ev.Type {
+			case watch.Added:
+				pw.onNewNamespace(ns)
+				break
+
+			case watch.Deleted:
+				pw.onDeleteNamespace(ns)
+				break
+
+			case watch.Modified:
+				pw.onUpdateNamespace(ns)
+				break
+			}
+
 		}
-		switch ev.Type {
-		case watch.Added:
-			pw.onNewNamespace(ns)
-			break
-
-		case watch.Deleted:
-			pw.onDeleteNamespace(ns)
-			break
-
-		case watch.Modified:
-			pw.onUpdateNamespace(ns)
-			break
-		}
-
 	}
-	fmt.Println("Exiting Namespace watcher.")
+	pw.Logger.Info("Exiting Namespace watcher...")
 }
 
 func (pw NSWatcher) onNewNamespace(ns *v1.Namespace) {
