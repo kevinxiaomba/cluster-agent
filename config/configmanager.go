@@ -46,7 +46,6 @@ func NewMutexConfigManager(env *m.AppDBag, l *log.Logger) *MutexConfigManager {
 		l.WithField("configFile", CONFIG_FILE).Info("Using config file\n")
 	}
 	cm := MutexConfigManager{Conf: conf, Mutex: &sync.Mutex{}, Logger: l}
-	cm.reconcile(env)
 	cm.setDefaults(env)
 	watcher, err := WatchFile(CONFIG_FILE, time.Second, cm.onConfigUpdate)
 	if err != nil {
