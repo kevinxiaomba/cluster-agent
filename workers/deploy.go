@@ -99,7 +99,7 @@ func (dw *DeployWorker) onNewDeployment(obj interface{}) {
 	if !dw.qualifies(deployObj) {
 		return
 	}
-	fmt.Printf("Added Deployment: %s\n", deployObj.Name)
+	dw.Logger.Debugf("Added Deployment: %s\n", deployObj.Name)
 
 	deployRecord, _ := dw.processObject(deployObj, nil)
 	dw.WQ.Add(&deployRecord)
@@ -115,7 +115,7 @@ func (dw *DeployWorker) onDeleteDeployment(obj interface{}) {
 	if !dw.qualifies(deployObj) {
 		return
 	}
-	fmt.Printf("Deleted Deployment: %s\n", deployObj.Name)
+	dw.Logger.Debugf("Deleted Deployment: %s\n", deployObj.Name)
 }
 
 func (dw *DeployWorker) onUpdateDeployment(objOld interface{}, objNew interface{}) {
@@ -123,14 +123,14 @@ func (dw *DeployWorker) onUpdateDeployment(objOld interface{}, objNew interface{
 	if !dw.qualifies(deployObj) {
 		return
 	}
-	fmt.Printf("Deployment %s changed\n", deployObj.Name)
+	dw.Logger.Infof("Deployment %s changed\n", deployObj.Name)
 
 	deployRecord, _ := dw.processObject(deployObj, nil)
 	dw.WQ.Add(&deployRecord)
 
 	init, biq, agentRequests := dw.shouldUpdate(deployObj)
 	if init || biq {
-		fmt.Printf("Update is required. Init: %t. BiQ: %t\n", init, biq)
+		dw.Logger.Debugf("Deployment update is required. Init: %t. BiQ: %t\n", init, biq)
 		dw.updateDeployment(deployObj, init, biq, agentRequests)
 	}
 }
@@ -175,7 +175,7 @@ func (pw *DeployWorker) flushQueue() {
 	bth := pw.AppdController.StartBT("FlushDeploymentDataQueue")
 	count := pw.WQ.Len()
 	if count > 0 {
-		fmt.Printf("Flushing the queue of %d deployment records\n", count)
+		pw.Logger.Infof("Flushing the queue of %d deployment records\n", count)
 	}
 	if count == 0 {
 		pw.AppdController.StopBT(bth)
@@ -193,10 +193,10 @@ func (pw *DeployWorker) flushQueue() {
 		if ok {
 			objList = append(objList, *deployRecord)
 		} else {
-			fmt.Println("Queue shut down")
+			pw.Logger.Info("Deployment Queue shut down")
 		}
 		if count == 0 || len(objList) >= bag.EventAPILimit {
-			fmt.Printf("Sending %d deployment records to AppD events API\n", len(objList))
+			pw.Logger.Debugf("Sending %d deployment records to AppD events API\n", len(objList))
 			pw.postDeployRecords(&objList)
 			pw.AppdController.StopBT(bth)
 			return
@@ -213,11 +213,11 @@ func (pw *DeployWorker) postDeployRecords(objList *[]m.DeploySchema) {
 
 	err := rc.EnsureSchema(bag.DeploySchemaName, &schemaDefObj)
 	if err != nil {
-		fmt.Printf("Issues when ensuring %s schema. %v\n", bag.DeploySchemaName, err)
+		pw.Logger.Errorf("Issues when ensuring %s schema. %v\n", bag.DeploySchemaName, err)
 	} else {
 		data, err := json.Marshal(objList)
 		if err != nil {
-			fmt.Printf("Problems when serializing array of deployment schemas. %v", err)
+			pw.Logger.Errorf("Problems when serializing array of deployment schemas. %v", err)
 		}
 		rc.PostAppDEvents(bag.DeploySchemaName, data)
 	}
@@ -306,14 +306,22 @@ func (pw *DeployWorker) processObject(d *appsv1.Deployment, old *appsv1.Deployme
 	for k, l := range d.Labels {
 		fmt.Fprintf(&sb, "%s:%s;", k, l)
 	}
-	deployObject.Labels = sb.String()
+	ls := sb.String()
+	if len(ls) >= app.MAX_FIELD_LENGTH {
+		ls = ls[len(ls)-app.MAX_FIELD_LENGTH:]
+	}
+	deployObject.Labels = ls
 	sb.Reset()
 
 	for k, l := range d.Annotations {
 		fmt.Fprintf(&sb, "%s:%s;", k, l)
 	}
+	as := sb.String()
+	if len(as) >= app.MAX_FIELD_LENGTH {
+		as = ls[len(as)-app.MAX_FIELD_LENGTH:]
+	}
 
-	deployObject.Annotations = sb.String()
+	deployObject.Annotations = as
 	sb.Reset()
 
 	deployObject.ObjectUid = string(d.GetUID())
@@ -377,7 +385,7 @@ func (pw DeployWorker) addMetricToList(objMap map[string]interface{}, metric m.A
 func (dw *DeployWorker) shouldUpdate(deployObj *appsv1.Deployment) (bool, bool, *m.AgentRequestList) {
 	bag := (*dw.ConfigManager).Get()
 
-	return instr.ShouldInstrumentDeployment(deployObj, bag, &dw.PendingCache, &dw.FailedCache)
+	return instr.ShouldInstrumentDeployment(deployObj, bag, &dw.PendingCache, &dw.FailedCache, dw.Logger)
 }
 
 func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool, biq bool, agentRequests *m.AgentRequestList) {
@@ -390,6 +398,7 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		bth := dw.AppdController.StartBT("DeploymentUpdate")
+		dw.Logger.WithField("Name", deployObj.Name).Info("Started deployment update for instrumentation")
 		deploymentsClient := dw.Client.AppsV1().Deployments(deployObj.Namespace)
 		result, getErr := deploymentsClient.Get(deployObj.Name, metav1.GetOptions{})
 		if getErr != nil {
@@ -397,10 +406,10 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 		}
 
 		if agentRequests.EnvRequired() {
-			fmt.Println("Ensuring secret...")
+			dw.Logger.Debug("Ensuring secret...")
 			errSecret := dw.ensureSecret(deployObj.Namespace)
 			if errSecret != nil {
-				fmt.Printf("Failed to ensure secret in namespace %s: %v\n", deployObj.Namespace, errSecret)
+				dw.Logger.Debugf("Failed to ensure secret in namespace %s: %v\n", deployObj.Namespace, errSecret)
 				return fmt.Errorf("Failed to ensure secret in namespace %s: %v\n", deployObj.Namespace, errSecret)
 			}
 		}
@@ -409,7 +418,7 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 		for _, r := range agentRequests.Items {
 			if r.InitContainerRequired() && !utils.StringInSlice(string(r.Tech), initMap) {
 				initMap = append(initMap, string(r.Tech))
-				fmt.Printf("Adding init container for %s agent...\n", r.Tech)
+				dw.Logger.Debugf("Adding init container for %s agent...\n", r.Tech)
 				agentAttachContainer := dw.buildInitContainer(&r)
 				result.Spec.Template.Spec.InitContainers = append(result.Spec.Template.Spec.InitContainers, agentAttachContainer)
 			}
@@ -434,7 +443,7 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 				result.Spec.Template.Annotations = make(map[string]string)
 			}
 			result.Spec.Template.Annotations[instr.APPD_ATTACH_PENDING] = agentRequests.ToAnnotation()
-			fmt.Printf("Pending annotation added: %s\n", result.Spec.Template.Annotations[instr.APPD_ATTACH_PENDING])
+			dw.Logger.Debugf("Pending annotation added: %s\n", result.Spec.Template.Annotations[instr.APPD_ATTACH_PENDING])
 
 			//annotate deployment
 			if result.Annotations == nil {
@@ -445,7 +454,7 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 
 		if biq {
 
-			fmt.Println("Adding analytics agent container")
+			dw.Logger.Debugf("Adding analytics agent container")
 			//add analytics agent container
 			analyticsContainer := dw.buildBiqSideCar(agentRequests.GetFirstRequest())
 			//add volume and mounts for logging
@@ -465,7 +474,7 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 	})
 
 	if retryErr != nil {
-		fmt.Printf("Deployment update failed: %v\n", retryErr)
+		dw.Logger.Errorf("Deployment update failed: %v\n", retryErr)
 		//add to failed cache
 		status, ok := dw.FailedCache[utils.GetDeployKey(deployObj)]
 		if !ok {
@@ -477,9 +486,10 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 		dw.FailedCache[utils.GetDeployKey(deployObj)] = status
 		//clear from pending
 		dw.PendingCache = utils.RemoveFromSlice(utils.GetDeployKey(deployObj), dw.PendingCache)
+	} else {
+		dw.Logger.WithField("Name", deployObj.Name).Info("Deployment update for instrumentation is complete")
 	}
 
-	fmt.Println("Updated deployment...")
 }
 
 func (dw *DeployWorker) findContainer(agentRequest *m.AgentRequest, deployObj *appsv1.Deployment) (int, *v1.Container) {
@@ -497,7 +507,7 @@ func (dw *DeployWorker) updateContainerEnv(ar *m.AgentRequest, deployObj *appsv1
 
 	tech := ar.Tech
 	if tech == m.DotNet {
-		fmt.Printf("Requested env var update for DotNet container %s\n", deployObj.Spec.Template.Spec.Containers[containerIndex].Name)
+		dw.Logger.Debugf("Requested env var update for DotNet container %s\n", deployObj.Spec.Template.Spec.Containers[containerIndex].Name)
 		dotnetInjector := instr.NewDotNetInjector(bag, dw.AppdController)
 		c := &(deployObj.Spec.Template.Spec.Containers[containerIndex])
 		dotnetInjector.AddEnvVars(c, ar)
@@ -506,7 +516,7 @@ func (dw *DeployWorker) updateContainerEnv(ar *m.AgentRequest, deployObj *appsv1
 	//if the method is MountEnv and tech is Java, build the env var for the agent
 	fmt.Printf("instrument method =  %s\n", m.MountEnv)
 	if tech == m.Java && ar.Method == m.MountEnv {
-		fmt.Printf("Requested env var update for java container %s\n", deployObj.Spec.Template.Spec.Containers[containerIndex].Name)
+		dw.Logger.Debugf("Requested env var update for java container %s\n", deployObj.Spec.Template.Spec.Containers[containerIndex].Name)
 		optsExist := false
 		volPath := instr.GetVolumePath(bag, ar)
 		javaOptsVal := fmt.Sprintf(` -Dappdynamics.agent.accountAccessKey=$(APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY) -Dappdynamics.controller.hostName=%s -Dappdynamics.controller.port=%d -Dappdynamics.controller.ssl.enabled=%t -Dappdynamics.agent.accountName=%s -Dappdynamics.agent.applicationName=%s -Dappdynamics.agent.tierName=%s -Dappdynamics.agent.reuse.nodeName=true -Dappdynamics.agent.reuse.nodeName.prefix=%s -javaagent:%s/javaagent.jar `,
@@ -590,7 +600,7 @@ func (dw *DeployWorker) ensureSecret(ns string) error {
 				Namespace: ns,
 			},
 		}
-		fmt.Printf("Secret %s does not exist in namespace %s. Creating...\n", secret.Name, ns)
+		dw.Logger.Debugf("Secret %s does not exist in namespace %s. Creating...\n", secret.Name, ns)
 
 		secret.StringData = make(map[string]string)
 		secret.StringData[instr.APPD_SECRET_KEY_NAME] = bag.AccessKey
@@ -598,11 +608,11 @@ func (dw *DeployWorker) ensureSecret(ns string) error {
 		_, err := dw.Client.CoreV1().Secrets(ns).Create(secret)
 		fmt.Printf("Secret %s. %v\n", secret.Name, err)
 		if err != nil {
-			fmt.Printf("Unable to create secret. %v\n", err)
+			dw.Logger.Errorf("Unable to create secret. %v\n", err)
 		}
 		return err
 	}
-	fmt.Printf("Secret %s exists. No action required\n", instr.APPD_SECRET_NAME)
+	dw.Logger.Debugf("Secret %s exists. No action required\n", instr.APPD_SECRET_NAME)
 
 	return nil
 }

@@ -43,6 +43,8 @@ type ContainerSchemaDef struct {
 	MissingConfigs    string `json:"missingConfigs"`
 	MissingSecrets    string `json:"missingSecrets"`
 	MissingServices   string `json:"missingServices"`
+	ConsumptionCpu    string `json:"consumptionCpu"`
+	ConsumptionMem    string `json:"consumptionMem"`
 }
 
 func (sd ContainerSchemaDef) Unwrap() *map[string]interface{} {
@@ -63,7 +65,8 @@ func (sd ContainerSchemaDefWrapper) Unwrap() *map[string]interface{} {
 
 func NewContainerSchemaDef() ContainerSchemaDef {
 	pdsd := ContainerSchemaDef{Name: "string", Init: "boolean", Namespace: "string", ClusterName: "string", NodeName: "string", PodName: "string", PodInitTime: "date", StartTime: "date", LiveProbes: "integer", ReadyProbes: "integer", Restarts: "integer",
-		Privileged: "integer", Ports: "string", MemRequest: "float", CpuRequest: "float", CpuLimit: "float", MemLimit: "float", PodStorageRequest: "float", PodStorageLimit: "float", StorageRequest: "float", StorageCapacity: "float", CpuUse: "float", MemUse: "float",
+		Privileged: "integer", Ports: "string", MemRequest: "float", CpuRequest: "float", CpuLimit: "float", MemLimit: "float",
+		ConsumptionCpu: "float", ConsumptionMem: "float", PodStorageRequest: "float", PodStorageLimit: "float", StorageRequest: "float", StorageCapacity: "float", CpuUse: "float", MemUse: "float",
 		Image: "string", WaitReason: "string", TermReason: "string", TerminationTime: "date", Mounts: "string", MissingConfigs: "string",
 		MissingSecrets: "string", MissingServices: "string"}
 	return pdsd
@@ -108,6 +111,8 @@ type ContainerSchema struct {
 	MissingConfigs      string          `json:"missingConfigs"`
 	MissingSecrets      string          `json:"missingSecrets"`
 	MissingServices     string          `json:"missingServices"`
+	ConsumptionCpu      float64         `json:"consumptionCpu"`
+	ConsumptionMem      float64         `json:"consumptionMem"`
 	Index               int8            `json:"-"`
 	ContainerPorts      []ContainerPort `json:"-"`
 	LastTerminationTime *time.Time      `json:"-"`

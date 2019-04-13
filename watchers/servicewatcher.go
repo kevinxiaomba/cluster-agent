@@ -47,7 +47,7 @@ func (pw ServiceWatcher) WatchServices() {
 	go func() {
 		<-dashTimer.C
 		pw.UpdateDelay = false
-		fmt.Println("Svc UpdateDelay lifted.")
+		pw.Logger.Info("Service  Update delay lifted.")
 	}()
 
 	watcher, err := api.Services(metav1.NamespaceAll).Watch(listOptions)
@@ -95,7 +95,7 @@ func (pw *ServiceWatcher) notifyListener(namespace string) {
 
 func (pw ServiceWatcher) onNewService(svc *v1.Service) {
 	if !pw.qualifies(svc) {
-		fmt.Printf("Service %s/%s is not qualified\n", svc.Name, svc.Namespace)
+		pw.Logger.Debugf("Service %s/%s is not qualified\n", svc.Name, svc.Namespace)
 		return
 	}
 	pw.updateMap(svc)
@@ -137,7 +137,6 @@ func (pw ServiceWatcher) CloneMap() map[string]m.ServiceSchema {
 	for key, val := range pw.SvcCache {
 		m[key] = val
 	}
-	fmt.Printf("Cloned %d services\n", len(m))
 	return m
 }
 

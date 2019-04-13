@@ -43,7 +43,7 @@ func (pw ConfigWatcher) WatchConfigs() {
 	go func() {
 		<-dashTimer.C
 		pw.UpdateDelay = false
-		pw.Logger.Info("CM UpdateDelay lifted.")
+		pw.Logger.Info("ConfigMap Update delay lifted.")
 	}()
 
 	watcher, err := api.ConfigMaps(metav1.NamespaceAll).Watch(listOptions)
@@ -56,7 +56,7 @@ func (pw ConfigWatcher) WatchConfigs() {
 		for ev := range ch {
 			cm, ok := ev.Object.(*v1.ConfigMap)
 			if !ok {
-				pw.Logger.Warn("Expected Config, but received an object of an unknown type.")
+				pw.Logger.Warn("Expected ConfigMap, but received an object of an unknown type.")
 				continue
 			}
 			switch ev.Type {

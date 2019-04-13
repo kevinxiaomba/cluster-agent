@@ -11,6 +11,7 @@ type Utilization struct {
 	Overconsume bool
 	CpuGoal     float64
 	MemGoal     float64
+	Restarts    int32
 }
 
 func (u *Utilization) CheckStatus(threshold float64, cpuRequest float64, memRequest float64) {
@@ -42,6 +43,7 @@ type HeatNode struct {
 	AppID       int
 	TierID      int
 	NodeID      int
+	Restarts    int32
 	Events      []string
 	Containers  map[string]Utilization
 }
@@ -49,7 +51,8 @@ type HeatNode struct {
 func NewHeatNode(podSchema PodSchema) HeatNode {
 	return HeatNode{Namespace: podSchema.Namespace, Nodename: podSchema.NodeName, Podname: podSchema.Name,
 		State: podSchema.GetState(), APM: podSchema.AppID > 0, PendingTime: int64(podSchema.PendingTime),
-		AppID: podSchema.AppID, TierID: podSchema.TierID, NodeID: podSchema.NodeID, Owner: podSchema.Owner, Events: []string{}}
+		AppID: podSchema.AppID, TierID: podSchema.TierID, NodeID: podSchema.NodeID, Owner: podSchema.Owner,
+		Events: []string{}, Restarts: podSchema.PodRestarts}
 }
 
 func (hn *HeatNode) FormatPendingTime() string {
@@ -68,15 +71,18 @@ func (hn *HeatNode) FormatPendingTime() string {
 			output = fmt.Sprintf("00:%02d:%02d", minutes, seconds)
 		}
 	}
-	fmt.Printf("Pending time: %s\n", output)
 	return output
 }
 
 func (hn *HeatNode) GetContainerStatsFormatted() string {
+	if len(hn.Containers) == 0 {
+		return fmt.Sprintf("Restarts: %d\n", hn.Restarts)
+	}
 	s := ""
 	for name, c := range hn.Containers {
 		cpuVal := ""
 		memVal := ""
+		restartVal := ""
 		if c.CpuUse >= 0 && c.MemUse >= 0 {
 			if c.CpuUse < 1 {
 				cpuVal = "Cpu: <1%\n"
@@ -99,8 +105,11 @@ func (hn *HeatNode) GetContainerStatsFormatted() string {
 				//					memVal = fmt.Sprintf("Mem: %.0f%s\n", c.MemUse, "%")
 				//				}
 			}
+			if c.Restarts > 0 {
+				restartVal = fmt.Sprintf("Restarts: %d\n", c.Restarts)
+			}
 
-			s += fmt.Sprintf("%s:\n%s%s", name, cpuVal, memVal)
+			s += fmt.Sprintf("%s:\n%s%s%s", name, restartVal, cpuVal, memVal)
 		}
 	}
 

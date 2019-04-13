@@ -105,7 +105,7 @@ func NewPodWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, c
 	pw.NSWatcher = w.NewNSWatcher(client, cm, &pw.NSCache, l)
 	pw.DelayDashboard = true
 	pw.NodesMonitor = nw
-	//	pw.MetricsServerExists = false
+
 	return pw
 }
 
@@ -154,16 +154,10 @@ func (pw *PodWorker) onNewPod(obj interface{}) {
 	pw.checkForInstrumentation(podObj, &podRecord)
 }
 
-//func (pw *PodWorker) validateMetricsServer(podObject *v1.Pod) {
-//	if podObject.Namespace == "kube-system" && strings.Contains(podObject.Name, "metrics-server") {
-//		pw.MetricsServerExists = true
-//	}
-//}
-
 func (pw *PodWorker) instrument(statusChannel chan m.AttachStatus, podObj *v1.Pod, podSchema *m.PodSchema) {
 	bag := (*pw.ConfManager).Get()
 	pw.Logger.Infof("Attempting instrumentation %s...\n", podObj.Name)
-	injector := instr.NewAgentInjector(pw.Client, pw.K8sConfig, bag, pw.AppdController)
+	injector := instr.NewAgentInjector(pw.Client, pw.K8sConfig, bag, pw.AppdController, pw.Logger)
 	injector.EnsureInstrumentation(statusChannel, podObj, podSchema)
 }
 
@@ -384,8 +378,8 @@ func (pw *PodWorker) onDeletePod(obj interface{}) {
 	podRecord, _ := pw.processObject(podObj, nil)
 	pw.WQ.Add(&podRecord)
 	if podRecord.NodeID > 0 {
-		//delete node
-		pw.AppdController.DeleteAppDNode(podRecord.NodeID)
+		//mark node as historial
+		pw.AppdController.MarkNodeHistorical(podRecord.NodeID)
 	}
 }
 
@@ -411,7 +405,7 @@ func (pw *PodWorker) onUpdatePod(objOld interface{}, objNew interface{}) {
 func (pw *PodWorker) checkForInstrumentation(podObj *v1.Pod, podSchema *m.PodSchema) {
 	//check if already instrumented
 	pw.Logger.Infof("Checking updated pods %s for instrumentation...\n", podObj.Name)
-	if instr.IsPodInstrumented(podObj) {
+	if instr.IsPodInstrumented(podObj, pw.Logger) {
 		pw.PendingCache = utils.RemoveFromSlice(utils.GetPodKey(podObj), pw.PendingCache)
 		pw.Logger.Infof("Pod %s already instrumented. Skipping...\n", podObj.Name)
 		return
@@ -677,7 +671,6 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 	if !okSum {
 		summary = m.NewClusterPodMetrics(bag, m.ALL, m.ALL)
 		summary.ServiceCount = int64(len(pw.ServiceCache))
-		fmt.Printf("Summary services: %d\n", summary.ServiceCount)
 
 		lockServices.RLock()
 		for _, svc := range pw.ServiceCache {
@@ -971,7 +964,6 @@ func (pw *PodWorker) getPodOwner(p *v1.Pod) string {
 func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 	bag := (*pw.ConfManager).Get()
 	changed := true
-	//	fmt.Printf("Pod: %s\n", p.Name)
 	var oldObject *m.PodSchema = nil
 	if old != nil {
 		temp := m.NewPodObj()
@@ -1041,7 +1033,7 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 			if err == nil {
 				podObject.AppID = appID
 			} else {
-				fmt.Printf("Unable to parse App ID value %s from the annotations", v)
+				pw.Logger.Errorf("Unable to parse App ID value %s from the annotations", v)
 			}
 		}
 
@@ -1050,7 +1042,7 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 			if err == nil {
 				podObject.TierID = tierID
 			} else {
-				fmt.Printf("Unable to parse Tier ID value %s from the annotations", v)
+				pw.Logger.Errorf("Unable to parse Tier ID value %s from the annotations", v)
 			}
 		}
 
@@ -1059,7 +1051,7 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 			if err == nil {
 				podObject.NodeID = nodeID
 			} else {
-				fmt.Printf("Unable to parse Node ID value %s from the annotations", v)
+				pw.Logger.Errorf("Unable to parse Node ID value %s from the annotations", v)
 			}
 		}
 
@@ -1073,7 +1065,11 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 			podObject.NodeID = bag.NodeID
 		}
 	}
-	podObject.Annotations = sb.String()
+	ps := sb.String()
+	if len(ps) >= app.MAX_FIELD_LENGTH {
+		ps = ps[len(ps)-app.MAX_FIELD_LENGTH:]
+	}
+	podObject.Annotations = ps
 
 	podObject.HostIP = p.Status.HostIP
 	podObject.PodIP = p.Status.PodIP
@@ -1307,7 +1303,7 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 				now := time.Now().UnixNano() / 1000000
 				podObject.PendingTime = now - podObject.StartTimeMillis
 			}
-			//			fmt.Printf("Pending time: %s/%s %d. StartTimeMillis: %d, RunningStartTimeMillis: %d, TerminationTimeMillis: %d BreakPointMillis: %d\n", podObject.Namespace, podObject.Name, podObject.PendingTime, podObject.StartTimeMillis, podObject.RunningStartTimeMillis, podObject.TerminationTimeMillis, podObject.BreakPointMillis)
+			pw.Logger.Debugf("Pending time: %s/%s %d. StartTimeMillis: %d, RunningStartTimeMillis: %d, TerminationTimeMillis: %d BreakPointMillis: %d\n", podObject.Namespace, podObject.Name, podObject.PendingTime, podObject.StartTimeMillis, podObject.RunningStartTimeMillis, podObject.TerminationTimeMillis, podObject.BreakPointMillis)
 		}
 
 		//metrics
@@ -1323,6 +1319,10 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 					contUsageObj := podMetricsObj.GetContainerUsage(cname)
 					c.CpuUse = contUsageObj.CPU
 					c.MemUse = contUsageObj.Memory
+					c.ConsumptionCpu = pw.GetCpuConsumption(&podObject, &c)
+					c.ConsumptionMem = pw.GetMemConsumption(&podObject, &c)
+					pw.Logger.WithField("Percent", c.ConsumptionCpu).Debug("Cpu consumption")
+					pw.Logger.WithField("Percent", c.ConsumptionMem).Debug("Memory consumption")
 					podObject.Containers[cname] = c
 				}
 
@@ -1493,7 +1493,7 @@ func (pw PodWorker) processContainer(podObj *v1.Pod, podSchema *m.PodSchema, c v
 		if ev.ValueFrom != nil && ev.ValueFrom.ConfigMapKeyRef != nil {
 			cmKey := utils.GetKey(podObj.Namespace, ev.ValueFrom.ConfigMapKeyRef.Name)
 			if _, okCM := pw.CMCache[cmKey]; !okCM {
-				fmt.Printf("CM with key %s not found\n", cmKey)
+				pw.Logger.Debugf("CM with key %s not found\n", cmKey)
 				containerObj.MissingConfigs += fmt.Sprintf("%s;", ev.ValueFrom.ConfigMapKeyRef.Name)
 			}
 		}
@@ -1625,7 +1625,7 @@ func (pw PodWorker) saveLogs(clusterName string, namespace string, podOwner stri
 	}
 	readCloser, err := req.Stream()
 	if err != nil {
-		fmt.Printf("Issues when reading logs for pod %s %s:. %v\n", namespace, podName, err)
+		pw.Logger.Errorf("Issues when reading logs for pod %s %s:. %v\n", namespace, podName, err)
 		return err
 	}
 
@@ -1681,26 +1681,26 @@ func (pw *PodWorker) postLogRecords(objList *[]m.LogSchema) {
 	schemaDef, e := json.Marshal(schemaDefObj)
 	if err == nil && e == nil {
 		if rc.SchemaExists(bag.LogSchemaName) == false {
-			fmt.Printf("Creating Log schema. %s\n", bag.LogSchemaName)
+			pw.Logger.Debugf("Creating Log schema. %s\n", bag.LogSchemaName)
 			schemaObj, err := rc.CreateSchema(bag.LogSchemaName, schemaDef)
 			if err != nil {
 				return
 			} else if schemaObj != nil {
-				fmt.Printf("Schema %s created\n", bag.LogSchemaName)
+				pw.Logger.Debugf("Schema %s created\n", bag.LogSchemaName)
 			} else {
-				fmt.Printf("Schema %s exists\n", bag.LogSchemaName)
+				pw.Logger.Debugf("Schema %s exists\n", bag.LogSchemaName)
 			}
 		}
 
 		rc.PostAppDEvents(bag.LogSchemaName, data)
 	} else {
-		fmt.Printf("Problems when serializing array of logs . %v", err)
+		pw.Logger.Errorf("Problems when serializing array of logs . %v", err)
 	}
 }
 
 func (pw PodWorker) GetPodMetrics() *map[string]m.UsageStats {
 	metricsDonePods := make(chan *m.PodMetricsObjList)
-	go metricsWorkerPods(metricsDonePods, pw.Client)
+	go metricsWorkerPods(metricsDonePods, pw.Client, pw.Logger)
 
 	metricsDataPods := <-metricsDonePods
 	objMap := metricsDataPods.PrintPodList()
@@ -1712,27 +1712,25 @@ func (pw PodWorker) GetPodMetricsSingle(p *v1.Pod, namespace string, podName str
 		return nil
 	}
 	metricsDone := make(chan *m.PodMetricsObj)
-	go metricsWorkerSingle(metricsDone, pw.Client, namespace, podName)
+	go metricsWorkerSingle(metricsDone, pw.Client, namespace, podName, pw.Logger)
 
 	metricsData := <-metricsDone
 	return metricsData
 }
 
-func metricsWorkerPods(finished chan *m.PodMetricsObjList, client *kubernetes.Clientset) {
-	fmt.Println("Metrics Worker Pods: Started")
+func metricsWorkerPods(finished chan *m.PodMetricsObjList, client *kubernetes.Clientset, l *log.Logger) {
+	l.Debug("Metrics Worker Pods: Started")
 	var path string = "apis/metrics.k8s.io/v1beta1/pods"
 
 	data, err := client.RESTClient().Get().AbsPath(path).DoRaw()
 	if err != nil {
-		fmt.Printf("Issues when requesting metrics from metrics with path %s from server %s\n", path, err.Error())
+		l.Errorf("Issues when requesting metrics from metrics with path %s from server %s\n", path, err.Error())
 	}
 
 	var list m.PodMetricsObjList
 	merde := json.Unmarshal(data, &list)
 	if merde != nil {
-		fmt.Printf("Unmarshal issues. %v\n", merde)
-	} else {
-		fmt.Printf("Pod metrics. %v\n", string(data))
+		l.Errorf("Unmarshal issues. %v\n", merde)
 	}
 
 	fmt.Println("Metrics Worker Pods: Finished. Metrics records: %d", len(list.Items))
@@ -1740,7 +1738,7 @@ func metricsWorkerPods(finished chan *m.PodMetricsObjList, client *kubernetes.Cl
 	finished <- &list
 }
 
-func metricsWorkerSingle(finished chan *m.PodMetricsObj, client *kubernetes.Clientset, namespace string, podName string) {
+func metricsWorkerSingle(finished chan *m.PodMetricsObj, client *kubernetes.Clientset, namespace string, podName string, l *log.Logger) {
 	var path string = ""
 	var metricsObj m.PodMetricsObj
 	if namespace != "" && podName != "" {
@@ -1748,12 +1746,12 @@ func metricsWorkerSingle(finished chan *m.PodMetricsObj, client *kubernetes.Clie
 
 		data, err := client.RESTClient().Get().AbsPath(path).DoRaw()
 		if err != nil {
-			fmt.Printf("Issues when requesting metrics from metrics with path %s from server %s\n", path, err.Error())
+			l.Errorf("Issues when requesting metrics from metrics with path %s from server %s\n", path, err.Error())
 		}
 
 		merde := json.Unmarshal(data, &metricsObj)
 		if merde != nil {
-			fmt.Printf("Unmarshal issues. %v\n", merde)
+			l.Errorf("Unmarshal issues when getting pods metrics. %v\n", merde)
 		}
 
 	}
@@ -1840,7 +1838,10 @@ func (pw *PodWorker) buildDashboards(dashData map[string]m.DashboardBag) {
 			dw.updateTierDashboard(&bag)
 		}
 		if bag.Type == "cluster" {
-			dw.updateClusterOverview(&bag)
+			err := dw.updateClusterOverview(&bag)
+			if err != nil {
+				pw.Logger.WithField("error", err).Error("Unable to build cluster overview dashboard")
+			}
 		}
 	}
 	pw.AppdController.StopBT(bth)
@@ -1873,7 +1874,7 @@ func (pw *PodWorker) flushAssociationQueue() {
 	bag := (*pw.ConfManager).Get()
 	purgeList := []m.AgentRetryRequest{}
 	lockAssociationQueue.RLock()
-	injector := instr.NewAgentInjector(pw.Client, pw.K8sConfig, bag, pw.AppdController)
+	injector := instr.NewAgentInjector(pw.Client, pw.K8sConfig, bag, pw.AppdController, pw.Logger)
 	for _, p := range pw.PendingAssociationQueue {
 		//update pod from cache
 		podKey := utils.GetPodKey(p.Pod)
@@ -1881,7 +1882,7 @@ func (pw *PodWorker) flushAssociationQueue() {
 		if err == nil && ok {
 			podObj := updated.(*v1.Pod)
 			if utils.IsPodRunnnig(podObj) {
-				fmt.Printf("Updatedd version of pod %s found. Retrying association...\n", podKey)
+				pw.Logger.Debugf("Updatedd version of pod %s found. Retrying association...\n", podKey)
 				p.Pod = podObj
 				err := injector.RetryAssociate(p.Pod, p.Request)
 				if err == nil {
@@ -1943,17 +1944,18 @@ func (pw *PodWorker) GetPodEvents(podSchema *m.PodSchema) []string {
 	return []string{}
 }
 
-func (pw *PodWorker) GetCpuUtilization(podSchema *m.PodSchema, containerSchema *m.ContainerSchema) float64 {
+func (pw *PodWorker) GetCpuConsumption(podSchema *m.PodSchema, containerSchema *m.ContainerSchema) float64 {
 	if containerSchema.CpuUse > 0 {
 		if containerSchema.CpuRequest > 0 {
-			return float64(containerSchema.CpuUse) / float64(containerSchema.CpuRequest) * 100
+			pw.Logger.WithFields(log.Fields{"Pod": podSchema.Name, "MemUsed": containerSchema.CpuUse, "MemRequest": containerSchema.CpuRequest}).Debug("CPU Consumption check")
+			return float64(containerSchema.CpuUse) / float64(containerSchema.CpuRequest) * float64(100)
 		} else if containerSchema.CpuLimit > 0 {
-			return float64(containerSchema.CpuUse) / float64(containerSchema.CpuLimit) * 100
+			return float64(containerSchema.CpuUse) / float64(containerSchema.CpuLimit) * float64(100)
 		} else if pw.NodesMonitor != nil {
 			nodeInfo := pw.NodesMonitor.GetNodeData(podSchema.NodeName)
 			if nodeInfo != nil {
 				if nodeInfo.CpuCapacity > 0 {
-					return float64(containerSchema.CpuUse) / float64(nodeInfo.CpuCapacity) * 100
+					return float64(containerSchema.CpuUse) / float64(nodeInfo.CpuCapacity) * float64(100)
 				}
 			}
 		}
@@ -1961,17 +1963,18 @@ func (pw *PodWorker) GetCpuUtilization(podSchema *m.PodSchema, containerSchema *
 	return -1
 }
 
-func (pw *PodWorker) GetMemUtilization(podSchema *m.PodSchema, containerSchema *m.ContainerSchema) float64 {
+func (pw *PodWorker) GetMemConsumption(podSchema *m.PodSchema, containerSchema *m.ContainerSchema) float64 {
 	if containerSchema.MemUse > 0 {
 		if containerSchema.MemRequest > 0 {
-			return float64(containerSchema.MemUse) / float64(containerSchema.MemRequest) * 100
+			pw.Logger.WithFields(log.Fields{"Pod": podSchema.Name, "MemUsed": containerSchema.MemUse, "MemRequest": containerSchema.MemRequest}).Debug("Mem Consumption check")
+			return float64(containerSchema.MemUse) / float64(containerSchema.MemRequest) * float64(100)
 		} else if podSchema.MemLimit > 0 {
-			return float64(containerSchema.MemUse) / float64(containerSchema.MemLimit) * 100
+			return float64(containerSchema.MemUse) / float64(containerSchema.MemLimit) * float64(100)
 		} else if pw.NodesMonitor != nil {
 			nodeInfo := pw.NodesMonitor.GetNodeData(podSchema.NodeName)
 			if nodeInfo != nil {
 				if nodeInfo.MemCapacity > 0 {
-					return float64(containerSchema.MemUse) / float64(nodeInfo.MemCapacity) * 100
+					return float64(containerSchema.MemUse) / float64(nodeInfo.MemCapacity) * float64(100)
 				}
 			}
 		}
@@ -1984,10 +1987,12 @@ func (pw *PodWorker) GetPodUtilization(podSchema *m.PodSchema) map[string]m.Util
 	mu := make(map[string]m.Utilization)
 	for _, c := range podSchema.Containers {
 		if !c.Init {
-			cu := m.Utilization{CpuUse: pw.GetCpuUtilization(podSchema, &c), MemUse: pw.GetMemUtilization(podSchema, &c)}
+			pw.Logger.WithFields(log.Fields{"Container": c.Name, "Cpu": c.ConsumptionCpu, "Mem": c.ConsumptionMem}).Debug("GetPodUtilization")
+			cu := m.Utilization{CpuUse: c.ConsumptionCpu, MemUse: c.ConsumptionMem, Restarts: c.Restarts}
 			cu.CheckStatus(float64(bag.OverconsumptionThreshold), float64(c.CpuRequest), float64(c.MemRequest))
 			mu[c.Name] = cu
 		}
 	}
+
 	return mu
 }

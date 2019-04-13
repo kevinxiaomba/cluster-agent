@@ -174,6 +174,7 @@ func (dw *DashboardWorker) readJsonTemplate(templateFile string) ([]byte, error,
 
 	if err != nil {
 		exists = !os.IsNotExist(err)
+		dw.Logger.Warnf("Unable to open template file %s. %v", templateFile, err)
 		return nil, fmt.Errorf("Unable to open template file %s. %v", templateFile, err), exists
 	}
 	dw.Logger.Debugf("Successfully opened template %s\n", templateFile)
@@ -181,6 +182,7 @@ func (dw *DashboardWorker) readJsonTemplate(templateFile string) ([]byte, error,
 
 	byteValue, errRead := ioutil.ReadAll(jsonFile)
 	if errRead != nil {
+		dw.Logger.Errorf("Unable to read json file %s. %v", templateFile, errRead)
 		return nil, fmt.Errorf("Unable to read json file %s. %v", templateFile, errRead), exists
 	}
 
@@ -370,21 +372,15 @@ func (dw *DashboardWorker) updateClusterOverview(bag *m.DashboardBag) error {
 	if err != nil && exists {
 		return fmt.Errorf("Cluster template exists, but cannot be loaded. %v", err)
 	}
+
 	dashName := fmt.Sprintf("Cluster-Overview-%s-%s", dw.Bag.AppName, dw.Bag.DashboardSuffix)
-	//	//	check if deleted
-	//	var existing *m.Dashboard = nil
-	//	if dashboard != nil {
-	//		existing, err = dw.loadDashboardByID(dashboard.ID)
-	//		if err != nil {
-	//			return fmt.Errorf("Unable to validate existing dashboard %s. %v", dashName, err)
-	//		}
-	//	}
+
 	if dashboard == nil {
 		dw.Logger.Info("Saved template not found. Creating cluster overview dashboard from scratch\n")
 		dashboard, err, exists = dw.loadDashboardTemplate(FULL_CLUSTER)
 		dw.Logger.Debugf("Load template %s. Error: %v, Exists: %t\n", FULL_CLUSTER, err, exists)
 		if !exists {
-			return fmt.Errorf("Cluster overview template not found. Aborting dashboard generation")
+			return fmt.Errorf("Cluster overview template not found. Aborting dashboard generation...")
 		}
 		if err != nil {
 			return fmt.Errorf("Cluster overview template exists, but cannot be loaded. %v", err)
@@ -456,15 +452,17 @@ func (dw *DashboardWorker) updateClusterOverview(bag *m.DashboardBag) error {
 
 		//update dashboard with static widgets
 		savedDash, errSaveDash := dw.saveDashboard(dashboard)
-		dw.Logger.Debugf("saveDashboard. %v\n", errSaveDash)
+
 		if errSaveDash != nil {
+			dw.Logger.Errorf("Cluster dashboard cannot be saved. %v", errSaveDash)
 			return errSaveDash
 		}
+		dw.Logger.Infof("Cluster dashboard updated.")
 
 		// save template for future use
 		_, errSave := dw.saveTemplate(savedDash, fileName)
 		if errSave != nil {
-			fmt.Printf("Issues when saving template for Cluster overview dashboard. %v\n", errSave)
+			dw.Logger.Errorf("Issues when saving template for Cluster overview dashboard. %v\n", errSave)
 		}
 		dashboard = savedDash
 	}
@@ -476,12 +474,17 @@ func (dw *DashboardWorker) updateClusterOverview(bag *m.DashboardBag) error {
 	//add heat map
 	hotdash, heatErr := dw.addPodHeatMap(dashboard, bag)
 	if heatErr != nil {
-		fmt.Printf("Unable to add heatmap to the cluster dashboard. %v\n", heatErr)
+		dw.Logger.Errorf("Unable to add heatmap to the cluster dashboard. %v\n", heatErr)
 		return heatErr
 	}
 
 	_, errSaveDash := dw.saveDashboard(hotdash)
-	dw.Logger.Debugf("Cluster overview Dashboard saved. %v\n", errSaveDash)
+	if errSaveDash != nil {
+		dw.Logger.Errorf("Cluster overview dashboard cannot be saved", errSaveDash)
+		return errSaveDash
+	}
+
+	dw.Logger.Info("Cluster overview Dashboard saved successfully")
 
 	return nil
 }
@@ -585,25 +588,34 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 		}
 
 		//color
-		colorCode := 0
+		colorCode := 0 //black
+		enableBorder := false
 		searchPath := fmt.Sprintf("%s%s", BASE_PATH, "Evictions")
 		if hn.State == "Running" {
 			if hn.IsOverconsuming() {
-				colorCode = 10040319
+				colorCode = 10040319 //purple
+				searchPath = fmt.Sprintf("%s%s", BASE_PATH, "PodOverconsume")
 			} else {
-				colorCode = 34021 //34021  39168
+				colorCode = 34021 //blue
 			}
-			searchPath = fmt.Sprintf("%s%s", BASE_PATH, "PodRunning")
+			enableBorder = true
 		} else if hn.State == "Pending" {
-			colorCode = 16605970
-			dot["description"] = fmt.Sprintf("%s\nPending time: %s", dot["description"], hn.FormatPendingTime())
+			colorCode = 16605970 //orange
+			dot["description"] = fmt.Sprintf("%s\nPending t: %s", dot["description"], hn.FormatPendingTime())
 			searchPath = fmt.Sprintf("%s%s", BASE_PATH, "PodPending")
+			enableBorder = true
 		} else if hn.State == "Failed" {
-			colorCode = 13369344
+			colorCode = 13369344 //red
 			searchPath = fmt.Sprintf("%s%s", BASE_PATH, "PodFailed")
 		}
 
 		dot["backgroundColor"] = colorCode
+
+		if enableBorder && hn.Restarts > 0 {
+			dot["borderEnabled"] = true
+			dot["borderThickness"] = 2
+			dot["borderColor"] = 13369344 //red
+		}
 
 		if oldDeploy != "" && oldDeploy != hn.Owner {
 			currentX += deployGap
@@ -636,12 +648,12 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 			healthDot["applicationId"] = hn.AppID
 			healthDot["entityIds"] = []int{apmID}
 
-			linkLocation := "APP_COMPONENT_MANAGER"
-			linkComponent := "component"
+			//			linkLocation := "APP_COMPONENT_MANAGER"
+			//			linkComponent := "component"
 			if hasNodeID {
 				healthDot["entityType"] = "APPLICATION_COMPONENT_NODE"
-				linkLocation = "APP_NODE_MANAGER"
-				linkComponent = "node"
+				//				linkLocation = "APP_NODE_MANAGER"
+				//				linkComponent = "node"
 			}
 
 			hwdX := currentX + width - healthsize/2
@@ -649,10 +661,11 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 
 			healthDot["x"] = hwdX
 			healthDot["y"] = hwdY
-			dot["drillDownUrl"] = fmt.Sprintf("%s#/location=%s&timeRange=last_1_hour.BEFORE_NOW.-1.-1.60&application=%d&%s=%d&dashboardMode=force", dw.Bag.RestAPIUrl, linkLocation, hn.AppID, linkComponent, apmID)
+			//			dot["drillDownUrl"] = fmt.Sprintf("%s#/location=%s&timeRange=last_1_hour.BEFORE_NOW.-1.-1.60&application=%d&%s=%d&dashboardMode=force", dw.Bag.RestAPIUrl, linkLocation, hn.AppID, linkComponent, apmID)
 			hwdotArray = append(hwdotArray, healthDot)
-		} else {
-			//link to pod list by phase
+		}
+		//link to pod list by state
+		if searchPath != "" {
 			searchUrl := dw.AdqlWorker.GetSearch(searchPath)
 			if searchUrl != "" {
 				dot["drillDownUrl"] = searchUrl

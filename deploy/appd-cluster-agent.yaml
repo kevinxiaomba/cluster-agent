@@ -33,10 +33,7 @@ spec:
               valueFrom: 
                 fieldRef: 
                   fieldPath: metadata.namespace
-          envFrom: 
-            - configMapRef: 
-                name: cluster-agent-config
-          image: "sashaz/cluster-agent@sha256:9c4c045046119e1cbec5fa88ab1647ad7576c4bbea0935d77c62d990c86ab989"
+          image: "sashaz/cluster-agent@sha256:32dbfc8a5e037c5a3779475ec79d99d8eba89638f8237a8dc84c592b0e4ea365"
           imagePullPolicy: IfNotPresent
           name: cluster-agent
           ports: 

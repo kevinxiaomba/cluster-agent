@@ -92,7 +92,7 @@ func (ew *EventWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	if !cache.WaitForCacheSync(stopCh, ew.HasSynced) {
 		fmt.Errorf("Timed out waiting for events caches to sync")
 	}
-	fmt.Println("Cache syncronized. Starting events processing...")
+	ew.Logger.Info("Cache syncronized. Starting Events processing...")
 
 	wg.Add(1)
 	go ew.startMetricsWorker(stopCh)
@@ -147,9 +147,9 @@ func (ew *EventWorker) flushQueue() {
 	bth := ew.AppdController.StartBT("FlushEventDataQueue")
 	count := ew.WQ.Len()
 	if count > 0 {
-		fmt.Printf("Flushing the queue of %d event records\n", count)
+		ew.Logger.Infof("Flushing the queue of %d event records\n", count)
 	} else {
-		fmt.Println("Event queue empty")
+		ew.Logger.Info("Event queue empty")
 	}
 	if count == 0 {
 		ew.AppdController.StopBT(bth)
@@ -167,10 +167,10 @@ func (ew *EventWorker) flushQueue() {
 		if ok {
 			objList = append(objList, *eventRecord)
 		} else {
-			fmt.Println("Queue shut down")
+			ew.Logger.Infof("Event Queue shut down")
 		}
 		if count == 0 || len(objList) >= bag.EventAPILimit {
-			fmt.Printf("Sending %d event records to AppD events API\n", len(objList))
+			ew.Logger.Debugf("Sending %d event records to AppD events API\n", len(objList))
 			ew.postEventRecords(&objList)
 			ew.AppdController.StopBT(bth)
 			return
@@ -187,11 +187,11 @@ func (ew *EventWorker) postEventRecords(objList *[]m.EventSchema) {
 
 	err := rc.EnsureSchema(bag.EventSchemaName, &schemaDefObj)
 	if err != nil {
-		fmt.Printf("Issues when ensuring %s schema. %v\n", bag.EventSchemaName, err)
+		ew.Logger.Errorf("Issues when ensuring %s schema. %v\n", bag.EventSchemaName, err)
 	} else {
 		data, err := json.Marshal(objList)
 		if err != nil {
-			fmt.Printf("Problems when serializing array of event schemas. %v", err)
+			ew.Logger.Errorf("Problems when serializing array of event schemas. %v", err)
 		}
 		rc.PostAppDEvents(bag.EventSchemaName, data)
 	}
@@ -223,8 +223,6 @@ func (ew *EventWorker) buildAppDMetrics() {
 		count++
 		toDelete = append(toDelete, obj)
 	}
-
-	fmt.Printf("Unique event metrics: %d\n", count)
 
 	//add 0 values for missing entities
 	if len(ew.SummaryMap) == 0 {

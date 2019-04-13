@@ -46,6 +46,7 @@ func NewMutexConfigManager(env *m.AppDBag, l *log.Logger) *MutexConfigManager {
 		l.WithField("configFile", CONFIG_FILE).Info("Using config file\n")
 	}
 	cm := MutexConfigManager{Conf: conf, Mutex: &sync.Mutex{}, Logger: l}
+	cm.reconcile(env)
 	cm.setDefaults(env)
 	watcher, err := WatchFile(CONFIG_FILE, time.Second, cm.onConfigUpdate)
 	if err != nil {
@@ -59,6 +60,7 @@ func (self *MutexConfigManager) setDefaults(env *m.AppDBag) {
 	if self.Conf.DashboardTemplatePath == "" {
 		self.Conf.DashboardTemplatePath = env.DashboardTemplatePath
 	}
+	self.Logger.WithField("path", self.Conf.DashboardTemplatePath).Info("Dashboard template path")
 }
 
 func (self *MutexConfigManager) onConfigUpdate() {
@@ -125,13 +127,15 @@ func (self *MutexConfigManager) validate() {
 
 func (self *MutexConfigManager) reconcile(updated *m.AppDBag) {
 	self.Mutex.Lock()
-	updatedVal := reflect.ValueOf(updated)
+	updatedVal := reflect.ValueOf(*updated)
 	currentVal := reflect.ValueOf(self.Conf)
 	for i := 0; i < updatedVal.Type().NumField(); i++ {
 		field := updatedVal.Type().Field(i)
 		if m.IsUpdatable(field.Name) {
-			val := updatedVal.Elem().FieldByName(field.Name)
+
+			val := updatedVal.FieldByName(field.Name)
 			currentVal.Elem().FieldByName(field.Name).Set(val)
+			self.Logger.WithFields(log.Fields{"name": field.Name, "value": val}).Debug("Updating configMap field")
 		}
 	}
 	self.validate()

@@ -7,20 +7,26 @@ WORKDIR /usr/local/go/src/github.com/sjeltuhin/clusterAgent
 
 RUN go get ./
 
-RUN GOOS=linux go build -o /usr/local/bin/appdynamics
+RUN GOOS=linux go build 
 
-FROM alpine:latest
+FROM centos:latest
 
-RUN apk add --no-cache bash
+RUN yum install -y bash && \
+    yum clean all && \
+    rm -rf /var/cache/yum
 
-COPY --from=builder /usr/local/bin/appdynamics/clusterAgent /usr/local/bin/appdynamics/clusterAgent
-COPY --from=builder /usr/local/go/src/github.com/sjeltuhin/clusterAgent/vendor/appdynamics/lib/libappdynamics.so /usr/local/lib/
+COPY --from=builder /usr/local/go/src/github.com/sjeltuhin/clusterAgent/clusterAgent /opt/appdynamics/clusterAgent
+COPY --from=builder /usr/local/go/src/github.com/sjeltuhin/clusterAgent/templates/*.json /opt/appdynamics/templates/
+COPY --from=builder /usr/local/go/src/github.com/sjeltuhin/clusterAgent/vendor/appdynamics/lib/libappdynamics.so /opt/appdynamics/lib/libappdynamics.so
 
-ENV LD_LIBRARY_PATH  /usr/local/lib/
+RUN mkdir -p /opt/appdynamics/templates/deploy
+RUN mkdir -p /opt/appdynamics/ssl
 
-RUN chgrp -R 0 /opt && \
-    chmod -R g=u /opt
+ENV LD_LIBRARY_PATH  /opt/appdynamics/lib/
+
+RUN chgrp -R 0 /opt/appdynamics/ && \
+    chmod -R g=u /opt/appdynamics/ 
 	
 EXPOSE 8989
 
-CMD /usr/local/bin/appdynamics/clusterAgent
+CMD /opt/appdynamics/clusterAgent

@@ -81,7 +81,7 @@ func (nw *NodesWorker) onNewNode(obj interface{}) {
 	if !nw.qualifies(nodeObj) {
 		return
 	}
-	fmt.Printf("Added Node: %s\n", nodeObj.Name)
+	nw.Logger.Debugf("Added Node: %s\n", nodeObj.Name)
 	nodeRecord, _ := nw.processObject(nodeObj, nil)
 	nw.WQ.Add(&nodeRecord)
 
@@ -92,7 +92,7 @@ func (nw *NodesWorker) onDeleteNode(obj interface{}) {
 	if !nw.qualifies(nodeObj) {
 		return
 	}
-	fmt.Printf("Deleted Node: %s\n", nodeObj.Name)
+	nw.Logger.Debugf("Deleted Node: %s\n", nodeObj.Name)
 	nodeRecord, _ := nw.processObject(nodeObj, nil)
 	nw.WQ.Add(&nodeRecord)
 }
@@ -107,7 +107,7 @@ func (nw *NodesWorker) onUpdateNode(objOld interface{}, objNew interface{}) {
 		nodeRecord, changed := nw.processObject(nodeObj, nodeOldObj)
 
 		if changed {
-			fmt.Printf("Node changed: %s\n", nodeObj.Name)
+			nw.Logger.Debugf("Node changed: %s\n", nodeObj.Name)
 			nw.WQ.Add(&nodeRecord)
 		}
 	}
@@ -120,9 +120,9 @@ func (pw NodesWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	go pw.informer.Run(stopCh)
 
 	if !cache.WaitForCacheSync(stopCh, pw.HasSynced) {
-		fmt.Errorf("Timed out waiting for caches to sync")
+		pw.Logger.Errorf("Timed out waiting for node caches to sync")
 	}
-	fmt.Println("Cache syncronized. Starting node processing...")
+	pw.Logger.Info("Node Cache syncronized. Starting node processing...")
 
 	wg.Add(1)
 	go pw.startMetricsWorker(stopCh)
@@ -177,7 +177,7 @@ func (pw *NodesWorker) flushQueue() {
 	bth := pw.AppdController.StartBT("FlushNodeDataQueue")
 	count := pw.WQ.Len()
 	if count > 0 {
-		fmt.Printf("Flushing the queue of %d node records\n", count)
+		pw.Logger.Infof("Flushing the queue of %d node records\n", count)
 	}
 	if count == 0 {
 		pw.AppdController.StopBT(bth)
@@ -195,10 +195,10 @@ func (pw *NodesWorker) flushQueue() {
 		if ok {
 			objList = append(objList, *nodeRecord)
 		} else {
-			fmt.Println("Queue shut down")
+			pw.Logger.Infof("Queue shut down")
 		}
 		if count == 0 || len(objList) >= bag.EventAPILimit {
-			fmt.Printf("Sending %d node records to AppD events API\n", len(objList))
+			pw.Logger.Debugf("Sending %d node records to AppD events API\n", len(objList))
 			pw.postNodeRecords(&objList)
 			pw.AppdController.StopBT(bth)
 			return
@@ -215,11 +215,11 @@ func (pw *NodesWorker) postNodeRecords(objList *[]m.NodeSchema) {
 	schemaDefObj := m.NewNodeSchemaDefWrapper()
 	err := rc.EnsureSchema(bag.NodeSchemaName, &schemaDefObj)
 	if err != nil {
-		fmt.Printf("Issues when ensuring %s schema. %v\n", bag.NodeSchemaName, err)
+		pw.Logger.Errorf("Issues when ensuring %s schema. %v\n", bag.NodeSchemaName, err)
 	} else {
 		data, err := json.Marshal(objList)
 		if err != nil {
-			fmt.Printf("Problems when serializing array of node schemas. %v", err)
+			pw.Logger.Errorf("Problems when serializing array of node schemas. %v", err)
 		}
 		rc.PostAppDEvents(bag.NodeSchemaName, data)
 	}
@@ -323,6 +323,8 @@ func (pw *NodesWorker) updateCapcityMap(node m.NodeSchema) {
 }
 
 func (pw *NodesWorker) GetNodeData(nodeName string) *m.NodeSchema {
+	lockCapacityMap.RLock()
+	defer lockCapacityMap.RUnlock()
 	node := pw.CapacityMap[nodeName]
 	return &node
 }

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 
@@ -35,7 +36,7 @@ func (rc *RestClient) getClient() *http.Client {
 	if rc.Bag.ProxyUrl != "" {
 		proxyUrl, err := url.Parse(rc.Bag.ProxyUrl)
 		if err != nil {
-			fmt.Print("Proxy url is invalid")
+			rc.logger.Error("Proxy url is invalid")
 			return &http.Client{}
 		}
 		return &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyUrl)}}
@@ -56,7 +57,7 @@ func (rc *RestClient) LoadSchema(schemaName string) (*map[string]interface{}, er
 	var schemaWrapper map[string]interface{}
 	req, err := http.NewRequest("GET", fmt.Sprintf("%s/events/schema/%s", rc.Bag.EventServiceUrl, schemaName), nil)
 	if err != nil {
-		fmt.Printf("Unable to initiate request. %v", err)
+		rc.logger.Errorf("Unable to initiate request. %v", err)
 		return nil, err
 	} else {
 		req.Header.Set("Accept", "application/vnd.appd.events+json;v=2")
@@ -67,7 +68,7 @@ func (rc *RestClient) LoadSchema(schemaName string) (*map[string]interface{}, er
 		client := &http.Client{}
 		resp, err := client.Do(req)
 		if err != nil {
-			fmt.Printf("Unable to load event schema %s. %v", schemaName, err)
+			rc.logger.Errorf("Unable to load event schema %s. %v", schemaName, err)
 			return nil, err
 		}
 		if resp != nil && resp.Body != nil {
@@ -96,18 +97,18 @@ func (rc *RestClient) LoadSchema(schemaName string) (*map[string]interface{}, er
 func (rc *RestClient) SchemaExists(schemaName string) bool {
 	req, err := http.NewRequest("GET", fmt.Sprintf("%s/events/schema/%s", rc.Bag.EventServiceUrl, schemaName), nil)
 	if err != nil {
-		fmt.Printf("Unable to initiate request. %v", err)
+		rc.logger.Errorf("Unable to initiate request to check schema %s. %v", schemaName, err)
 		return false
 	} else {
 		req.Header.Set("Accept", "application/vnd.appd.events+json;v=2")
 		req.Header.Set("Content-Type", "application/vnd.appd.events+json;v=2")
 		req.Header.Set("X-Events-API-AccountName", rc.Bag.GlobalAccount)
 		req.Header.Set("X-Events-API-Key", rc.Bag.EventKey)
-		//		fmt.Printf("Sending request. Account: %s   Event Key %s", rc.Bag.GlobalAccount, rc.Bag.EventKey)
+
 		client := &http.Client{}
 		resp, err := client.Do(req)
 		if err != nil {
-			fmt.Printf("Unable to check event schema %s. %v", schemaName, err)
+			rc.logger.Errorf("Unable to check event schema %s. %v", schemaName, err)
 			return false
 		}
 		if resp != nil && resp.Body != nil {
@@ -134,7 +135,7 @@ func (rc *RestClient) EnsureSchema(schemaName string, current m.AppDSchemaInterf
 	}
 	wrapper, err := rc.LoadSchema(schemaName)
 	if err != nil {
-		fmt.Printf("Enable load existing schema %s. Attempting to create. %v\n", schemaName, err)
+		rc.logger.Warnf("Enable load existing schema %s. Attempting to create. %v\n", schemaName, err)
 		//try to create
 		schemaDef, e := json.Marshal(current)
 		if e != nil {
@@ -144,7 +145,7 @@ func (rc *RestClient) EnsureSchema(schemaName string, current m.AppDSchemaInterf
 		if err != nil {
 			return fmt.Errorf("Unable to recreate the current schema %s. %v", schemaName, err)
 		}
-		fmt.Printf("Schema %s created. \n", schemaName)
+		rc.logger.Infof("Schema %s created. \n", schemaName)
 		return nil
 	}
 	equal := true
@@ -159,14 +160,14 @@ func (rc *RestClient) EnsureSchema(schemaName string, current m.AppDSchemaInterf
 		delete(schemaObj, "eventTimestamp")
 
 		if len(currentObj) != len(schemaObj) {
-			fmt.Printf("Schema %s has changed, %d vs %d fields...\n", schemaName, len(currentObj), len(schemaObj))
+			rc.logger.Infof("Schema %s has changed, %d vs %d fields...\n", schemaName, len(currentObj), len(schemaObj))
 			equal = false
 		}
 		if equal {
 			for k, v := range currentObj {
 				currentVal, okCur := utils.MapContainsNocase(schemaObj, k)
 				if !okCur || currentVal != v {
-					fmt.Printf("Schema %s has descrepancy in field %s: %v != %v ...\n", schemaName, k, currentVal, v)
+					rc.logger.Infof("Schema %s has descrepancy in field %s: %v != %v ...\n", schemaName, k, currentVal, v)
 					equal = false
 					break
 				}
@@ -177,12 +178,12 @@ func (rc *RestClient) EnsureSchema(schemaName string, current m.AppDSchemaInterf
 	}
 
 	if !equal {
-		fmt.Printf("Schema %s has changed, recreating...\n", schemaName)
+		rc.logger.Infof("Schema %s has changed, recreating...\n", schemaName)
 		err := rc.DeleteSchema(schemaName)
 		if err != nil {
 			return fmt.Errorf("Unable to delete changed schema. %v", err)
 		}
-		fmt.Printf("Deleted the old schema %s. \n", schemaName)
+		rc.logger.Infof("Deleted the old schema %s. \n", schemaName)
 		schemaDef, e := json.Marshal(current)
 		if e != nil {
 			return fmt.Errorf("Unable to serialize the current schema %s. %v", schemaName, e)
@@ -191,10 +192,10 @@ func (rc *RestClient) EnsureSchema(schemaName string, current m.AppDSchemaInterf
 		if err != nil {
 			return fmt.Errorf("Unable to recreate the current schema %s. %v", schemaName, err)
 		}
-		fmt.Printf("Schema %s created. \n", schemaName)
+		rc.logger.Infof("Schema %s created. \n", schemaName)
 
 	} else {
-		fmt.Printf("Schema %s has not changed.\n", schemaName)
+		rc.logger.Infof("Schema %s has not changed.\n", schemaName)
 	}
 	return nil
 }
@@ -202,7 +203,7 @@ func (rc *RestClient) EnsureSchema(schemaName string, current m.AppDSchemaInterf
 func (rc *RestClient) DeleteSchema(schemaName string) error {
 	req, err := http.NewRequest("DELETE", fmt.Sprintf("%s/events/schema/%s", rc.Bag.EventServiceUrl, schemaName), nil)
 	if err != nil {
-		fmt.Printf("Unable to initiate request. %v", err)
+		rc.logger.Errorf("Unable to initiate request. %v", err)
 		return err
 	} else {
 		req.Header.Set("Accept", "application/vnd.appd.events+json;v=2")
@@ -212,7 +213,7 @@ func (rc *RestClient) DeleteSchema(schemaName string) error {
 		client := &http.Client{}
 		resp, err := client.Do(req)
 		if err != nil {
-			fmt.Printf("Unable to delete event schema %s. %v", schemaName, err)
+			rc.logger.Errorf("Unable to delete event schema %s. %v", schemaName, err)
 			return err
 		}
 		if resp != nil && resp.Body != nil {
@@ -234,7 +235,7 @@ func (rc *RestClient) DeleteSchema(schemaName string) error {
 func (rc *RestClient) CreateSchema(schemaName string, data []byte) ([]byte, error) {
 	req, err := http.NewRequest("POST", fmt.Sprintf("%s/events/schema/%s", rc.Bag.EventServiceUrl, schemaName), bytes.NewBuffer(data))
 	if err != nil {
-		fmt.Printf("Unable to initiate request. %v", err)
+		rc.logger.Errorf("Unable to initiate request. %v", err)
 		return nil, err
 	} else {
 		req.Header.Set("Accept", "application/vnd.appd.events+json;v=2")
@@ -245,20 +246,21 @@ func (rc *RestClient) CreateSchema(schemaName string, data []byte) ([]byte, erro
 		client := &http.Client{}
 		resp, err := client.Do(req)
 		if err != nil {
-			fmt.Printf("Unable to create event schema %s. %v", schemaName, err)
+			rc.logger.Errorf("Unable to create event schema %s. %v", schemaName, err)
 			return nil, err
 		}
 		defer resp.Body.Close()
 
-		fmt.Println("response Status:", resp.Status)
+		rc.logger.Debugf("Create schema %s response Status: %s", schemaName, resp.Status)
 		body, _ := ioutil.ReadAll(resp.Body)
-		fmt.Println("response Body:", string(body))
+		rc.logger.Debugf("response Body: %s", string(body))
 
 		return body, nil
 	}
 }
 
 func (rc *RestClient) PostAppDEvents(schemaName string, data []byte) []byte {
+	rc.logger.Debugf("PostAppDEvents Payload: %s", string(data))
 	req, err := http.NewRequest("POST", fmt.Sprintf("%s/events/publish/%s", rc.Bag.EventServiceUrl, schemaName), bytes.NewBuffer(data))
 	req.Header.Set("Accept", "application/vnd.appd.events+json;v=2")
 	req.Header.Set("Content-Type", "application/vnd.appd.events+json;v=2")
@@ -268,14 +270,14 @@ func (rc *RestClient) PostAppDEvents(schemaName string, data []byte) []byte {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("Unable to post events. %v", err)
+		rc.logger.Errorf("Unable to post events. %v", err)
 	}
 	if resp != nil && resp.Body != nil {
 		defer resp.Body.Close()
-		fmt.Println("PostAppDEvents Status:", resp.Status)
+		rc.logger.Debugf("PostAppDEvents Status: %s", resp.Status)
 		body, _ := ioutil.ReadAll(resp.Body)
 		if resp.StatusCode < 200 || resp.StatusCode > 204 {
-			fmt.Println("PostAppDEvents Body:", string(body))
+			rc.logger.Debugf("PostAppDEvents Body: %s", string(body))
 		}
 		return body
 	}
@@ -290,17 +292,17 @@ func (rc *RestClient) GetRestAuth() (AppDRestAuth, error) {
 	creds := base64.StdEncoding.EncodeToString(bu)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		fmt.Printf("Issues building request for obtaining session and cookie. %v", err)
+		rc.logger.Errorf("Issues building request for obtaining session and cookie. %v", err)
 		return restAuth, err
 	}
 	authHeader := "Basic " + creds
 	req.Header.Set("Authorization", authHeader)
-	//	fmt.Printf("Header: %s", authHeader)
+	rc.logger.Debugf("Header: %s", authHeader)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("Issues obtaining session and cookie. %v", err)
+		rc.logger.Errorf("Issues obtaining session and cookie. %v", err)
 		return restAuth, err
 	}
 	for _, cookie := range resp.Cookies() {
@@ -341,12 +343,12 @@ func (rc *RestClient) CallAppDController(path, method string, data []byte) ([]by
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("Failed to call AppD controller. %v", err)
+		rc.logger.Errorf("Failed to call AppD controller. %v", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	fmt.Println("response Status:", resp.Status)
+	rc.logger.Debugf("CallAppDController method %s. Response Status:", method, resp.Status)
 	b, _ := ioutil.ReadAll(resp.Body)
 	//	fmt.Println("response Body:", string(b))
 	if resp.StatusCode < 200 || resp.StatusCode > 202 {
@@ -359,24 +361,24 @@ func (rc *RestClient) CreateDashboard(templatePath string) ([]byte, error) {
 
 	url := rc.getControllerUrl() + "CustomDashboardImportExportServlet"
 
-	fmt.Printf("\nCreating dashboard: %s\n", url)
+	rc.logger.Debugf("\nCreating dashboard: %s\n", url)
 
 	bu := []byte(rc.Bag.RestAPICred)
 	creds := base64.StdEncoding.EncodeToString(bu)
 
-	fmt.Printf("Credentials: %s\n", creds)
+	rc.logger.Debugf("Credentials: %s\n", creds)
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
 	file, err := os.Open(templatePath)
 	if err != nil {
-		fmt.Printf("Unable to Open template file. %v\n", err)
+		rc.logger.Errorf("Unable to Open template file. %v\n", err)
 		return nil, err
 	}
 	defer file.Close()
 
-	fmt.Printf("\nGot the file: %s\n", file.Name())
+	rc.logger.Debugf("\nGot the file: %s\n", file.Name())
 
 	part, err := writer.CreateFormFile("file", file.Name())
 	if err != nil {
@@ -385,19 +387,19 @@ func (rc *RestClient) CreateDashboard(templatePath string) ([]byte, error) {
 	}
 	_, errC := io.Copy(part, file)
 	if errC != nil {
-		fmt.Printf("Unable to copy part for file uploads. %v\n", errC)
+		rc.logger.Errorf("Unable to copy part for file uploads. %v\n", errC)
 		return nil, errC
 	}
 
 	err = writer.Close()
 	if err != nil {
-		fmt.Printf("Unable to create request for dashboard post. %v\n", err)
+		rc.logger.Errorf("Unable to create request for dashboard post. %v\n", err)
 		return nil, err
 	}
 
 	req, err := http.NewRequest("POST", url, body)
 	if err != nil {
-		fmt.Printf("Unable to create request for dashboard post. %v\n", err)
+		rc.logger.Errorf("Unable to create request for dashboard post. %v\n", err)
 	}
 	authHeader := "Basic " + creds
 	req.Header.Set("Authorization", authHeader)
@@ -406,14 +408,36 @@ func (rc *RestClient) CreateDashboard(templatePath string) ([]byte, error) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("Unable to create dashboard. %v\n", err)
+		rc.logger.Errorf("Unable to create dashboard. %v\n", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	fmt.Println("response Status:", resp.Status)
+	rc.logger.Debugf("CreateDashboard response Status:", resp.Status)
 	b, _ := ioutil.ReadAll(resp.Body)
-	fmt.Println("response Body:", string(b))
+	rc.logger.Debugf("CreateDashboard response Body:", string(b))
 	return b, nil
 
+}
+
+func (rc *RestClient) MarkNodeHistorical(nodeId int) error {
+	url := fmt.Sprintf("%srest/mark-nodes-historical?application-component-node-ids=%d", rc.getControllerUrl(), nodeId)
+
+	req, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		return fmt.Errorf("Unable to create request for mark node historical. %v\n", err)
+	}
+	ar := strings.Split(rc.Bag.RestAPICred, ":")
+	if len(ar) != 2 {
+		return fmt.Errorf("Rest API credentials are formatted incorrectly. Must be <username>@<account>:<password>")
+	}
+
+	req.SetBasicAuth(ar[0], ar[1])
+	client := &http.Client{}
+	_, errReq := client.Do(req)
+	if errReq != nil {
+		return fmt.Errorf("Unable to mark node as historical. %v\n", errReq)
+	}
+
+	return nil
 }

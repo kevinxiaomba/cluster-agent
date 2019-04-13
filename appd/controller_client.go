@@ -391,6 +391,16 @@ func (c *ControllerClient) DeleteAppDNode(nodeID int) error {
 	return nil
 }
 
+func (c *ControllerClient) MarkNodeHistorical(nodeID int) {
+	rc := NewRestClient((*c.ConfManager).Get(), c.logger)
+	err := rc.MarkNodeHistorical(nodeID)
+	if err != nil {
+		c.logger.Error(err)
+	} else {
+		c.logger.Infof("Node %d marked as historical", nodeID)
+	}
+}
+
 // enable analytics
 // POST controller/restui/analyticsConfigTxnAnalyticsUiService/enableAnalyticsForApplication?enabled=true
 // appId: 12

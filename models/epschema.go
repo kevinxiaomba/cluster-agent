@@ -25,6 +25,11 @@ type EpSchemaDef struct {
 	IsOrphan    string `json:"isOrphan"`
 }
 
+func (sd EpSchemaDef) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(sd)
+	return &objMap
+}
+
 func (sd EpSchemaDefWrapper) Unwrap() *map[string]interface{} {
 	objMap := structs.Map(sd)
 	return &objMap

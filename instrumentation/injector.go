@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	app "github.com/sjeltuhin/clusterAgent/appd"
 	appsv1 "k8s.io/api/apps/v1"
 
@@ -42,10 +44,11 @@ type AgentInjector struct {
 	K8sConfig      *rest.Config
 	Bag            *m.AppDBag
 	AppdController *app.ControllerClient
+	Logger         *log.Logger
 }
 
-func NewAgentInjector(client *kubernetes.Clientset, config *rest.Config, bag *m.AppDBag, appdController *app.ControllerClient) AgentInjector {
-	return AgentInjector{ClientSet: client, K8sConfig: config, Bag: bag, AppdController: appdController}
+func NewAgentInjector(client *kubernetes.Clientset, config *rest.Config, bag *m.AppDBag, appdController *app.ControllerClient, l *log.Logger) AgentInjector {
+	return AgentInjector{ClientSet: client, K8sConfig: config, Bag: bag, AppdController: appdController, Logger: l}
 }
 
 func AnalyticsAgentExists(podSpec *v1.PodSpec, bag *m.AppDBag) bool {
@@ -72,10 +75,10 @@ func AgentInitExists(podSpec *v1.PodSpec, bag *m.AppDBag) bool {
 	return exists
 }
 
-func IsPodInstrumented(podObj *v1.Pod) bool {
+func IsPodInstrumented(podObj *v1.Pod, l *log.Logger) bool {
 	for k, v := range podObj.Annotations {
 		if k == ATTACHED_ANNOTATION && v != "" {
-			fmt.Printf("Pod %s already instrumented. Skipping...\n", podObj.Name)
+			l.Infof("Pod %s already instrumented. Skipping...\n", podObj.Name)
 			return true
 		}
 	}
@@ -94,7 +97,6 @@ func GetAttachMetadata(appTag string, tierTag string, deploy *appsv1.Deployment,
 	}
 
 	for k, v := range deploy.Labels {
-		fmt.Printf("Labels: %s:%s\n", k, v)
 		if k == appTag {
 			appName = v
 		}
@@ -111,10 +113,10 @@ func GetAttachMetadata(appTag string, tierTag string, deploy *appsv1.Deployment,
 	return appName, tierName, biQDeploymentOption
 }
 
-func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag) *m.AgentRequestList {
+func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag, l *log.Logger) *m.AgentRequestList {
 	//check for exclusions
 	if bag.InstrumentationMethod == m.None || utils.StringInSlice(deploy.Namespace, bag.NsToInstrumentExclude) {
-		fmt.Printf("Instrumentation is not configured for namespace %s\n", deploy.Namespace)
+		l.Infof("Instrumentation is not configured for namespace %s\n", deploy.Namespace)
 		return nil
 	}
 
@@ -123,7 +125,7 @@ func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag) *m
 	var appAgent string
 	appName, tierName, biQDeploymentOption := GetAttachMetadata(bag.AppDAppLabel, bag.AppDTierLabel, deploy, bag)
 
-	fmt.Printf("biQDeploymentOption: %s\n", biQDeploymentOption)
+	l.Infof("biQDeploymentOption: %s\n", biQDeploymentOption)
 	for k, v := range deploy.Labels {
 		if k == bag.AgentLabel {
 			appAgent = v
@@ -132,7 +134,7 @@ func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag) *m
 
 	if appAgent != "" || appName != "" {
 		al := m.NewAgentRequestList(appAgent, appName, tierName, biQDeploymentOption, deploy.Spec.Template.Spec.Containers, bag)
-		fmt.Printf("Using deployment metadata for agent request. AppName: %s AppAgent: %s\n", appName, appAgent)
+		l.Infof("Using deployment metadata for agent request. AppName: %s AppAgent: %s\n", appName, appAgent)
 		list = &al
 	} else {
 		//try global configuration
@@ -176,7 +178,7 @@ func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag) *m
 			arr = append(arr, (*namespaceRule))
 		}
 		if len(arr) > 0 {
-			fmt.Printf("Applying %d custom rules for agent request\n", len(arr))
+			l.Infof("Applying %d custom rules for agent request\n", len(arr))
 			list = m.NewAgentRequestListFromArray(arr, bag, deploy.Spec.Template.Spec.Containers)
 		}
 
@@ -205,7 +207,7 @@ func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag) *m
 					}
 				}
 				if global {
-					fmt.Printf("Applying global rule for agent request\n")
+					l.Info("Applying global rule for agent request")
 					if appName == "" {
 						appName = deploy.Name
 					}
@@ -216,14 +218,14 @@ func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag) *m
 		}
 	}
 	if list != nil {
-		fmt.Printf(list.String())
+		l.WithField("list", list.String()).Debug("Agent requests")
 	} else {
-		fmt.Printf("No Agent requests found\n")
+		l.Info("No Agent requests found\n")
 	}
 	return list
 }
 
-func ShouldInstrumentDeployment(deployObj *appsv1.Deployment, bag *m.AppDBag, pendingCache *[]string, failedCache *map[string]m.AttachStatus) (bool, bool, *m.AgentRequestList) {
+func ShouldInstrumentDeployment(deployObj *appsv1.Deployment, bag *m.AppDBag, pendingCache *[]string, failedCache *map[string]m.AttachStatus, l *log.Logger) (bool, bool, *m.AgentRequestList) {
 	//check if already updated
 	updated := false
 	biqUpdated := false
@@ -238,29 +240,29 @@ func ShouldInstrumentDeployment(deployObj *appsv1.Deployment, bag *m.AppDBag, pe
 		}
 	}
 
-	fmt.Printf("Update status: %t. BiQ updated: %t\n", updated, biqUpdated)
+	l.Debugf("Update status: %t. BiQ updated: %t\n", updated, biqUpdated)
 
 	if updated || biqUpdated {
 		(*pendingCache) = utils.RemoveFromSlice(utils.GetDeployKey(deployObj), *pendingCache)
-		fmt.Printf("Deployment %s already updated for AppD. Skipping...\n", deployObj.Name)
+		l.Infof("Deployment %s already updated for AppD. Skipping...\n", deployObj.Name)
 		return false, false, nil
 	}
 
 	if utils.StringInSlice(utils.GetDeployKey(deployObj), *pendingCache) {
-		fmt.Printf("Deployment %s is in process of update. Waiting...\n", deployObj.Name)
+		l.Infof("Deployment %s is in process of update. Waiting...\n", deployObj.Name)
 		return false, false, nil
 	}
 
 	//	check Failed cache not to exceed failure limit
 	status, ok := (*failedCache)[utils.GetDeployKey(deployObj)]
 	if ok && status.Count >= MAX_INSTRUMENTATION_ATTEMPTS {
-		fmt.Printf("Deployment %s exceeded the max number of failed instrumentation attempts. Skipping...\n", deployObj.Name)
+		l.Errorf("Deployment %s exceeded the max number of failed instrumentation attempts. Skipping...\n", deployObj.Name)
 		return false, false, nil
 	}
 
-	agentRequests := GetAgentRequestsForDeployment(deployObj, bag)
+	agentRequests := GetAgentRequestsForDeployment(deployObj, bag, l)
 	if agentRequests == nil {
-		fmt.Printf("Deployment %s does not need to be instrumented. Ignoring...\n", deployObj.Name)
+		l.Infof("Deployment %s does not need to be instrumented. Ignoring...", deployObj.Name)
 		return false, false, nil
 	}
 
@@ -268,7 +270,7 @@ func ShouldInstrumentDeployment(deployObj *appsv1.Deployment, bag *m.AppDBag, pe
 	initRequested := !AgentInitExists(&deployObj.Spec.Template.Spec, bag) && agentRequests.InitContainerRequired()
 
 	if !biqRequested && !initRequested {
-		fmt.Printf("Instrumentation not requested. Skipping %s...\n", deployObj.Name)
+		l.Infof("Instrumentation not requested. Skipping %s...", deployObj.Name)
 	}
 
 	biq := agentRequests.GetBiQOption() == string(m.Sidecar) && !AnalyticsAgentExists(&deployObj.Spec.Template.Spec, bag)
@@ -289,7 +291,7 @@ func (ai *AgentInjector) findContainer(agentRequest *m.AgentRequest, podObj *v1.
 
 func (ai AgentInjector) EnsureInstrumentation(statusChanel chan m.AttachStatus, podObj *v1.Pod, podSchema *m.PodSchema) error {
 	//check if already instrumented
-	if IsPodInstrumented(podObj) {
+	if IsPodInstrumented(podObj, ai.Logger) {
 		statusChanel <- ai.buildAttachStatus(podObj, nil, nil, true)
 		return nil
 	}
@@ -303,15 +305,15 @@ func (ai AgentInjector) EnsureInstrumentation(statusChanel chan m.AttachStatus, 
 		}
 	}
 	if agentRequests == nil {
-		fmt.Println("Instrumentation not requested. Aborting...")
+		ai.Logger.Info("Instrumentation not requested. Aborting...")
 		statusChanel <- ai.buildAttachStatus(podObj, nil, nil, true)
 	} else {
-		fmt.Printf("Agent request from pod annotation: %s\n", agentRequests.String())
+		ai.Logger.Debugf("Agent request from pod annotation: %s\n", agentRequests.String())
 
 		for _, r := range agentRequests.Items {
 			c := ai.findContainer(&r, podObj)
 			if r.Method == m.MountAttach {
-				fmt.Printf("Container %s requested. Instrumenting...\n", c.Name)
+				ai.Logger.Infof("Container %s requested. Instrumenting...", c.Name)
 				err := ai.instrumentContainer(r.AppName, r.TierName, c, podObj, m.BiQDeploymentOption(r.BiQ), &r)
 				statusChanel <- ai.buildAttachStatus(podObj, &r, err, false)
 			} else {
@@ -327,8 +329,8 @@ func (ai AgentInjector) EnsureInstrumentation(statusChanel chan m.AttachStatus, 
 
 func (ai AgentInjector) finilizeAttach(statusChanel chan m.AttachStatus, podObj *v1.Pod, agentRequest *m.AgentRequest) {
 	if agentRequest.Tech == m.DotNet || agentRequest.Method == m.MountEnv {
-		fmt.Printf("Finilizing instrumentation for container %s...\n", agentRequest.ContainerName)
-		exec := NewExecutor(ai.ClientSet, ai.K8sConfig)
+		ai.Logger.Infof("Finilizing instrumentation for container %s...", agentRequest.ContainerName)
+		exec := NewExecutor(ai.ClientSet, ai.K8sConfig, ai.Logger)
 		updateErr := ai.Associate(podObj, &exec, agentRequest)
 		if updateErr != nil {
 			statusChanel <- ai.buildAttachStatus(podObj, agentRequest, fmt.Errorf("%s, Error: %v\n", ANNOTATION_UPDATE_ERROR, updateErr), false)
@@ -355,7 +357,7 @@ func (ai AgentInjector) buildAttachStatus(podObj *v1.Pod, agentRequest *m.AgentR
 func (ai AgentInjector) instrumentContainer(appName string, tierName string, container *v1.Container, podObj *v1.Pod, biQDeploymentOption m.BiQDeploymentOption, agentRequest *m.AgentRequest) error {
 	var procName, args string
 	var procID int = 0
-	exec := NewExecutor(ai.ClientSet, ai.K8sConfig)
+	exec := NewExecutor(ai.ClientSet, ai.K8sConfig, ai.Logger)
 
 	if ai.Bag.InstrumentationMethod == m.CopyAttach {
 		//copy files
@@ -389,14 +391,14 @@ func (ai AgentInjector) instrumentContainer(appName string, tierName string, con
 			}
 			pid, err := strconv.Atoi(fields[0])
 			if err == nil {
-				fmt.Printf("PID: %d, Name: %s, Args: %s\n", pid, procName, args)
+				ai.Logger.Debugf("PID: %d, Name: %s, Args: %s\n", pid, procName, args)
 				if strings.Contains(procName, "java") {
 					procID = pid
 				}
 			}
 		}
 		if legit && procID > 0 {
-			fmt.Printf("Instrumenting process %d\n", procID)
+			ai.Logger.Infof("Instrumenting process %d", procID)
 			return ai.instrument(podObj, procID, appName, tierName, container.Name, &exec, biQDeploymentOption, agentRequest)
 		} else {
 			return fmt.Errorf("Enable to determine process to instrument")
@@ -443,13 +445,13 @@ func (ai AgentInjector) copyArtifacts(exec *Executor, podObj *v1.Pod, containerN
 func (ai AgentInjector) copyFileSync(exec *Executor, fileName, dir string, podObj *v1.Pod, containerName string) error {
 	filePath, errFile := filepath.Abs(fileName)
 	if errFile != nil {
-		fmt.Printf("Cannot find %s path. %v\n", filePath, errFile)
+		ai.Logger.Errorf("Cannot find %s path. %v", filePath, errFile)
 		return errFile
 	}
-	fmt.Printf("Copying file %s\n", filePath)
+	ai.Logger.Infof("Copying file %s", filePath)
 	_, _, copyErr := exec.CopyFilesToPod(podObj, containerName, filePath, dir)
 	if copyErr != nil {
-		fmt.Printf("Copy failed. Aborting instrumentation. %v\n", copyErr)
+		ai.Logger.Errorf("Copy failed. Aborting instrumentation. %v\n", copyErr)
 		return copyErr
 	}
 	return nil
@@ -459,13 +461,13 @@ func (ai AgentInjector) copyFile(ok chan bool, wg *sync.WaitGroup, exec *Executo
 	defer wg.Done()
 	filePath, errFile := filepath.Abs(fileName)
 	if errFile != nil {
-		fmt.Printf("Cannot find %s path. %v\n", filePath, errFile)
+		ai.Logger.Errorf("Cannot find %s path. %v\n", filePath, errFile)
 		ok <- false
 	}
-	fmt.Printf("Copying file %s\n", filePath)
+	ai.Logger.Infof("Copying file %s", filePath)
 	_, _, copyErr := exec.CopyFilesToPod(podObj, containerName, filePath, dir)
 	if copyErr != nil {
-		fmt.Printf("Copy failed. Aborting instrumentation. %v\n", copyErr)
+		ai.Logger.Errorf("Copy failed. Aborting instrumentation. %v", copyErr)
 		ok <- false
 	}
 	ok <- true
@@ -480,16 +482,17 @@ func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tier
 		jdkPath, jarPath, pid, ai.Bag.ControllerUrl, ai.Bag.ControllerPort, ai.Bag.SSLEnabled, ai.Bag.Account, ai.Bag.AccessKey, appName, tierName, tierName)
 
 	//BIQ instrumentation. If Analytics agent is remote, provide the url when attaching
-	fmt.Printf("BiQ deployment option is %s.\n", biQDeploymentOption)
+	ai.Logger.Infof("BiQ deployment option is %s.", biQDeploymentOption)
 	if biQDeploymentOption != m.Sidecar {
-		fmt.Printf("Will add remote url %s\n", ai.Bag.AnalyticsAgentUrl)
+		ai.Logger.Debugf("Will add remote url %s\n", ai.Bag.AnalyticsAgentUrl)
 		if ai.Bag.AnalyticsAgentUrl != "" {
 			cmd = fmt.Sprintf("%s,appdynamics.analytics.agent.url=%s/v2/sinks/bt", cmd, ai.Bag.AnalyticsAgentUrl)
 		}
 	}
 	code, output, err := exec.RunCommandInPod(podObj.Name, podObj.Namespace, containerName, "", cmd)
 	if code == 0 {
-		fmt.Printf("AppD agent attached. Output: %s. Error: %v\n", output, err)
+		ai.Logger.Info("AppDynamics Java agent attached.")
+		ai.Logger.Debugf("AppDynamics Java agent attached. Output: %s. Error: %v\n", output, err)
 		errA := ai.Associate(podObj, exec, agentRequest)
 		if errA != nil {
 			return fmt.Errorf("Unable to annotate and associate the attached pod %v\n", errA)
@@ -503,7 +506,7 @@ func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tier
 }
 
 func (ai AgentInjector) RetryAssociate(podObj *v1.Pod, agentRequest *m.AgentRequest) error {
-	exec := NewExecutor(ai.ClientSet, ai.K8sConfig)
+	exec := NewExecutor(ai.ClientSet, ai.K8sConfig, ai.Logger)
 	return ai.Associate(podObj, &exec, agentRequest)
 }
 
@@ -536,7 +539,7 @@ func (ai AgentInjector) Associate(podObj *v1.Pod, exec *Executor, agentRequest *
 	}
 	if appID == 0 {
 		//mark to retry to give the agent time to initialize
-		fmt.Printf("Association error. No appID\n")
+		ai.Logger.Warn("Association error. No appID\n")
 		associateError = APPD_ASSOCIATE_ERROR
 	}
 
@@ -544,11 +547,11 @@ func (ai AgentInjector) Associate(podObj *v1.Pod, exec *Executor, agentRequest *
 		//determine the AppD node name
 		findVerCmd := fmt.Sprintf("find %s/ -maxdepth 1 -type d -name '*ver*' -printf %%f -quit", jarPath)
 		cVer, verFolderName, errVer := exec.RunCommandInPod(podObj.Name, podObj.Namespace, agentRequest.ContainerName, "", findVerCmd)
-		fmt.Printf("AppD agent version probe. Output: %s. Error: %v\n", verFolderName, errVer)
+		ai.Logger.Debugf("AppD agent version probe. Output: %s. Error: %v\n", verFolderName, errVer)
 		if cVer == 0 && verFolderName != "" {
 			findCmd := fmt.Sprintf("find %s/%s/logs/ -maxdepth 1 -type d -name '*%s*' -printf %%f -quit", jarPath, verFolderName, agentRequest.TierName)
 			c, folderName, errFolder := exec.RunCommandInPod(podObj.Name, podObj.Namespace, agentRequest.ContainerName, "", findCmd)
-			fmt.Printf("AppD agent version probe. Output: %s. Error: %v\n", folderName, errFolder)
+			ai.Logger.Debugf("AppD agent version probe. Output: %s. Error: %v\n", folderName, errFolder)
 
 			if c == 0 {
 				nodeName := strings.TrimSpace(folderName)
@@ -573,7 +576,7 @@ func (ai AgentInjector) Associate(podObj *v1.Pod, exec *Executor, agentRequest *
 						//TODO: if analytics was intstrumented, queue up to enable the app for analytics
 					}
 				} else {
-					fmt.Printf("Association error. Empty node name: %s (%s)\n", nodeName, folderName)
+					ai.Logger.Warnf("Association error. Empty node name: %s (%s)\n", nodeName, folderName)
 					associateError = APPD_ASSOCIATE_ERROR
 				}
 			}
@@ -582,16 +585,16 @@ func (ai AgentInjector) Associate(podObj *v1.Pod, exec *Executor, agentRequest *
 	if appID > 0 && agentRequest.BiQRequested() {
 		analyticsErr := ai.AppdController.EnableAppAnalytics(appID, agentRequest.AppName)
 		if analyticsErr != nil {
-			fmt.Printf("Unable to enable analytics for application %s. %v\n", agentRequest.AppName, analyticsErr)
+			ai.Logger.Errorf("Unable to enable analytics for application %s. %v\n", agentRequest.AppName, analyticsErr)
 		}
 	}
 	_, updateErr := ai.ClientSet.CoreV1().Pods(podObj.Namespace).Update(podObj)
 	if updateErr != nil {
-		fmt.Printf("%s, Error: %v\n", ANNOTATION_UPDATE_ERROR, updateErr)
+		ai.Logger.Errorf("%s, Pod update failed: %v\n", ANNOTATION_UPDATE_ERROR, updateErr)
 		return fmt.Errorf("%s, Error: %v\n", ANNOTATION_UPDATE_ERROR, updateErr)
 	}
 	if associateError != "" {
-		fmt.Printf("Associate error is not empty %s\n", associateError)
+		ai.Logger.Warn("Associate error. Will make another attempt later\n")
 		return fmt.Errorf("%s", associateError)
 	}
 	return nil

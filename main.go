@@ -157,6 +157,9 @@ func buildParams() Flags {
 
 func main() {
 
+	l.SetFormatter(&log.TextFormatter{
+		FullTimestamp: false,
+	})
 	// Only log the warning severity or above.
 	l.SetLevel(log.InfoLevel)
 	// Set logging output to standard console out
@@ -489,12 +492,14 @@ func getInstrumentContainer() string {
 
 func getTemplatePath() string {
 	templPath := os.Getenv("DASH_TEMPLATE_PATH")
+	l.Infof("Template path: %s", templPath)
 	if templPath == "" {
-		absPath, err := filepath.Abs("templates/cluster_template.json")
+		absPath, err := filepath.Abs("templates/cluster-template.json")
 		if err != nil {
 			l.WithField("error", err).Warn("Cannot find dashboard template")
 		}
 		templPath = absPath
+		l.Infof("Template path from absolute: %s", templPath)
 	}
 	return templPath
 }

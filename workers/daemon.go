@@ -2,7 +2,6 @@ package workers
 
 import (
 	"encoding/json"
-	"fmt"
 	"sync"
 	"time"
 
@@ -95,7 +94,7 @@ func (dw *DaemonWorker) onNewDaemonSet(obj interface{}) {
 	if !dw.qualifies(DaemonObj) {
 		return
 	}
-	fmt.Printf("Added DaemonSet: %s\n", DaemonObj.Name)
+	dw.Logger.Debugf("Added DaemonSet: %s\n", DaemonObj.Name)
 
 	DaemonRecord, _ := dw.processObject(DaemonObj, nil)
 	dw.WQ.Add(&DaemonRecord)
@@ -106,7 +105,7 @@ func (dw *DaemonWorker) onDeleteDaemonSet(obj interface{}) {
 	if !dw.qualifies(DaemonObj) {
 		return
 	}
-	fmt.Printf("Deleted DaemonSet: %s\n", DaemonObj.Name)
+	dw.Logger.Debugf("Deleted DaemonSet: %s\n", DaemonObj.Name)
 }
 
 func (dw *DaemonWorker) onUpdateDaemonSet(objOld interface{}, objNew interface{}) {
@@ -114,7 +113,7 @@ func (dw *DaemonWorker) onUpdateDaemonSet(objOld interface{}, objNew interface{}
 	if !dw.qualifies(DaemonObj) {
 		return
 	}
-	fmt.Printf("DaemonSet %s changed\n", DaemonObj.Name)
+	dw.Logger.Debugf("DaemonSet %s changed\n", DaemonObj.Name)
 
 	DaemonRecord, _ := dw.processObject(DaemonObj, nil)
 	dw.WQ.Add(&DaemonRecord)
@@ -161,7 +160,7 @@ func (pw *DaemonWorker) flushQueue() {
 	bth := pw.AppdController.StartBT("FlushDaemonSetDataQueue")
 	count := pw.WQ.Len()
 	if count > 0 {
-		fmt.Printf("Flushing the queue of %d DaemonSet records\n", count)
+		pw.Logger.Infof("Flushing the queue of %d DaemonSet records\n", count)
 	}
 	if count == 0 {
 		pw.AppdController.StopBT(bth)
@@ -179,10 +178,10 @@ func (pw *DaemonWorker) flushQueue() {
 		if ok {
 			objList = append(objList, *DaemonRecord)
 		} else {
-			fmt.Println("Queue shut down")
+			pw.Logger.Info("Daemonset Queue shut down")
 		}
 		if count == 0 || len(objList) >= bag.EventAPILimit {
-			fmt.Printf("Sending %d DaemonSet records to AppD events API\n", len(objList))
+			pw.Logger.Debugf("Sending %d DaemonSet records to AppD events API\n", len(objList))
 			pw.postDaemonRecords(&objList)
 			pw.AppdController.StopBT(bth)
 			return
@@ -199,11 +198,11 @@ func (pw *DaemonWorker) postDaemonRecords(objList *[]m.DaemonSchema) {
 
 	err := rc.EnsureSchema(bag.DaemonSchemaName, &schemaDefObj)
 	if err != nil {
-		fmt.Printf("Issues when ensuring %s schema. %v\n", bag.DaemonSchemaName, err)
+		pw.Logger.Errorf("Issues when ensuring %s schema. %v\n", bag.DaemonSchemaName, err)
 	} else {
 		data, err := json.Marshal(objList)
 		if err != nil {
-			fmt.Printf("Problems when serializing array of daemon schemas. %v", err)
+			pw.Logger.Errorf("Problems when serializing array of daemon schemas. %v", err)
 		}
 		rc.PostAppDEvents(bag.DaemonSchemaName, data)
 	}
@@ -232,8 +231,6 @@ func (pw *DaemonWorker) buildAppDMetrics() {
 		pw.summarize(&DaemonSchema)
 		count++
 	}
-
-	fmt.Printf("Unique DaemonSet metrics: %d\n", count)
 
 	ml := pw.builAppDMetricsList()
 

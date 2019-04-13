@@ -10,6 +10,8 @@ import (
 	"path"
 	"strings"
 
+	log "github.com/sirupsen/logrus"
+
 	"k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -20,6 +22,7 @@ import (
 type Executor struct {
 	ClientSet *kubernetes.Clientset
 	K8sConfig *rest.Config
+	Logger    *log.Logger
 }
 
 const (
@@ -39,8 +42,8 @@ type fileSpec struct {
 	ContainerName string
 }
 
-func NewExecutor(clientSet *kubernetes.Clientset, config *rest.Config) Executor {
-	return Executor{clientSet, config}
+func NewExecutor(clientSet *kubernetes.Clientset, config *rest.Config, l *log.Logger) Executor {
+	return Executor{ClientSet: clientSet, K8sConfig: config, Logger: l}
 }
 
 func (exec *Executor) RunCommand(podObject *v1.Pod, cmd string, args string) (int, string, error) {
@@ -60,7 +63,7 @@ func (exec *Executor) execute(podName string, namespace string, containerName st
 	if cmd == "" {
 		cmd = DEFAULT_EXEC_CMD
 	}
-	fmt.Printf("About to exec command %s %s in pod %s/%s, container %s\n", cmd, args, namespace, podName, containerName)
+	exec.Logger.Debugf("About to exec command %s %s in pod %s/%s, container %s\n", cmd, args, namespace, podName, containerName)
 	var execOut Writer
 	var execErr Writer
 
@@ -70,10 +73,9 @@ func (exec *Executor) execute(podName string, namespace string, containerName st
 	command, err := remotecommand.NewSPDYExecutor(exec.K8sConfig, "POST", execRequest.URL())
 
 	if err != nil {
-		fmt.Printf("Issues creating command. %v\n", err)
+		exec.Logger.Errorf("Issues when creating command %s. %v\n", execRequest.URL().String(), err)
 		return ERROR_CODE, "", err
 	}
-	fmt.Println("Request URL:", execRequest.URL().String())
 
 	cmdErr := command.Stream(remotecommand.StreamOptions{
 		Stdin:  os.Stdin,
@@ -85,15 +87,15 @@ func (exec *Executor) execute(podName string, namespace string, containerName st
 
 	if cmdErr == nil {
 		exitCode = 0
-		fmt.Printf("Command executed successfully. Status %d. Output: %s\n", exitCode, execOut.GetOutput())
+		exec.Logger.Debugf("Command executed successfully. Status %d. Output: %s\n", exitCode, execOut.GetOutput())
 	} else {
-		fmt.Printf("Command returned an error. %v\n", cmdErr)
+		exec.Logger.Errorf("Command %s returned an error. %v\n", execRequest.URL().String(), cmdErr)
 		if exitErr, ok := cmdErr.(utilexec.ExitError); ok && exitErr.Exited() {
 			exitCode = exitErr.ExitStatus()
-			fmt.Printf("Exit status: %d\n", exitCode)
+			exec.Logger.Debugf("Exit status: %d\n", exitCode)
 			return exitCode, execErr.GetOutput(), exitErr
 		} else {
-			fmt.Printf("Issues getting exit code: %v, %v\n", exitErr, cmdErr)
+			exec.Logger.Errorf("Issues getting exit code: %v, %v\n", exitErr, cmdErr)
 			return exitCode, execErr.GetOutput(), fmt.Errorf("Failed to find exit code.")
 		}
 	}

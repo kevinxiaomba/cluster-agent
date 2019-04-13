@@ -89,7 +89,7 @@ func (nw *JobsWorker) onNewJob(obj interface{}) {
 	if !nw.qualifies(jobObj) {
 		return
 	}
-	fmt.Printf("Added Job: %s\n", jobObj.Name)
+	nw.Logger.Debugf("Added Job: %s\n", jobObj.Name)
 
 }
 
@@ -98,7 +98,7 @@ func (nw *JobsWorker) onDeleteJob(obj interface{}) {
 	if !nw.qualifies(jobObj) {
 		return
 	}
-	fmt.Printf("Deleted Job: %s\n", jobObj.Name)
+	nw.Logger.Debugf("Deleted Job: %s\n", jobObj.Name)
 }
 
 func (nw *JobsWorker) onUpdateJob(objOld interface{}, objNew interface{}) {
@@ -106,7 +106,7 @@ func (nw *JobsWorker) onUpdateJob(objOld interface{}, objNew interface{}) {
 	if !nw.qualifies(jobObj) {
 		return
 	}
-	fmt.Printf("Updated Job: %s\n", jobObj.Name)
+	nw.Logger.Debugf("Updated Job: %s\n", jobObj.Name)
 }
 
 func (pw JobsWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
@@ -116,9 +116,9 @@ func (pw JobsWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	go pw.informer.Run(stopCh)
 
 	if !cache.WaitForCacheSync(stopCh, pw.HasSynced) {
-		fmt.Errorf("Timed out waiting for caches to sync")
+		pw.Logger.Error("Timed out waiting for caches to sync")
 	}
-	fmt.Println("Cache syncronized. Starting the processing...")
+	pw.Logger.Info("Cache syncronized. Starting Jobs processing...")
 
 	wg.Add(1)
 	go pw.startMetricsWorker(stopCh)
@@ -153,7 +153,6 @@ func (pw *JobsWorker) appMetricTicker(stop <-chan struct{}, ticker *time.Ticker)
 func (pw *JobsWorker) buildAppDMetrics() {
 	bth := pw.AppdController.StartBT("SendJobMetrics")
 	pw.SummaryMap = make(map[string]m.ClusterJobMetrics)
-	fmt.Println("Time to send job metrics. Current cache:")
 	var count int = 0
 	for _, obj := range pw.informer.GetStore().List() {
 		jobObject := obj.(*batchTypes.Job)
@@ -192,7 +191,11 @@ func (pw *JobsWorker) processObject(j *batchTypes.Job) m.JobSchema {
 	for k, v := range j.GetAnnotations() {
 		fmt.Fprintf(&sb, "%s:%s;", k, v)
 	}
-	jobObject.Annotations = sb.String()
+	ja := sb.String()
+	if len(ja) >= app.MAX_FIELD_LENGTH {
+		ja = ja[len(ja)-app.MAX_FIELD_LENGTH:]
+	}
+	jobObject.Annotations = ja
 
 	jobObject.Active = j.Status.Active
 
@@ -303,7 +306,7 @@ func (pw *JobsWorker) flushQueue() {
 	bag := (*pw.ConfigManager).Get()
 	bth := pw.AppdController.StartBT("FlushJobEventsQueue")
 	count := pw.WQ.Len()
-	fmt.Printf("Flushing the queue of %d records\n", count)
+	pw.Logger.Infof("Flushing the queue of job %d records\n", count)
 	if count == 0 {
 		return
 	}
@@ -319,10 +322,10 @@ func (pw *JobsWorker) flushQueue() {
 		if ok {
 			objList = append(objList, *jobRecord)
 		} else {
-			fmt.Println("Queue shut down")
+			pw.Logger.Info("Job Queue shut down")
 		}
 		if count == 0 || len(objList) >= bag.EventAPILimit {
-			fmt.Printf("Sending %d records to AppD events API\n", len(objList))
+			pw.Logger.Debugf("Sending %d records to AppD events API\n", len(objList))
 			pw.postJobRecords(&objList)
 			return
 		}
@@ -338,11 +341,11 @@ func (pw *JobsWorker) postJobRecords(objList *[]m.JobSchema) {
 
 	err := rc.EnsureSchema(bag.JobSchemaName, &schemaDefObj)
 	if err != nil {
-		fmt.Printf("Issues when ensuring %s schema. %v\n", bag.JobSchemaName, err)
+		pw.Logger.Errorf("Issues when ensuring %s schema. %v\n", bag.JobSchemaName, err)
 	} else {
 		data, err := json.Marshal(objList)
 		if err != nil {
-			fmt.Printf("Problems when serializing array of job schemas. %v", err)
+			pw.Logger.Errorf("Problems when serializing array of job schemas. %v", err)
 		}
 		rc.PostAppDEvents(bag.JobSchemaName, data)
 	}

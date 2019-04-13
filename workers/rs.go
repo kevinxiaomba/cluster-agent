@@ -2,7 +2,6 @@ package workers
 
 import (
 	"encoding/json"
-	"fmt"
 
 	log "github.com/sirupsen/logrus"
 
@@ -96,7 +95,7 @@ func (dw *RsWorker) onNewReplicaSet(obj interface{}) {
 	if !dw.qualifies(RsObj) {
 		return
 	}
-	fmt.Printf("Added ReplicaSet: %s\n", RsObj.Name)
+	dw.Logger.Debugf("Added ReplicaSet: %s\n", RsObj.Name)
 
 	RsRecord, _ := dw.processObject(RsObj, nil)
 	dw.WQ.Add(&RsRecord)
@@ -108,7 +107,7 @@ func (dw *RsWorker) onDeleteReplicaSet(obj interface{}) {
 	if !dw.qualifies(RsObj) {
 		return
 	}
-	fmt.Printf("Deleted ReplicaSet: %s\n", RsObj.Name)
+	dw.Logger.Debugf("Deleted ReplicaSet: %s\n", RsObj.Name)
 }
 
 func (dw *RsWorker) onUpdateReplicaSet(objOld interface{}, objNew interface{}) {
@@ -116,7 +115,7 @@ func (dw *RsWorker) onUpdateReplicaSet(objOld interface{}, objNew interface{}) {
 	if !dw.qualifies(RsObj) {
 		return
 	}
-	fmt.Printf("ReplicaSet %s changed\n", RsObj.Name)
+	dw.Logger.Debugf("ReplicaSet %s changed\n", RsObj.Name)
 
 	RsRecord, _ := dw.processObject(RsObj, nil)
 	dw.WQ.Add(&RsRecord)
@@ -162,7 +161,7 @@ func (pw *RsWorker) flushQueue() {
 	bth := pw.AppdController.StartBT("FlushReplicaSetDataQueue")
 	count := pw.WQ.Len()
 	if count > 0 {
-		fmt.Printf("Flushing the queue of %d ReplicaSet records\n", count)
+		pw.Logger.Infof("Flushing the queue of %d ReplicaSet records\n", count)
 	}
 	if count == 0 {
 		pw.AppdController.StopBT(bth)
@@ -180,10 +179,10 @@ func (pw *RsWorker) flushQueue() {
 		if ok {
 			objList = append(objList, *RsRecord)
 		} else {
-			fmt.Println("Queue shut down")
+			pw.Logger.Info("RS Queue shut down")
 		}
 		if count == 0 || len(objList) >= bag.EventAPILimit {
-			fmt.Printf("Sending %d ReplicaSet records to AppD events API\n", len(objList))
+			pw.Logger.Debugf("Sending %d ReplicaSet records to AppD events API\n", len(objList))
 			pw.postRsRecords(&objList)
 			pw.AppdController.StopBT(bth)
 			return
@@ -201,11 +200,11 @@ func (pw *RsWorker) postRsRecords(objList *[]m.RsSchema) {
 
 	err := rc.EnsureSchema(bag.RSSchemaName, &schemaDefObj)
 	if err != nil {
-		fmt.Printf("Issues when ensuring %s schema. %v\n", bag.RSSchemaName, err)
+		pw.Logger.Errorf("Issues when ensuring %s schema. %v\n", bag.RSSchemaName, err)
 	} else {
 		data, err := json.Marshal(objList)
 		if err != nil {
-			fmt.Printf("Problems when serializing array of rs schemas. %v", err)
+			pw.Logger.Errorf("Problems when serializing array of rs schemas. %v", err)
 		}
 		rc.PostAppDEvents(bag.RSSchemaName, data)
 	}
