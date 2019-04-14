@@ -11,7 +11,7 @@ The ClusterAgent monitors state of Kuberenetes resources and derives metrics to 
 
 ![Cluster Overview Dashboard](https://github.com/Appdynamics/cluster-agent/blob/master/docs/assets/cluster-dashboard.png)
 
- [Cluster monitoring overview](https://github.com/Appdynamics/cluster-agent/docs/monitoring.md)
+ [Cluster monitoring overview](https://github.com/Appdynamics/cluster-agent/blob/master/docs/monitoring.md)
 
 
 
@@ -19,23 +19,29 @@ The ClusterAgent monitors state of Kuberenetes resources and derives metrics to 
 
 The Cluster agent can be configured to auto instrument Java and .Net workloads
 
-[Application instrumentation overview](https://github.com/Appdynamics/cluster-agent/docs/monitoring.md)
+[Application instrumentation overview](https://github.com/Appdynamics/cluster-agent/blob/master/docs/instrumentation.md)
 
 ## Quick start
 The ClusterAgent can be deployed and managed manually or with a Kuberenetes Operator. 
 The Kubernetes Operator is a recommended approach, as it hides a number of steps and compexities. For details see [Link]
-Create namespace for AppDynamics components
-Kubernetes
-`kubectl create namespace appdynamics-infra`
-OpenShift
-`oca new-project appdynamics-infra --description="AppDynamics Infrastructure"`
-Update controller URL in the configMap
-Create an AppDynamics account
-Create a Secret
-Create a Secret with at least one key:
-"api-user"
-Deploy the folder
-`kubectl create -f deploy/`
+
+* Create namespace for AppDynamics components
+  * Kubernetes
+   `kubectl create namespace appdynamics-infra`
+  * OpenShift
+   `oca new-project appdynamics-infra --description="AppDynamics Infrastructure"`
+* Update controller URL in the configMap
+* Create an AppDynamics account
+* Create a Secret
+`kubectl -n appdynamics-infra create secret generic cluster-agent-secret \
+--from-literal=controller-key="" \
+--from-literal=event-key="" \
+--from-literal=api-user=""
+`
+"api-user" is required
+
+* Deploy
+ `kubectl create -f deploy/`
 
 ### Additional considerations
 
