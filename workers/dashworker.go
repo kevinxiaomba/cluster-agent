@@ -15,9 +15,9 @@ import (
 
 	"github.com/google/uuid"
 
-	app "github.com/sjeltuhin/clusterAgent/appd"
-	m "github.com/sjeltuhin/clusterAgent/models"
-	"github.com/sjeltuhin/clusterAgent/utils"
+	app "github.com/appdynamics/cluster-agent/appd"
+	m "github.com/appdynamics/cluster-agent/models"
+	"github.com/appdynamics/cluster-agent/utils"
 )
 
 const (

@@ -10,13 +10,13 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/sjeltuhin/clusterAgent/config"
-	m "github.com/sjeltuhin/clusterAgent/models"
-	"github.com/sjeltuhin/clusterAgent/utils"
-	"github.com/sjeltuhin/clusterAgent/web"
+	"github.com/appdynamics/cluster-agent/config"
+	m "github.com/appdynamics/cluster-agent/models"
+	"github.com/appdynamics/cluster-agent/utils"
+	"github.com/appdynamics/cluster-agent/web"
 	"k8s.io/api/core/v1"
 
-	app "github.com/sjeltuhin/clusterAgent/appd"
+	app "github.com/appdynamics/cluster-agent/appd"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -315,7 +315,7 @@ func (c *MainController) EnsureEventAPIKey(bag *m.AppDBag) (string, error) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: AGENT_EVENT_SECRET,
 				Labels: map[string]string{
-					"owner": "clusteragent",
+					"owner": "cluster-agent",
 				},
 			},
 		}

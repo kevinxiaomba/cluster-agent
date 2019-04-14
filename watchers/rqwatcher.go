@@ -10,14 +10,14 @@ import (
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/watch"
 
-	"github.com/sjeltuhin/clusterAgent/config"
+	"github.com/appdynamics/cluster-agent/config"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"k8s.io/client-go/kubernetes"
 
-	app "github.com/sjeltuhin/clusterAgent/appd"
-	m "github.com/sjeltuhin/clusterAgent/models"
-	"github.com/sjeltuhin/clusterAgent/utils"
+	app "github.com/appdynamics/cluster-agent/appd"
+	m "github.com/appdynamics/cluster-agent/models"
+	"github.com/appdynamics/cluster-agent/utils"
 )
 
 var lockRQ = sync.RWMutex{}

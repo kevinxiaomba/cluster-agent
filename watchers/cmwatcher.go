@@ -13,8 +13,8 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/sjeltuhin/clusterAgent/config"
-	"github.com/sjeltuhin/clusterAgent/utils"
+	"github.com/appdynamics/cluster-agent/config"
+	"github.com/appdynamics/cluster-agent/utils"
 )
 
 type ConfigWatcher struct {

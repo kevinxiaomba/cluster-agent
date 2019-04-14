@@ -10,11 +10,11 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	app "github.com/sjeltuhin/clusterAgent/appd"
-	"github.com/sjeltuhin/clusterAgent/config"
-	instr "github.com/sjeltuhin/clusterAgent/instrumentation"
-	m "github.com/sjeltuhin/clusterAgent/models"
-	"github.com/sjeltuhin/clusterAgent/utils"
+	app "github.com/appdynamics/cluster-agent/appd"
+	"github.com/appdynamics/cluster-agent/config"
+	instr "github.com/appdynamics/cluster-agent/instrumentation"
+	m "github.com/appdynamics/cluster-agent/models"
+	"github.com/appdynamics/cluster-agent/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"

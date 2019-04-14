@@ -6,14 +6,14 @@ import (
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/watch"
 
-	"github.com/sjeltuhin/clusterAgent/config"
+	"github.com/appdynamics/cluster-agent/config"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"k8s.io/client-go/kubernetes"
 
+	m "github.com/appdynamics/cluster-agent/models"
+	"github.com/appdynamics/cluster-agent/utils"
 	log "github.com/sirupsen/logrus"
-	m "github.com/sjeltuhin/clusterAgent/models"
-	"github.com/sjeltuhin/clusterAgent/utils"
 )
 
 var lockNS = sync.RWMutex{}

@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sjeltuhin/clusterAgent/utils"
+	"github.com/appdynamics/cluster-agent/utils"
 
+	m "github.com/appdynamics/cluster-agent/models"
 	log "github.com/sirupsen/logrus"
-	m "github.com/sjeltuhin/clusterAgent/models"
 )
 
 const CONFIG_FILE = "/opt/appdynamics/config/cluster-agent-config.json"

@@ -15,9 +15,9 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/sjeltuhin/clusterAgent/config"
-	m "github.com/sjeltuhin/clusterAgent/models"
-	"github.com/sjeltuhin/clusterAgent/utils"
+	"github.com/appdynamics/cluster-agent/config"
+	m "github.com/appdynamics/cluster-agent/models"
+	"github.com/appdynamics/cluster-agent/utils"
 )
 
 type ServiceWatcher struct {

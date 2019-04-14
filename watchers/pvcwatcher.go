@@ -3,7 +3,7 @@ package watchers
 import (
 	"sync"
 
-	"github.com/sjeltuhin/clusterAgent/config"
+	"github.com/appdynamics/cluster-agent/config"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/watch"
 
@@ -12,7 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/sjeltuhin/clusterAgent/utils"
+	"github.com/appdynamics/cluster-agent/utils"
 )
 
 type PVCWatcher struct {

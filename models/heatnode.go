@@ -6,12 +6,14 @@ import (
 )
 
 type Utilization struct {
-	CpuUse      float64
-	MemUse      float64
-	Overconsume bool
-	CpuGoal     float64
-	MemGoal     float64
-	Restarts    int32
+	CpuUse       float64
+	MemUse       float64
+	CpuUseString string
+	MemUseString string
+	Overconsume  bool
+	CpuGoal      float64
+	MemGoal      float64
+	Restarts     int32
 }
 
 func (u *Utilization) CheckStatus(threshold float64, cpuRequest float64, memRequest float64) {
@@ -85,9 +87,9 @@ func (hn *HeatNode) GetContainerStatsFormatted() string {
 		restartVal := ""
 		if c.CpuUse >= 0 && c.MemUse >= 0 {
 			if c.CpuUse < 1 {
-				cpuVal = "Cpu: <1%\n"
+				cpuVal = fmt.Sprintf("Cpu: %s (<1%s)\n", c.CpuUseString, "%")
 			} else {
-				cpuVal = fmt.Sprintf("Cpu: %.0f%s\n", c.CpuUse, "%")
+				cpuVal = fmt.Sprintf("Cpu: %s (%.0f%s)\n", c.CpuUseString, c.CpuUse, "%")
 				//				if c.CpuGoal > 0 {
 				//					cpuVal = fmt.Sprintf("Cpu: %.0f%s (%.0f)\n", c.CpuUse, "%", c.CpuGoal)
 				//				} else {
@@ -96,9 +98,9 @@ func (hn *HeatNode) GetContainerStatsFormatted() string {
 			}
 
 			if c.MemUse < 1 {
-				memVal = "Mem: <1%\n"
+				memVal = fmt.Sprintf("Mem: %s (<1%s)\n", c.MemUseString, "%")
 			} else {
-				memVal = fmt.Sprintf("Mem: %.0f%s\n", c.MemUse, "%")
+				memVal = fmt.Sprintf("Mem: %s (%.0f%s)\n", c.MemUseString, c.MemUse, "%")
 				//				if c.MemGoal > 0 {
 				//					memVal = fmt.Sprintf("Mem: %.0f%s (%.0f)\n", c.MemUse, "%", c.MemGoal)
 				//				} else {

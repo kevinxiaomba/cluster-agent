@@ -14,10 +14,10 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/sjeltuhin/clusterAgent/config"
-	m "github.com/sjeltuhin/clusterAgent/models"
-	"github.com/sjeltuhin/clusterAgent/version"
-	w "github.com/sjeltuhin/clusterAgent/workers"
+	"github.com/appdynamics/cluster-agent/config"
+	m "github.com/appdynamics/cluster-agent/models"
+	"github.com/appdynamics/cluster-agent/version"
+	w "github.com/appdynamics/cluster-agent/workers"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -165,8 +165,8 @@ func main() {
 	// Set logging output to standard console out
 	l.SetOutput(os.Stdout)
 
-	l.Info("Starting AppDynamics ClusterAgent")
-	l.WithField("v", version.Version).Info("ClusterAgent version:")
+	l.Info("Starting AppDynamics cluster-agent")
+	l.WithField("v", version.Version).Info("cluster-agent version:")
 
 	sigs := make(chan os.Signal, 1) // Create channel to receive OS signals
 	stop := make(chan struct{})     // Create channel to receive stop signal

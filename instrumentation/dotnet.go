@@ -3,11 +3,11 @@ package instrumentation
 import (
 	"fmt"
 
-	app "github.com/sjeltuhin/clusterAgent/appd"
+	app "github.com/appdynamics/cluster-agent/appd"
 
 	"strconv"
 
-	m "github.com/sjeltuhin/clusterAgent/models"
+	m "github.com/appdynamics/cluster-agent/models"
 
 	"k8s.io/api/core/v1"
 )

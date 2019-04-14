@@ -7,58 +7,24 @@ The ClusterAgent has 2 purposes.
 
 
 ## Cluster monitoring
-The ClusterAgent monitors state of several Kuberenetes resources and derives metrics to provide visibility into the following common application impacting issues:
+The ClusterAgent monitors state of Kuberenetes resources and derives metrics to provide visibility into the following common application impacting issues. The metrics are displayed in the cluster overview dashboard and the snapshot data is stored in AppDynamics analytics engine for drill-downs and further analysis.
 
-* Application crashes
-* Misconfiguration
-* Missing dependencies
-* Missing connectivity
-* Resource starvation and overutilization
-* Image issues
-* Storage issues
-* Resource utilization relative to capacity and limits
+![Cluster Overview Dashboard](https://github.com/Appdynamics/cluster-agent/docs/assets/cluster-dashboard.png)
 
-The metrics are pushed to the AppDynamics controller under the application name and the tier of the ClusterAgent. In addition, the raw snapshot data is sent to the Controller as Analytics events and can be viewed and further analyzed with ADQL.
-A cluster-level dashboard with metrics is generated out-of-the-box. Deployment specific dashboards can be generated on demand, by changing the ClusterAgent configuration
+
+ [Cluster monitoring overview](https://github.com/Appdynamics/cluster-agent/docs/monitoring.md)
+
 
 
 ## Application instrumentation
-The ClusterAgent uses a declarative approach to agent instrumentation, which is consistent with Kubernetes design principles. The agent instrumentation is initiated by changing the deployment spec of the apps that need to be monitored. The ClusterAgent adds an init container with the desired agent image to the deployment. The initcontainer copies the agent binaries to a shared volume on the pod and make them available to the main application container. The required agent parameters are passed to the main application container as environment variables. 
-In addition to this method, some Java workloads can be also instrumented using Java dynamic attach.
-Once an application is instrumented, the ClusterAgent associates the pod with the AppDynamics application/tier/node ids. For Java workloads, the association is implemented down to the node id. For other technologies, the association is at the app/tier level. The ids of the corresponding AppDynamics entities are reflected in the pod's annotations.
-By default, the instrumentation is disabled. The instrumentation is controlled by several configuration settings.
-InstrumentationMethod "none", "mountEnv", "mountAttach"
-NSToInstrument
-NSToInstrumentExclude
-NSInstrumentRule
 
-To enable instrumentation, the InstrumentationMethod must be either mountEnv or mountAttach and NSToInstrument must have at least 1 namespace.
+The Cluster agent can be configured to auto instrument Java and .Net workloads
 
-The instrumentation can be declared at a deployment level or via ClusterAgent configuration. The ClusterAgent makes the instrumentation decision in this order:
-Is the instrumentation enabled? InstrumentationMethod is not "none" and the deployment namespace is not excluded.
-Is there a deployment metadata?
-Is there a rule that matches the deployment?
-Is there a namespace-wide rule that matches the deployment	
-
-### Deployment metadata
-
-`appd-app: marvel
- appd-agent: dotnet`
-
-
-### ClusterAgent configuration
-* Global defaults
-* Specific rule
-	* Tech, multiple namespaces, first container
-	* Tech, multiple namespaces, specific container
-	* Tech, multiple namespaces, multiple containers
-	* Tech, multiple namespaces, specific container, method override
-* Namespace-wide rule
-
-
+[Application instrumentation overview](https://github.com/Appdynamics/cluster-agent/docs/monitoring.md)
 
 ## Quick start
-The ClusterAgent can be deployed and managed manually or with a Kuberenetes Operator. The Kubernetes Operator is a recommended approach, as it hides a number of steps and compexities.
+The ClusterAgent can be deployed and managed manually or with a Kuberenetes Operator. 
+The Kubernetes Operator is a recommended approach, as it hides a number of steps and compexities. For details see [Link]
 Create namespace for AppDynamics components
 Kubernetes
 `kubectl create namespace appdynamics-infra`
@@ -67,20 +33,14 @@ OpenShift
 Update controller URL in the configMap
 Create an AppDynamics account
 Create a Secret
+Create a Secret with at least one key:
+"api-user"
 Deploy the folder
 `kubectl create -f deploy/`
 
-### Manual deployment
-Create a Secret with at least one key:
-"api-user"
+### Additional considerations
 
-The ClusterAgent is designed to listen to updates to its configMap and use the new values of most of the settings  without restart.
-
-The default ConfigMap is attached.
- ControllerUrl is the only required value
-
-### ClusterAgent Operator
-Link
+The ClusterAgent is designed to listen to updates to its configMap and use the new values of most of the settings without restart.
 
 
 ## Legal notice

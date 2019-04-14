@@ -14,7 +14,7 @@ import (
 
 	"github.com/gorilla/mux"
 
-	m "github.com/sjeltuhin/clusterAgent/models"
+	m "github.com/appdynamics/cluster-agent/models"
 )
 
 type AgentWebServer struct {

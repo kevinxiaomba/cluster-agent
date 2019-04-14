@@ -11,11 +11,11 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	app "github.com/sjeltuhin/clusterAgent/appd"
+	app "github.com/appdynamics/cluster-agent/appd"
 	appsv1 "k8s.io/api/apps/v1"
 
-	m "github.com/sjeltuhin/clusterAgent/models"
-	"github.com/sjeltuhin/clusterAgent/utils"
+	m "github.com/appdynamics/cluster-agent/models"
+	"github.com/appdynamics/cluster-agent/utils"
 	"k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"

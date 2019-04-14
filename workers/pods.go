@@ -14,21 +14,21 @@ import (
 
 	"time"
 
-	"github.com/sjeltuhin/clusterAgent/config"
-	"github.com/sjeltuhin/clusterAgent/utils"
-	w "github.com/sjeltuhin/clusterAgent/watchers"
+	"github.com/appdynamics/cluster-agent/config"
+	"github.com/appdynamics/cluster-agent/utils"
+	w "github.com/appdynamics/cluster-agent/watchers"
 
+	m "github.com/appdynamics/cluster-agent/models"
 	"github.com/fatih/structs"
-	m "github.com/sjeltuhin/clusterAgent/models"
 	"k8s.io/client-go/rest"
 
-	instr "github.com/sjeltuhin/clusterAgent/instrumentation"
+	instr "github.com/appdynamics/cluster-agent/instrumentation"
 
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/tools/cache"
 
-	app "github.com/sjeltuhin/clusterAgent/appd"
+	app "github.com/appdynamics/cluster-agent/appd"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -1319,8 +1319,8 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 					contUsageObj := podMetricsObj.GetContainerUsage(cname)
 					c.CpuUse = contUsageObj.CPU
 					c.MemUse = contUsageObj.Memory
-					c.ConsumptionCpu = pw.GetCpuConsumption(&podObject, &c)
-					c.ConsumptionMem = pw.GetMemConsumption(&podObject, &c)
+					c.ConsumptionCpu, c.ConsumptionCpuString = pw.GetCpuConsumption(&podObject, &c)
+					c.ConsumptionMem, c.ConsumptionMemString = pw.GetMemConsumption(&podObject, &c)
 					pw.Logger.WithField("Percent", c.ConsumptionCpu).Debug("Cpu consumption")
 					pw.Logger.WithField("Percent", c.ConsumptionMem).Debug("Memory consumption")
 					podObject.Containers[cname] = c
@@ -1445,29 +1445,48 @@ func (pw PodWorker) processContainer(podObj *v1.Pod, podSchema *m.PodSchema, c v
 	}
 
 	if c.Resources.Requests != nil {
-		cpuReq := c.Resources.Requests.Cpu().MilliValue()
 
-		podSchema.CpuRequest += cpuReq
-		containerObj.CpuRequest = cpuReq
+		var cpuReq int64 = 0
+		if c.Resources.Requests.Cpu() != nil {
+			cpuReq = c.Resources.Requests.Cpu().MilliValue()
 
-		memReq := c.Resources.Requests.Memory().MilliValue() / 1000
+			podSchema.CpuRequest += cpuReq
+			containerObj.CpuRequest = cpuReq
+			containerObj.RequestCpuString = c.Resources.Requests.Cpu().String()
+		}
 
-		podSchema.MemRequest += memReq
-		containerObj.MemRequest = memReq
+		var memReq int64 = 0
+		if c.Resources.Requests.Memory() != nil {
+			memReq = c.Resources.Requests.Memory().MilliValue() / 1000
+
+			podSchema.MemRequest += memReq
+			containerObj.MemRequest = memReq
+
+			containerObj.RequestMemString = c.Resources.Requests.Memory().String()
+		}
 
 		limitsDefined = true
 	}
 
 	if c.Resources.Limits != nil {
-		cpuLim := c.Resources.Limits.Cpu().MilliValue()
+		var cpuLim int64 = 0
 
-		podSchema.CpuLimit += cpuLim
-		containerObj.CpuLimit = cpuLim
+		if c.Resources.Limits.Cpu() != nil {
+			cpuLim = c.Resources.Limits.Cpu().MilliValue()
 
-		memLim := c.Resources.Limits.Memory().MilliValue() / 1000
+			podSchema.CpuLimit += cpuLim
+			containerObj.CpuLimit = cpuLim
+			containerObj.LimitCpuString = c.Resources.Limits.Cpu().String()
+		}
 
-		podSchema.MemLimit += memLim
-		containerObj.MemLimit = memLim
+		var memLim int64 = 0
+		if c.Resources.Limits.Memory() != nil {
+			memLim = c.Resources.Limits.Memory().MilliValue() / 1000
+
+			podSchema.MemLimit += memLim
+			containerObj.MemLimit = memLim
+			containerObj.LimitMemString = c.Resources.Limits.Memory().String()
+		}
 
 		//check storage needs
 		//ephemeral
@@ -1944,42 +1963,42 @@ func (pw *PodWorker) GetPodEvents(podSchema *m.PodSchema) []string {
 	return []string{}
 }
 
-func (pw *PodWorker) GetCpuConsumption(podSchema *m.PodSchema, containerSchema *m.ContainerSchema) float64 {
+func (pw *PodWorker) GetCpuConsumption(podSchema *m.PodSchema, containerSchema *m.ContainerSchema) (float64, string) {
 	if containerSchema.CpuUse > 0 {
 		if containerSchema.CpuRequest > 0 {
 			pw.Logger.WithFields(log.Fields{"Pod": podSchema.Name, "MemUsed": containerSchema.CpuUse, "MemRequest": containerSchema.CpuRequest}).Debug("CPU Consumption check")
-			return float64(containerSchema.CpuUse) / float64(containerSchema.CpuRequest) * float64(100)
+			return float64(containerSchema.CpuUse) / float64(containerSchema.CpuRequest) * float64(100), containerSchema.RequestCpuString
 		} else if containerSchema.CpuLimit > 0 {
-			return float64(containerSchema.CpuUse) / float64(containerSchema.CpuLimit) * float64(100)
+			return float64(containerSchema.CpuUse) / float64(containerSchema.CpuLimit) * float64(100), containerSchema.LimitCpuString
 		} else if pw.NodesMonitor != nil {
 			nodeInfo := pw.NodesMonitor.GetNodeData(podSchema.NodeName)
 			if nodeInfo != nil {
 				if nodeInfo.CpuCapacity > 0 {
-					return float64(containerSchema.CpuUse) / float64(nodeInfo.CpuCapacity) * float64(100)
+					return float64(containerSchema.CpuUse) / float64(nodeInfo.CpuCapacity) * float64(100), ""
 				}
 			}
 		}
 	}
-	return -1
+	return -1, ""
 }
 
-func (pw *PodWorker) GetMemConsumption(podSchema *m.PodSchema, containerSchema *m.ContainerSchema) float64 {
+func (pw *PodWorker) GetMemConsumption(podSchema *m.PodSchema, containerSchema *m.ContainerSchema) (float64, string) {
 	if containerSchema.MemUse > 0 {
 		if containerSchema.MemRequest > 0 {
 			pw.Logger.WithFields(log.Fields{"Pod": podSchema.Name, "MemUsed": containerSchema.MemUse, "MemRequest": containerSchema.MemRequest}).Debug("Mem Consumption check")
-			return float64(containerSchema.MemUse) / float64(containerSchema.MemRequest) * float64(100)
+			return float64(containerSchema.MemUse) / float64(containerSchema.MemRequest) * float64(100), containerSchema.RequestMemString
 		} else if podSchema.MemLimit > 0 {
-			return float64(containerSchema.MemUse) / float64(containerSchema.MemLimit) * float64(100)
+			return float64(containerSchema.MemUse) / float64(containerSchema.MemLimit) * float64(100), containerSchema.LimitMemString
 		} else if pw.NodesMonitor != nil {
 			nodeInfo := pw.NodesMonitor.GetNodeData(podSchema.NodeName)
 			if nodeInfo != nil {
 				if nodeInfo.MemCapacity > 0 {
-					return float64(containerSchema.MemUse) / float64(nodeInfo.MemCapacity) * float64(100)
+					return float64(containerSchema.MemUse) / float64(nodeInfo.MemCapacity) * float64(100), ""
 				}
 			}
 		}
 	}
-	return -1
+	return -1, ""
 }
 
 func (pw *PodWorker) GetPodUtilization(podSchema *m.PodSchema) map[string]m.Utilization {
@@ -1988,8 +2007,16 @@ func (pw *PodWorker) GetPodUtilization(podSchema *m.PodSchema) map[string]m.Util
 	for _, c := range podSchema.Containers {
 		if !c.Init {
 			pw.Logger.WithFields(log.Fields{"Container": c.Name, "Cpu": c.ConsumptionCpu, "Mem": c.ConsumptionMem}).Debug("GetPodUtilization")
-			cu := m.Utilization{CpuUse: c.ConsumptionCpu, MemUse: c.ConsumptionMem, Restarts: c.Restarts}
-			cu.CheckStatus(float64(bag.OverconsumptionThreshold), float64(c.CpuRequest), float64(c.MemRequest))
+			cu := m.Utilization{CpuUse: c.ConsumptionCpu, CpuUseString: c.ConsumptionCpuString, MemUse: c.ConsumptionMem, MemUseString: c.ConsumptionMemString, Restarts: c.Restarts}
+			cpuCeiling := c.CpuRequest
+			if cpuCeiling == 0 {
+				cpuCeiling = c.CpuLimit
+			}
+			memCeiling := c.MemRequest
+			if memCeiling == 0 {
+				memCeiling = c.MemLimit
+			}
+			cu.CheckStatus(float64(bag.OverconsumptionThreshold), float64(cpuCeiling), float64(memCeiling))
 			mu[c.Name] = cu
 		}
 	}

@@ -9,17 +9,17 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	app "github.com/sjeltuhin/clusterAgent/appd"
+	app "github.com/appdynamics/cluster-agent/appd"
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 
-	m "github.com/sjeltuhin/clusterAgent/models"
+	m "github.com/appdynamics/cluster-agent/models"
 
-	"github.com/sjeltuhin/clusterAgent/config"
-	"github.com/sjeltuhin/clusterAgent/utils"
+	"github.com/appdynamics/cluster-agent/config"
+	"github.com/appdynamics/cluster-agent/utils"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 )
@@ -473,7 +473,7 @@ func EmitInstrumentationEvent(pod *v1.Pod, client *kubernetes.Clientset, reason,
 
 func eventFromPod(podObj *v1.Pod, reason string, message string, eventType string) *v1.Event {
 	or := v1.ObjectReference{Kind: "Pods", Namespace: podObj.Namespace, Name: podObj.Name}
-	source := v1.EventSource{Component: "AppDClusterAgent", Host: podObj.Spec.NodeName}
+	source := v1.EventSource{Component: "AppDcluster-agent", Host: podObj.Spec.NodeName}
 	t := metav1.Time{Time: time.Now()}
 	namespace := podObj.Namespace
 	if namespace == "" {

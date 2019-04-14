@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	m "github.com/sjeltuhin/clusterAgent/models"
+	m "github.com/appdynamics/cluster-agent/models"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/api/core/v1"
 )

@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	app "github.com/sjeltuhin/clusterAgent/appd"
-	"github.com/sjeltuhin/clusterAgent/config"
+	app "github.com/appdynamics/cluster-agent/appd"
+	"github.com/appdynamics/cluster-agent/config"
 
-	m "github.com/sjeltuhin/clusterAgent/models"
-	"github.com/sjeltuhin/clusterAgent/utils"
+	m "github.com/appdynamics/cluster-agent/models"
+	"github.com/appdynamics/cluster-agent/utils"
 	appsv1 "k8s.io/api/apps/v1"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

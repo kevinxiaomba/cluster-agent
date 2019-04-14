@@ -10,8 +10,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/sjeltuhin/clusterAgent/config"
-	m "github.com/sjeltuhin/clusterAgent/models"
+	"github.com/appdynamics/cluster-agent/config"
+	m "github.com/appdynamics/cluster-agent/models"
 
 	appd "appdynamics"
 )

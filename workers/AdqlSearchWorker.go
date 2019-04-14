@@ -8,8 +8,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	app "github.com/sjeltuhin/clusterAgent/appd"
-	m "github.com/sjeltuhin/clusterAgent/models"
+	app "github.com/appdynamics/cluster-agent/appd"
+	m "github.com/appdynamics/cluster-agent/models"
 
 	"github.com/google/uuid"
 )
