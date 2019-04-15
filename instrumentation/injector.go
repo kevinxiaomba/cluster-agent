@@ -479,7 +479,7 @@ func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tier
 
 	bth := ai.AppdController.StartBT("Instrument")
 	cmd := fmt.Sprintf("java -Xbootclasspath/a:%s/tools.jar -jar %s/javaagent.jar %d appdynamics.controller.hostName=%s,appdynamics.controller.port=%d,appdynamics.controller.ssl.enabled=%t,appdynamics.agent.accountName=%s,appdynamics.agent.accountAccessKey=%s,appdynamics.agent.applicationName=%s,appdynamics.agent.tierName=%s,appdynamics.agent.reuse.nodeName=true,appdynamics.agent.reuse.nodeName.prefix=%s",
-		jdkPath, jarPath, pid, ai.Bag.ControllerUrl, ai.Bag.ControllerPort, ai.Bag.SSLEnabled, ai.Bag.Account, ai.Bag.AccessKey, appName, tierName, tierName)
+		jdkPath, jarPath, pid, ai.Bag.ControllerUrl, ai.Bag.ControllerPort, ai.Bag.SSLEnabled, ai.Bag.Account, ai.Bag.AccessKey, appName, tierName, ai.Bag.NodeNamePrefix)
 
 	//BIQ instrumentation. If Analytics agent is remote, provide the url when attaching
 	ai.Logger.Infof("BiQ deployment option is %s.", biQDeploymentOption)

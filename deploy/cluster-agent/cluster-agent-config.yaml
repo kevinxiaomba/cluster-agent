@@ -2,9 +2,9 @@ apiVersion: v1
 data:
   cluster-agent-config.json: |
     {
+	"ControllerUrl": "<protocol>://<controller-url>:<port>",
     "Account": "",
     "GlobalAccount": "",
-    "ControllerUrl": "http://455controllernossh-k8sbiqtest-eq2w7bwd.srv.ravcloud.com:8090",
     "EventServiceUrl": "",
     "AppName": "K8s-Cluster-Agent",
     "TierName": "ClusterAgent",
@@ -50,7 +50,7 @@ data:
     "ProxyUser": "",
     "ProxyPass": "",
     "InstrumentationMethod": "mountEnv",
-    "InstrumentMatchString": ["client-api"],
+    "InstrumentMatchString": [""],
     "DefaultInstrumentationTech": "java",
     "BiqService": "none",
     "InstrumentContainer": "first",
@@ -63,7 +63,7 @@ data:
     "DeploysToDashboard": [],
     "NodesToMonitor": [],
     "NodesToMonitorExclude": [],
-    "NsToInstrument": ["dev"],
+    "NsToInstrument": [],
     "NsToInstrumentExclude": [],
     "NSInstrumentRule": [{"Namespaces":["dev"],"MatchString":["dotnet"],"Tech": "dotnet", "AppDAppLabel":"name"},
     {"Namespaces":["dev"],"MatchString":["client-api"],"BiQ": "sidecar", "AppDAppLabel":"name"}],

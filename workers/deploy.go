@@ -520,7 +520,7 @@ func (dw *DeployWorker) updateContainerEnv(ar *m.AgentRequest, deployObj *appsv1
 		optsExist := false
 		volPath := instr.GetVolumePath(bag, ar)
 		javaOptsVal := fmt.Sprintf(` -Dappdynamics.agent.accountAccessKey=$(APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY) -Dappdynamics.controller.hostName=%s -Dappdynamics.controller.port=%d -Dappdynamics.controller.ssl.enabled=%t -Dappdynamics.agent.accountName=%s -Dappdynamics.agent.applicationName=%s -Dappdynamics.agent.tierName=%s -Dappdynamics.agent.reuse.nodeName=true -Dappdynamics.agent.reuse.nodeName.prefix=%s -javaagent:%s/javaagent.jar `,
-			bag.ControllerUrl, bag.ControllerPort, bag.SSLEnabled, bag.Account, ar.AppName, ar.TierName, ar.TierName, volPath)
+			bag.ControllerUrl, bag.ControllerPort, bag.SSLEnabled, bag.Account, ar.AppName, ar.TierName, ar.NodeNamePrefix, volPath)
 		if ar.IsBiQRemote() {
 			javaOptsVal = fmt.Sprintf("%s -Dappdynamics.analytics.agent.url=%s/v2/sinks/bt", javaOptsVal, bag.AnalyticsAgentUrl)
 		}
@@ -710,7 +710,7 @@ func (dw *DeployWorker) getResourceLimits(containerType string) (string, string,
 	}
 
 	if reqMem == "" {
-		reqMem = "200"
+		reqMem = "600"
 	}
 
 	limitCpu := "0.2"
@@ -719,7 +719,7 @@ func (dw *DeployWorker) getResourceLimits(containerType string) (string, string,
 		limitCpu = fmt.Sprintf("%.1f", limitCpuVal*2)
 	}
 
-	limitMem := "300M"
+	limitMem := "800M"
 	limitMemVal, eMem := strconv.ParseInt(reqMem, 10, 0)
 	if eMem == nil {
 		limitMem = fmt.Sprintf("%dM", int(limitMemVal*3/2))
