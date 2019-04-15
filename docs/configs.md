@@ -2,14 +2,16 @@
 
 ### Required properties
 
-*ControllerUrl*:				Full Url of the AppDynamics Controller in the following format:
+***ControllerUrl***:				Full Url of the AppDynamics Controller in the following format:
 								 `<protocol>://<controller-dns>:<port> `         
 
 
 
 ### Optional
 
+
 #### General info
+
 
 ***Account***:          			AppDynamics account name, e.g. customer1
 
@@ -37,8 +39,10 @@
 
 ***LogLevel***:                	Level of logging of the ClusterAgent application. Supported values: "info", "error", "debug". Default is 		
 								*info*
+								
 
 #### Limits
+
 
 ***EventAPILimit***:           	Max number of analytics events when sent in a batch to the AppDynamics Events API
 
@@ -53,7 +57,9 @@
 ***OverconsumptionThreshold***:   Percent of resource utilization in a pod that triggers "Over-consume" flag. Default is 80
 
 
+
 #### Monitoring
+
 
 ***NsToMonitor***:					List of namespaces to monitor
 
@@ -64,7 +70,9 @@
 ***NodesToMonitorExclude***:		List of nodes to exclude from monitoring
 
 
+
 #### Analytics Schemas
+
 ***PodSchemaName***:           	Pods. Default is "kube_pod_snapshots"
 
 ***NodeSchemaName***:          	Nodes. Default is "kube_node_snapshots"
@@ -90,15 +98,19 @@
 ***DaemonSchemaName***:        	Daemon sets. Default is "kube_daemon_snapshots"
 
 
+
 #### Dashboarding
+
 
 ***DashboardTemplatePath***:		Path to the cluster overview template. Default is "/opt/appdynamics/templates/cluster-template.json"
 
 ***DashboardSuffix***:				Suffix in the name of the cluster overview dashboard 
 
 ***DashboardDelayMin***:			Number of seconds after the ClusterAgent start time when the first attempt to create th cluster overview 											dashboard is made. The default is 10
+
 		
 #### Agent Instrumentation
+
 
 ***InstrumentationMethod***:		Method of APM Instrumentation ("mountEnv", "mountAttach", "none"). Default is "none"
 
@@ -110,8 +122,8 @@
 
 ***NSInstrumentRule***:			List of instrumentation rules. Each rule can be configured in the following format:
 
-`	  
-	  namespaces:
+```
+	 namespaces:
 	    - ns1						# List of namespaces wher the rule applies. Required	
 	  matchString: "client-api"	# Regex to match against deployment names and label values. Optional	
 	  appDAppLabel: "appName"		# Value of this label will become AppDynamics application name. Optional			
@@ -120,7 +132,8 @@
 	  tech: "java"					# Type of agent to use. Optional	
 	  method: "mountenv"			# Instrumentation method to use. Optional	
       biq: "sidecar"				# Method of Analytics instrumentation
-`
+```
+
 For details on instrumntation rules refer to [the Instrumentation overview](https://github.com/Appdynamics/cluster-agent/blob/master/docs/instrumentation.md)
 
 ***BiqService***:					How Analytics agent to be deployed ("sidecar", "url to remote service", "none").  Default is "none"
