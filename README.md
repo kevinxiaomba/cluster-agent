@@ -28,7 +28,7 @@ The ClusterAgent can be configured to auto instrument Java and .Net Core workloa
 * [Kuberenetes Metrics server](https://github.com/kubernetes-incubator/metrics-server) enables collection of resource utilization metrics. If it is not already deployed to the cluster, 
 * [An AppDynamics user account](https://github.com/Appdynamics/cluster-agent/blob/master/docs/rest-user-role.md) must be setup for the ClusterAgent to communicate to the AppDynamics controller via REST API.
 
-## Quick start
+## How to deploy
 
 The ClusterAgent can be deployed and managed manually or with the [AppDynamics ClusterAgent Operator](https://github.com/Appdynamics/appdynamics-operator/blob/master/README.md). 
 
