@@ -123,15 +123,15 @@
 ***NSInstrumentRule***:			List of instrumentation rules. Each rule can be configured in the following format:
 
 ```
-namespaces:
-   - ns1						# List of namespaces wher the rule applies. Required	
- matchString: "client-api"	    # Regex to match against deployment names and label values. Optional	
- appDAppLabel: "appName"		# Value of this label will become AppDynamics application name. Optional			
- appDTierLabel: "tierName"	    # Value of this label will become AppDynamics tier name. Optional			
- version: "appdynamics/java"	# Agent image reference. Optional	
- tech: "java"					# Type of agent to use. Optional	
- method: "mountenv"			# Instrumentation method to use. Optional	
-    biq: "sidecar"				# Method of Analytics instrumentation
+namespaces: # List of namespaces wher the rule applies. Required	
+   - ns1  
+ matchString: "client-api"  # Regex to match against deployment names and label values. Optional	
+ appDAppLabel: "appName"  # Value of this label will become AppDynamics application name. Optional			
+ appDTierLabel: "tierName"	  # Value of this label will become AppDynamics tier name. Optional			
+ version: "appdynamics/java" # Agent image reference. Optional	
+ tech: "java" # Type of agent to use. Optional	
+ method: "mountenv" # Instrumentation method to use. Optional	
+ biq: "sidecar"	 # Method of Analytics instrumentation
 ```
 
 For details on instrumntation rules refer to [the Instrumentation overview](https://github.com/Appdynamics/cluster-agent/blob/master/docs/instrumentation.md)
