@@ -2,16 +2,21 @@
 
 ### Required properties
 
-*ControllerUrl*:				Full Url of the AppDynamics Controller in the following format <protocol>://<controller-dns>:<port>           
+*ControllerUrl*:				Full Url of the AppDynamics Controller in the following format:
+								 `<protocol>://<controller-dns>:<port> `         
 
 
 
 ### Optional
 
 #### General info
-*Account*:          			AppDynamics account name, e.g. customer 1
-*GlobalAccount*:    			AppDynamics global account name, e.g. customer 1
+
+*Account*:          			AppDynamics account name, e.g. customer1
+
+*GlobalAccount*:    			AppDynamics global account name
+
 *EventServiceUrl*:  			Url to the AppDynamics event service. If not specified, is derived from the controller Url
+
 *AppName* :         			Name of the ClusterAgent application. The application will appear in AppDynamics UI under this name
 *TierName*:         			Name of the ClusterAgent tier in AppDynamics
 *NodeName*:         			Name of the ClusterAgent node in AppDynamics
@@ -68,7 +73,7 @@
 
 `	  
 	  namespaces:
-	    - prod						# List of namespaces wher the rule applies. Required	
+	    - ns1						# List of namespaces wher the rule applies. Required	
 	  matchString: "client-api"	# Regex to match against deployment names and label values. Optional	
 	  appDAppLabel: "appName"		# Value of this label will become AppDynamics application name. Optional			
 	  appDTierLabel: "tierName"	# Value of this label will become AppDynamics tier name. Optional			
