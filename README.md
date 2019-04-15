@@ -23,7 +23,9 @@ The Cluster agent can be configured to auto instrument Java and .Net workloads
 
 ## Quick start
 The ClusterAgent can be deployed and managed manually or with a Kuberenetes Operator. 
-The Kubernetes Operator is a recommended approach, as it hides a number of steps and compexities. For details see [Link]
+[ClusterAgent Operator](https://github.com/Appdynamics/appdynamics-operator/blob/master/README.md) is a recommended approach, as it abstracts several operational details. 
+
+When deploying manually, follow these steps:
 
 * Create namespace for AppDynamics components
   * Kubernetes
