@@ -60,7 +60,7 @@ func (c *MainController) ValidateParameters() error {
 		bag.ControllerPort = uint16(port)
 		bag.SSLEnabled = strings.Contains(protocol, "s")
 	} else {
-		return fmt.Errorf("Controller Url is invalid. Use this format: protocol://url:port")
+		return fmt.Errorf("Controller Url is invalid. Use this format: protocol://dns:port")
 	}
 
 	//build rest api url
@@ -152,8 +152,8 @@ func (c *MainController) ValidateParameters() error {
 }
 
 func (c *MainController) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
-	bag := c.ConfManager.Get()
-	ws := web.NewAgentWebServer(bag)
+
+	ws := web.NewAgentWebServer(c.ConfManager, c.Logger)
 	wg.Add(1)
 	go ws.RunServer()
 
@@ -245,7 +245,7 @@ func (c *MainController) EnsureEventAPIKey(bag *m.AppDBag) (string, error) {
 	secrets, err := api.Secrets(bag.AgentNamespace).List(listOptions)
 	if err != nil {
 		c.Logger.WithFields(log.Fields{"Namespace": bag.AgentNamespace, "Error": err}).
-			Warn("Unable to load secrets in namespace. Proceeding to generate new key")
+			Warn("Unable to load secrets in the clusterAgent's namespace. Proceeding to generate new key")
 	} else {
 		for _, s := range secrets.Items {
 			if s.Name == AGENT_EVENT_SECRET {

@@ -42,7 +42,9 @@ When deploying manually, follow these steps:
 * Update controller URL in the configMap (deploy/cluster-agent/cluster-agent-config.yaml). The controller URL must be in the following format:
 ` <protocol>://<controller-url>:<port> `
 
-* Create Secret `cluster-agent-secret` (deploy/cluster-agent/cluster-agent-secret.yaml). The "api-user" key with the AppDynamics user account information is required. It needs to be in the following format <username>@<account>:<password>, e.g ` user@customer1:123 `. The other 2 keys, "controller-key" and "event-key", are optional. If not specified, they will be automatically created by the ClusterAgent
+* Create Secret `cluster-agent-secret` (deploy/cluster-agent/cluster-agent-secret.yaml). 
+  * The "api-user" key with the AppDynamics user account information is required. It needs to be in the following format <username>@<account>:<password>, e.g ` user@customer1:123 `. 
+  * The other 2 keys, "controller-key" and "event-key", are optional. If not specified, they will be automatically created by the ClusterAgent
 
 `
 kubectl -n appdynamics-infra create secret generic cluster-agent-secret \
@@ -51,7 +53,13 @@ kubectl -n appdynamics-infra create secret generic cluster-agent-secret \
 --from-literal=event-key="" \
 `
 
-* Update the image reference. The default is "store/appdynamics/cluster-agent:latest". To build your own image, use the provided ./build.sh script 
+* Update the image reference in the ClusterAgent dployment spec (deploy/cluster-agent/appd-cluster-agent.yaml). The default is "docker.io/appdynamics/cluster-agent:latest". 
+
+To build your own image, use the provided ./build.sh script:
+
+```
+	./build.sh appdynamics/cluster-agent 0.1
+```
 
 * Deploy the ClusterAgent
  `kubectl create -f deploy/`
@@ -60,8 +68,7 @@ kubectl -n appdynamics-infra create secret generic cluster-agent-secret \
 
 ## Configuration Properties
 
-The ClusterAgent is designed to listen to updates to its configMap and use the new values of most of the settings without restart.
-Refer to the [list of configuration settings](https://github.com/Appdynamics/cluster-agent/blob/master/docs/configs.md) for details
+The ClusterAgent behavior is driven by configuration settings. Refer to the [list of configuration settings](https://github.com/Appdynamics/cluster-agent/blob/master/docs/configs.md) for details
 
 
 ## Legal notice

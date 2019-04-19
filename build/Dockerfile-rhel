@@ -9,7 +9,7 @@ RUN go get ./
 
 RUN GOOS=linux go build 
 
-FROM centos:latest
+FROM registry.access.redhat.com/rhel-atomic
 
 MAINTAINER AppDynamics
 

@@ -1,5 +1,22 @@
 ## ClusterAgent Configuration properties
 
+The ClusterAgent is designed to listen to updates to its configMap and use the new values without restarts.
+
+Changes to the following properties require restart:
+
+* AgentNamespace 
+* AppName 
+* Account
+* GlobalAccount
+* AccessKey
+* ControllerUrl
+* EventKey
+* RestAPICred
+
+All configuration updates are transparently handled by [AppDynamics ClusterAgent Operator](https://github.com/Appdynamics/appdynamics-operator/blob/master/README.md).
+
+
+
 ### Required properties
 
 ***ControllerUrl***:				Full Url of the AppDynamics Controller in the following format:

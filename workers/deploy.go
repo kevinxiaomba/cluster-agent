@@ -520,7 +520,7 @@ func (dw *DeployWorker) updateContainerEnv(ar *m.AgentRequest, deployObj *appsv1
 		optsExist := false
 		volPath := instr.GetVolumePath(bag, ar)
 		javaOptsVal := fmt.Sprintf(` -Dappdynamics.agent.accountAccessKey=$(APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY) -Dappdynamics.controller.hostName=%s -Dappdynamics.controller.port=%d -Dappdynamics.controller.ssl.enabled=%t -Dappdynamics.agent.accountName=%s -Dappdynamics.agent.applicationName=%s -Dappdynamics.agent.tierName=%s -Dappdynamics.agent.reuse.nodeName=true -Dappdynamics.agent.reuse.nodeName.prefix=%s -javaagent:%s/javaagent.jar `,
-			bag.ControllerUrl, bag.ControllerPort, bag.SSLEnabled, bag.Account, ar.AppName, ar.TierName, ar.NodeNamePrefix, volPath)
+			bag.ControllerUrl, bag.ControllerPort, bag.SSLEnabled, bag.Account, ar.AppName, ar.TierName, bag.NodeNamePrefix, volPath)
 		if ar.IsBiQRemote() {
 			javaOptsVal = fmt.Sprintf("%s -Dappdynamics.analytics.agent.url=%s/v2/sinks/bt", javaOptsVal, bag.AnalyticsAgentUrl)
 		}

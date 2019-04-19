@@ -56,6 +56,11 @@ func NewMutexConfigManager(env *m.AppDBag, l *log.Logger) *MutexConfigManager {
 }
 
 func (self *MutexConfigManager) setDefaults(env *m.AppDBag) {
+	//set all secrets passed via env vars
+	self.Conf.RestAPICred = env.RestAPICred
+	self.Conf.AccessKey = env.AccessKey
+	self.Conf.EventKey = env.EventKey
+
 	if self.Conf.DashboardTemplatePath == "" {
 		self.Conf.DashboardTemplatePath = env.DashboardTemplatePath
 	}

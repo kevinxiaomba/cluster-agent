@@ -7,10 +7,10 @@ The agent instrumentation is initiated by changing the deployment spec of the ap
 
 In addition to this method, some Java workloads can be also instrumented using Java dynamic attach.
 
-Once an application is instrumented, the ClusterAgent associates the pod with the AppDynamics application/tier/node ids. For Java workloads, the association is implemented down to the node id. For other technologies, the association is at the app/tier level. The ids of the corresponding AppDynamics entities are reflected in the pod's annotations.
+Once an application is instrumented, the ClusterAgent associates the pod with the AppDynamics application/tier/node ids. For Java workloads, the association is implemented down to the node id. For other technologies, the association is at the app/tier level. The ids of the corresponding AppDynamics entities are reflected in the pod annotations.
 
 By default, the instrumentation is disabled. The instrumentation is controlled by several configuration settings.
-* InstrumentationMethod "none", "mountEnv", "mountAttach" (only applies to Java). When set to "mountEnv", the init container will be created along wth the necessary environment variables. When set to "mountAttach", the init container will be created with the Java agent artifacts, the artifacts will be mounted to the application container and live attach will be performed.
+* InstrumentationMethod "none", "mountEnv", "mountAttach" (only applies to Java). When set to "mountEnv", the init container will be created along with the necessary environment variables. When set to "mountAttach", the init container will be created with the Java agent artifacts, the artifacts will be mounted to the application container and live attach will be performed.
 
 * NSToInstrument - list of namspaces with instrumentation enabled
 * NSToInstrumentExclude - list of namspaces excluded from the instrumentation
@@ -24,33 +24,36 @@ By default, the instrumentation is disabled. The instrumentation is controlled b
 	  appDTierLabel: "tierName"	# Value of this label will become AppDynamics tier name. Optional			
 	  version: "appdynamics/java"	# Agent image reference. Optional	
 	  tech: "java"					# Type of agent to use. Optional	
-	  method: "mountenv"			# Instrumentation method to use. Optional	
+	  method: "mountEnv"			# Instrumentation method to use. Optional	
       biq: "sidecar"				# Method of Analytics instrumentation
 	  containerName: "first"		# Regex supported match string to identify the container in the pod. Other options: "first", "all". Default is "first"
 ```
 
 ### Enabling instrumentation
-To enable instrumentation, the InstrumentationMethod must be either mountEnv or mountAttach and NSToInstrument must have at least 1 namespace.
+To enable instrumentation, the InstrumentationMethod must be set to mountEnv or mountAttach and NSToInstrument must have at least 1 namespace or a matching instrumentation rule is defined.
 
-The instrumentation can be declared at a deployment level or via ClusterAgent configuration. 
+The instrumentation can be declared at a deployment level or via ClusterAgent configuration.
+
+ 
 The ClusterAgent makes the instrumentation decision in this order:
-Is the instrumentation enabled? InstrumentationMethod is not "none" and the deployment namespace is not excluded.
-Is there a deployment metadata?
-Is there a rule that matches the deployment?
-Is there a namespace-wide rule that matches the deployment	
+
+* Is the instrumentation enabled? InstrumentationMethod is not "none" and the deployment namespace is not excluded.
+* Are there known labels in the deployment metadata?
+* Is there a rule that matches the deployment name or labels?
+* Is there a namespace-wide rule that matches the deployment	name or labels
 
 ### Deployment metadata
 When requesting instrumentation in the deployment metadata, use the following labels
 
 ```
 appd-app: "myapp"			# AppDynamics application name. Required
-appd-tier: "mytier"  		# deployment name is used by default
-appd-agent: "dotnet" 		# optional to override the system-wide default set in "DefaultInstrumentationTech"
+appd-tier: "mytier"  		# Optional. The deployment name is used by default
+appd-agent: "dotnet" 		# Optional. Alternatively, the system-wide default "DefaultInstrumentationTech" is used
 ```
 
 
 ### ClusterAgent configuration use cases
-Below are several use cases that show varios configuration settings for instrumentation.
+Below are several use cases with matching configuration settings for instrumentation.
 
 #### Instrument using global defaults
 All applications deployed to specific namespaces are Java. All apps leverage $JAVA_OPTS environment variable
