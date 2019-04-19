@@ -9,7 +9,7 @@ RUN go get ./
 
 RUN GOOS=linux go build 
 
-FROM registry.access.redhat.com/rhel-atomic
+FROM registry.access.redhat.com/rhel7/rhel
 
 MAINTAINER AppDynamics
 
