@@ -342,10 +342,10 @@ func (pw *DeployWorker) processObject(d *appsv1.Deployment, old *appsv1.Deployme
 
 	deployObject.Strategy = string(d.Spec.Strategy.Type)
 
-	if d.Spec.Strategy.RollingUpdate.MaxSurge != nil {
+	if d.Spec.Strategy.RollingUpdate != nil && d.Spec.Strategy.RollingUpdate.MaxSurge != nil {
 		deployObject.MaxSurge = d.Spec.Strategy.RollingUpdate.MaxSurge.StrVal
 	}
-	if d.Spec.Strategy.RollingUpdate.MaxUnavailable != nil {
+	if d.Spec.Strategy.RollingUpdate != nil && d.Spec.Strategy.RollingUpdate.MaxUnavailable != nil {
 		deployObject.MaxUnavailable = d.Spec.Strategy.RollingUpdate.MaxUnavailable.StrVal
 	}
 	deployObject.ReplicasAvailable = d.Status.AvailableReplicas

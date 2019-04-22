@@ -73,7 +73,7 @@ data:
     "LogLines": 0,
     "PodEventNumber": 1,
     "LogLevel": "info",
-	"OverconsumptionThreshold": 80
+    "OverconsumptionThreshold": 80
     }
 kind: ConfigMap
 metadata:

@@ -110,7 +110,6 @@ func (ew *EventWorker) HasSynced() bool {
 func (ew *EventWorker) startMetricsWorker(stopCh <-chan struct{}) {
 	bag := (*ew.ConfigManager).Get()
 	ew.appMetricTicker(stopCh, time.NewTicker(time.Duration(bag.MetricsSyncInterval)*time.Second))
-
 }
 
 func (ew *EventWorker) appMetricTicker(stop <-chan struct{}, ticker *time.Ticker) {

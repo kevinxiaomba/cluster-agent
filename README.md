@@ -53,7 +53,7 @@ kubectl -n appdynamics-infra create secret generic cluster-agent-secret \
 --from-literal=event-key="" \
 `
 
-* Update the image reference in the ClusterAgent dployment spec (deploy/cluster-agent/appd-cluster-agent.yaml). The default is "docker.io/appdynamics/cluster-agent:latest". 
+* Update the image reference in the ClusterAgent deployment spec (deploy/cluster-agent/appd-cluster-agent.yaml). The default is "docker.io/appdynamics/cluster-agent:latest". 
 
 To build your own image, use the provided ./build.sh script:
 

@@ -85,6 +85,7 @@ var lockEventLock = sync.RWMutex{}
 
 var lockServices = sync.RWMutex{}
 var lockEPs = sync.RWMutex{}
+var lockNSMap = sync.RWMutex{}
 
 func NewPodWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient, config *rest.Config, l *log.Logger, nw *NodesWorker) PodWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
@@ -200,7 +201,13 @@ func (pw *PodWorker) shouldUpdateDashboard(podRecord *m.PodSchema) bool {
 }
 
 func (pw *PodWorker) GetKnownNamespaces() map[string]string {
-	return pw.NamespaceMap
+	lockNSMap.RLock()
+	defer lockNSMap.RUnlock()
+	m := make(map[string]string)
+	for key, val := range pw.NamespaceMap {
+		m[key] = val
+	}
+	return m
 }
 
 func (pw *PodWorker) GetKnownDeployments() map[string]string {

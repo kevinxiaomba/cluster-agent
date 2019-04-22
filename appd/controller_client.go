@@ -245,26 +245,30 @@ func (c *ControllerClient) FindNodeID(appID int, tierName string, nodeName strin
 	}
 	for key, val := range tierObj {
 		if key == "data" {
-			s := val.([]interface{})
-			for _, t := range s {
-				tier := t.(map[string]interface{})
-				name := tier["name"].(string)
-				if name != tierName {
-					continue
-				}
-				tierID = int(tier["id"].(float64))
-				if nodeName == "" {
-					return tierID, 0, nil
-				}
-				for k, prop := range tier {
-					if k == "children" {
-						for _, node := range prop.([]interface{}) {
-							nodeObj := node.(map[string]interface{})
-							for i, p := range nodeObj {
-								if i == "nodeName" && p == nodeName {
-									nodeID = int(nodeObj["nodeId"].(float64))
-									c.logger.Debugf("Obtained TierID: %d, nodeID: %d\n", tierID, nodeID)
-									return tierID, nodeID, nil
+			if val != nil {
+				s := val.([]interface{})
+				for _, t := range s {
+					tier := t.(map[string]interface{})
+					name := tier["name"].(string)
+					if name != tierName {
+						continue
+					}
+					tierID = int(tier["id"].(float64))
+					if nodeName == "" {
+						return tierID, 0, nil
+					}
+					for k, prop := range tier {
+						if k == "children" {
+							if prop != nil {
+								for _, node := range prop.([]interface{}) {
+									nodeObj := node.(map[string]interface{})
+									for i, p := range nodeObj {
+										if i == "nodeName" && p == nodeName {
+											nodeID = int(nodeObj["nodeId"].(float64))
+											c.logger.Debugf("Obtained TierID: %d, nodeID: %d\n", tierID, nodeID)
+											return tierID, nodeID, nil
+										}
+									}
 								}
 							}
 						}

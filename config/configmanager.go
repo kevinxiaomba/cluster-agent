@@ -60,6 +60,7 @@ func (self *MutexConfigManager) setDefaults(env *m.AppDBag) {
 	self.Conf.RestAPICred = env.RestAPICred
 	self.Conf.AccessKey = env.AccessKey
 	self.Conf.EventKey = env.EventKey
+	self.Conf.AgentNamespace = env.AgentNamespace
 
 	if self.Conf.DashboardTemplatePath == "" {
 		self.Conf.DashboardTemplatePath = env.DashboardTemplatePath

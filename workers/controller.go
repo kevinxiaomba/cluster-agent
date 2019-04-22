@@ -44,6 +44,7 @@ func NewController(cm *config.MutexConfigManager, client *kubernetes.Clientset, 
 
 func (c *MainController) ValidateParameters() error {
 	bag := c.ConfManager.Get()
+	c.Logger.Infof("Agent namespace = %s", bag.AgentNamespace)
 	//validate controller URL
 	if strings.Contains(bag.ControllerUrl, "http") {
 		arr := strings.Split(bag.ControllerUrl, ":")
@@ -85,7 +86,7 @@ func (c *MainController) ValidateParameters() error {
 			bag.EventServiceUrl = fmt.Sprintf("%s://%s:9080", protocol, bag.ControllerUrl)
 		}
 	}
-	c.Logger.Printf("Controller URL: %s, Controller port: %d, Event URL: %s", bag.ControllerUrl, bag.ControllerPort, bag.EventServiceUrl)
+	c.Logger.Infof("Controller URL: %s, Controller port: %d, Event URL: %s", bag.ControllerUrl, bag.ControllerPort, bag.EventServiceUrl)
 	//validate keys
 	if bag.RestAPICred == "" {
 		return fmt.Errorf("Rest API user account is required. Create an account and pass it to the cluster agent in this form <user>@<account>:<pass>")
@@ -115,6 +116,7 @@ func (c *MainController) ValidateParameters() error {
 				break
 			}
 		}
+		c.Logger.Info("Account info loaded...")
 	}
 	if bag.EventKey == "" {
 		c.Logger.Printf("Event API key not specified. Trying to obtain an existing key...\n")
@@ -157,6 +159,12 @@ func (c *MainController) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	wg.Add(1)
 	go ws.RunServer()
 
+	bag := (*c.ConfManager).Get()
+	if bag.AppID == 0 {
+		c.Logger.Info("Agent Application ID is not known yet. Starting the job to find out ...")
+		go c.startAppIDUpdater(stopCh)
+	}
+
 	wg.Add(3)
 	go c.startNodeWorker(stopCh, c.K8sClient, wg, c.AppdController)
 
@@ -172,7 +180,35 @@ func (c *MainController) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	wg.Add(1)
 	go c.startJobsWorker(stopCh, c.K8sClient, wg, c.AppdController)
 
-	//	<-stopCh
+}
+
+func (c *MainController) startAppIDUpdater(stopCh <-chan struct{}) {
+	bag := (*c.ConfManager).Get()
+	c.appAppIDTicker(stopCh, time.NewTicker(time.Duration(bag.SnapshotSyncInterval)*time.Second))
+}
+
+func (c *MainController) appAppIDTicker(stop <-chan struct{}, ticker *time.Ticker) {
+	for {
+		select {
+		case <-ticker.C:
+			bag := (*c.ConfManager).Get()
+			c.Logger.Info("Making an attempt to find out Agent Application ID ...")
+			appID, tierID, nodeID, errAppd := c.AppdController.DetermineNodeID(bag.AppName, bag.TierName, bag.NodeName)
+			if errAppd != nil {
+				c.Logger.Errorf("Enable to fetch component IDs. Error: %v\n", errAppd)
+			} else {
+				c.Logger.Info("Retrieved Agent Application ID. Stopping the job ...")
+				bag.AppID = appID
+				bag.TierID = tierID
+				bag.NodeID = nodeID
+				(*c.ConfManager).Set(bag)
+				ticker.Stop()
+			}
+		case <-stop:
+			ticker.Stop()
+			return
+		}
+	}
 }
 
 func (c *MainController) startNodeWorker(stopCh <-chan struct{}, client *kubernetes.Clientset, wg *sync.WaitGroup, appdController *app.ControllerClient) {

@@ -394,7 +394,9 @@ func getSslEnabled() bool {
 }
 
 func getAgentNamespace() string {
-	return os.Getenv("APPDYNAMICS_AGENT_NAMESPACE")
+	ns := os.Getenv("APPDYNAMICS_AGENT_NAMESPACE")
+	log.Infof("Namespace = %s", ns)
+	return ns
 }
 
 func getJavaAgentVersion() string {
