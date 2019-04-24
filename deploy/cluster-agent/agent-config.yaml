@@ -2,7 +2,7 @@ apiVersion: v1
 data:
   cluster-agent-config.json: |
     {
-	"ControllerUrl": "",
+    "ControllerUrl": "",
     "Account": "",
     "GlobalAccount": "",
     "EventServiceUrl": "",

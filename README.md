@@ -9,7 +9,7 @@ The ClusterAgent has 2 purposes.
 
 
 ## Cluster monitoring
-The ClusterAgent monitors state of Kuberenetes resources and derives metrics to provide visibility into the following common application impacting issues. The metrics are displayed in the cluster overview dashboard and the snapshot data is stored in AppDynamics analytics engine for drill-downs and further analysis.
+The ClusterAgent monitors state of Kuberenetes resources and derives metrics to provide visibility into common application impacting issues. The metrics are displayed in the cluster overview dashboard and the snapshot data is stored in AppDynamics analytics engine for drill-downs and further analysis.
 
 ![Cluster Overview Dashboard](https://github.com/Appdynamics/cluster-agent/blob/master/docs/assets/cluster-dashboard.png)
 
@@ -48,7 +48,7 @@ When deploying manually, follow these steps:
 
 `
 kubectl -n appdynamics-infra create secret generic cluster-agent-secret \
---from-literal=api-user="" \
+--from-literal=api-user="k8sresty@customr1:k8sresty" \
 --from-literal=controller-key="" \
 --from-literal=event-key="" \
 `

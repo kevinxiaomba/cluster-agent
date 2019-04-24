@@ -19,7 +19,7 @@ LABEL name="AppDynamics ClusterAgent" \
       release="1" \
       url="https://www.appdynamics.com" \
       summary="AppDynamics monitoring solution for applications deployed to Kubernetes clusters" \
-      description="The ClusterAgent monitors state of Kuberenetes resources and derives metrics to provide visibility into the following common application impacting issues."
+      description="The ClusterAgent monitors state of Kuberenetes resources and derives metrics to provide visibility into common application impacting issues."
 
 RUN yum install -y bash && \
     yum clean all && \
@@ -28,6 +28,8 @@ RUN yum install -y bash && \
 COPY --from=builder /usr/local/go/src/github.com/appdynamics/cluster-agent/cluster-agent /opt/appdynamics/cluster-agent
 COPY --from=builder /usr/local/go/src/github.com/appdynamics/cluster-agent/templates/*.json /opt/appdynamics/templates/
 COPY --from=builder /usr/local/go/src/github.com/appdynamics/cluster-agent/vendor/appdynamics/lib/libappdynamics.so /opt/appdynamics/lib/libappdynamics.so
+
+COPY --from=builder /usr/local/go/src/github.com/appdynamics/cluster-agent/LICENSE /licenses/
 
 RUN mkdir -p /opt/appdynamics/templates/deploy
 RUN mkdir -p /opt/appdynamics/ssl
