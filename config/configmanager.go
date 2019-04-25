@@ -128,9 +128,6 @@ func (self *MutexConfigManager) validate() {
 		self.Conf.RemoteBiqHost = host
 		self.Conf.RemoteBiqPort = port
 	}
-	if self.Conf.NodeNamePrefix == "" {
-		self.Conf.NodeNamePrefix = self.Conf.TierName
-	}
 }
 
 func (self *MutexConfigManager) reconcile(updated *m.AppDBag) {

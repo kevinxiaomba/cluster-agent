@@ -348,7 +348,7 @@ func (rc *RestClient) CallAppDController(path, method string, data []byte) ([]by
 	}
 	defer resp.Body.Close()
 
-	rc.logger.Debugf("CallAppDController method %s. Response Status:", method, resp.Status)
+	rc.logger.Debugf("CallAppDController method %s. Response Status: %s", method, resp.Status)
 	b, _ := ioutil.ReadAll(resp.Body)
 	//	fmt.Println("response Body:", string(b))
 	if resp.StatusCode < 200 || resp.StatusCode > 202 {

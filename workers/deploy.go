@@ -516,11 +516,15 @@ func (dw *DeployWorker) updateContainerEnv(ar *m.AgentRequest, deployObj *appsv1
 	//if the method is MountEnv and tech is Java, build the env var for the agent
 	fmt.Printf("instrument method =  %s\n", m.MountEnv)
 	if tech == m.Java && ar.Method == m.MountEnv {
+		nodePrefix := bag.NodeNamePrefix
+		if nodePrefix == "" {
+			nodePrefix = ar.TierName
+		}
 		dw.Logger.Debugf("Requested env var update for java container %s\n", deployObj.Spec.Template.Spec.Containers[containerIndex].Name)
 		optsExist := false
 		volPath := instr.GetVolumePath(bag, ar)
 		javaOptsVal := fmt.Sprintf(` -Dappdynamics.agent.accountAccessKey=$(APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY) -Dappdynamics.controller.hostName=%s -Dappdynamics.controller.port=%d -Dappdynamics.controller.ssl.enabled=%t -Dappdynamics.agent.accountName=%s -Dappdynamics.agent.applicationName=%s -Dappdynamics.agent.tierName=%s -Dappdynamics.agent.reuse.nodeName=true -Dappdynamics.agent.reuse.nodeName.prefix=%s -javaagent:%s/javaagent.jar `,
-			bag.ControllerUrl, bag.ControllerPort, bag.SSLEnabled, bag.Account, ar.AppName, ar.TierName, bag.NodeNamePrefix, volPath)
+			bag.ControllerUrl, bag.ControllerPort, bag.SSLEnabled, bag.Account, ar.AppName, ar.TierName, nodePrefix, volPath)
 		if ar.IsBiQRemote() {
 			javaOptsVal = fmt.Sprintf("%s -Dappdynamics.analytics.agent.url=%s/v2/sinks/bt", javaOptsVal, bag.AnalyticsAgentUrl)
 		}

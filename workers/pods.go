@@ -1908,13 +1908,16 @@ func (pw *PodWorker) flushAssociationQueue() {
 		if err == nil && ok {
 			podObj := updated.(*v1.Pod)
 			if utils.IsPodRunnnig(podObj) {
-				pw.Logger.Debugf("Updatedd version of pod %s found. Retrying association...\n", podKey)
+				pw.Logger.Debugf("Updated version of pod %s found. Retrying association...\n", podKey)
 				p.Pod = podObj
 				err := injector.RetryAssociate(p.Pod, p.Request)
 				if err == nil {
 					purgeList = append(purgeList, p)
 				}
 			}
+		} else {
+			pw.Logger.Infof("Pod %s no longer exits. Removing from the association queue...\n", podKey)
+			purgeList = append(purgeList, p)
 		}
 	}
 	lockAssociationQueue.RUnlock()

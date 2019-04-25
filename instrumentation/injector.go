@@ -155,16 +155,20 @@ func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag, l 
 					namespaceRule = &r
 				}
 				for _, ms := range r.MatchString {
-					reg, _ := regexp.Compile(ms)
-					if reg.MatchString(deploy.Name) {
-						r.AppName, r.TierName, _ = GetAttachMetadata(r.AppDAppLabel, r.AppDTierLabel, deploy, bag)
-						arr = append(arr, r)
-					}
-					if len(arr) == 0 {
-						for _, v := range deploy.Labels {
-							if reg.MatchString(v) {
-								r.AppName, r.TierName, _ = GetAttachMetadata(r.AppDAppLabel, r.AppDTierLabel, deploy, bag)
-								arr = append(arr, r)
+					reg, re := regexp.Compile(ms)
+					if re != nil {
+						l.Errorf("Instrumentation match string %s represents an invalid regex expression. Instrumentation will not be executed. %v\n", ms, re)
+					} else {
+						if reg.MatchString(deploy.Name) {
+							r.AppName, r.TierName, _ = GetAttachMetadata(r.AppDAppLabel, r.AppDTierLabel, deploy, bag)
+							arr = append(arr, r)
+						}
+						if len(arr) == 0 {
+							for _, v := range deploy.Labels {
+								if reg.MatchString(v) {
+									r.AppName, r.TierName, _ = GetAttachMetadata(r.AppDAppLabel, r.AppDTierLabel, deploy, bag)
+									arr = append(arr, r)
+								}
 							}
 						}
 					}
@@ -192,15 +196,19 @@ func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag, l 
 
 				} else {
 					for _, ms := range bag.InstrumentMatchString {
-						globReg, _ := regexp.Compile(ms)
-						if globReg.MatchString(deploy.Name) {
-							global = true
-						}
-						if list == nil {
-							for _, v := range deploy.Labels {
-								if globReg.MatchString(v) {
-									global = true
-									break
+						globReg, re := regexp.Compile(ms)
+						if re != nil {
+							l.Errorf("Instrumentation match string %s represents an invalid regex expression. Instrumentation will not be executed. %v\n", ms, re)
+						} else {
+							if globReg.MatchString(deploy.Name) {
+								global = true
+							}
+							if list == nil {
+								for _, v := range deploy.Labels {
+									if globReg.MatchString(v) {
+										global = true
+										break
+									}
 								}
 							}
 						}
@@ -477,9 +485,13 @@ func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tier
 	jdkPath := ai.Bag.AgentMountPath
 	jarPath := ai.Bag.AgentMountPath
 
+	nodePrefix := ai.Bag.NodeNamePrefix
+	if nodePrefix == "" {
+		nodePrefix = tierName
+	}
 	bth := ai.AppdController.StartBT("Instrument")
 	cmd := fmt.Sprintf("java -Xbootclasspath/a:%s/tools.jar -jar %s/javaagent.jar %d appdynamics.controller.hostName=%s,appdynamics.controller.port=%d,appdynamics.controller.ssl.enabled=%t,appdynamics.agent.accountName=%s,appdynamics.agent.accountAccessKey=%s,appdynamics.agent.applicationName=%s,appdynamics.agent.tierName=%s,appdynamics.agent.reuse.nodeName=true,appdynamics.agent.reuse.nodeName.prefix=%s",
-		jdkPath, jarPath, pid, ai.Bag.ControllerUrl, ai.Bag.ControllerPort, ai.Bag.SSLEnabled, ai.Bag.Account, ai.Bag.AccessKey, appName, tierName, ai.Bag.NodeNamePrefix)
+		jdkPath, jarPath, pid, ai.Bag.ControllerUrl, ai.Bag.ControllerPort, ai.Bag.SSLEnabled, ai.Bag.Account, ai.Bag.AccessKey, appName, tierName, nodePrefix)
 
 	//BIQ instrumentation. If Analytics agent is remote, provide the url when attaching
 	ai.Logger.Infof("BiQ deployment option is %s.", biQDeploymentOption)
@@ -549,7 +561,11 @@ func (ai AgentInjector) Associate(podObj *v1.Pod, exec *Executor, agentRequest *
 		cVer, verFolderName, errVer := exec.RunCommandInPod(podObj.Name, podObj.Namespace, agentRequest.ContainerName, "", findVerCmd)
 		ai.Logger.Debugf("AppD agent version probe. Output: %s. Error: %v\n", verFolderName, errVer)
 		if cVer == 0 && verFolderName != "" {
-			findCmd := fmt.Sprintf("find %s/%s/logs/ -maxdepth 1 -type d -name '*%s*' -printf %%f -quit", jarPath, verFolderName, agentRequest.TierName)
+			nodePrefix := ai.Bag.NodeNamePrefix
+			if nodePrefix == "" {
+				nodePrefix = agentRequest.TierName
+			}
+			findCmd := fmt.Sprintf("find %s/%s/logs/ -maxdepth 1 -type d -name '*%s*' -printf %%f -quit", jarPath, verFolderName, nodePrefix)
 			c, folderName, errFolder := exec.RunCommandInPod(podObj.Name, podObj.Namespace, agentRequest.ContainerName, "", findCmd)
 			ai.Logger.Debugf("AppD agent version probe. Output: %s. Error: %v\n", folderName, errFolder)
 
