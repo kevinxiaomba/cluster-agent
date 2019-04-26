@@ -48,7 +48,7 @@ When deploying manually, follow these steps:
 
 `
 kubectl -n appdynamics-infra create secret generic cluster-agent-secret \
---from-literal=api-user="k8sresty@customr1:k8sresty" \
+--from-literal=api-user="username@customer1:password" \
 --from-literal=controller-key="" \
 --from-literal=event-key="" \
 `
@@ -77,8 +77,4 @@ The following complete example is provided as a preview of features that we are 
 This Kubernetes monitoring solution has been developed using documented features of the AppDynamics Platform and we encourage customers to provide feedback about the functionality.  We will offer support for this preview offering on a best-efforts basis; requests for enhancements or additional features will be evaluated as input to our product roadmap.
 
 AppDynamics reserves the right to change beta features at any time before making them generally available as well as never making them generally available. Any buying decisions should be made based on features and products that are currently generally available.  It is anticipated that this project will eventually be retired once equivalent functionality is fully incorporated into the AppDynamics Platform.
-
-## Support
-
- [AppDynamics Center of Excellence](mailto:help@appdynamics.com).
 

@@ -1,4 +1,4 @@
-##AppDynamics User Security Requirements
+## AppDynamics User Security Requirements
 
 The ClusterAgent requires a special user account to communicate to the AppDynamics controller.
 To create the account, log into the AppDynamics controller and navigate to Administration - Users - Create

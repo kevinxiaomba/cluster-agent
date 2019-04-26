@@ -514,7 +514,7 @@ func (dw *DeployWorker) updateContainerEnv(ar *m.AgentRequest, deployObj *appsv1
 	}
 
 	//if the method is MountEnv and tech is Java, build the env var for the agent
-	fmt.Printf("instrument method =  %s\n", m.MountEnv)
+	dw.Logger.Infof("instrument method =  %s\n", ar.Method)
 	if tech == m.Java && ar.Method == m.MountEnv {
 		nodePrefix := bag.NodeNamePrefix
 		if nodePrefix == "" {

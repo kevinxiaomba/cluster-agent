@@ -226,7 +226,7 @@ func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag, l 
 		}
 	}
 	if list != nil {
-		l.WithField("list", list.String()).Debug("Agent requests")
+		l.WithField("list", list.String()).Info("Agent requests")
 	} else {
 		l.Info("No Agent requests found\n")
 	}
@@ -316,7 +316,7 @@ func (ai AgentInjector) EnsureInstrumentation(statusChanel chan m.AttachStatus, 
 		ai.Logger.Info("Instrumentation not requested. Aborting...")
 		statusChanel <- ai.buildAttachStatus(podObj, nil, nil, true)
 	} else {
-		ai.Logger.Debugf("Agent request from pod annotation: %s\n", agentRequests.String())
+		ai.Logger.Infof("Agent request from pod annotation: %s\n", agentRequests.String())
 
 		for _, r := range agentRequests.Items {
 			c := ai.findContainer(&r, podObj)
@@ -482,16 +482,15 @@ func (ai AgentInjector) copyFile(ok chan bool, wg *sync.WaitGroup, exec *Executo
 }
 
 func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tierName string, containerName string, exec *Executor, biQDeploymentOption m.BiQDeploymentOption, agentRequest *m.AgentRequest) error {
-	jdkPath := ai.Bag.AgentMountPath
-	jarPath := ai.Bag.AgentMountPath
+	jarPath := GetVolumePath(ai.Bag, agentRequest)
 
 	nodePrefix := ai.Bag.NodeNamePrefix
 	if nodePrefix == "" {
 		nodePrefix = tierName
 	}
-	bth := ai.AppdController.StartBT("Instrument")
+	bth := ai.AppdController.StartBT("InstrumentJavaAttach")
 	cmd := fmt.Sprintf("java -Xbootclasspath/a:%s/tools.jar -jar %s/javaagent.jar %d appdynamics.controller.hostName=%s,appdynamics.controller.port=%d,appdynamics.controller.ssl.enabled=%t,appdynamics.agent.accountName=%s,appdynamics.agent.accountAccessKey=%s,appdynamics.agent.applicationName=%s,appdynamics.agent.tierName=%s,appdynamics.agent.reuse.nodeName=true,appdynamics.agent.reuse.nodeName.prefix=%s",
-		jdkPath, jarPath, pid, ai.Bag.ControllerUrl, ai.Bag.ControllerPort, ai.Bag.SSLEnabled, ai.Bag.Account, ai.Bag.AccessKey, appName, tierName, nodePrefix)
+		jarPath, jarPath, pid, ai.Bag.ControllerUrl, ai.Bag.ControllerPort, ai.Bag.SSLEnabled, ai.Bag.Account, ai.Bag.AccessKey, appName, tierName, nodePrefix)
 
 	//BIQ instrumentation. If Analytics agent is remote, provide the url when attaching
 	ai.Logger.Infof("BiQ deployment option is %s.", biQDeploymentOption)

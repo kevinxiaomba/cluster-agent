@@ -89,7 +89,7 @@ func (c *MainController) ValidateParameters() error {
 	c.Logger.Infof("Controller URL: %s, Controller port: %d, Event URL: %s", bag.ControllerUrl, bag.ControllerPort, bag.EventServiceUrl)
 	//validate keys
 	if bag.RestAPICred == "" {
-		return fmt.Errorf("Rest API user account is required. Create an account and pass it to the cluster agent in this form <user>@<account>:<pass>")
+		return fmt.Errorf("Rest API user account is required. Create a user account in AppD and add it to the cluster-agent-secret (key api-user) in this form <user>@<account>:<pass>")
 	}
 	if bag.AccessKey == "" {
 

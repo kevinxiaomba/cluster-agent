@@ -1203,7 +1203,7 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 			}
 			if p.Spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution != nil {
 				var sb strings.Builder
-				for _, term := range p.Spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution {
+				for _, term := range p.Spec.Affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution {
 					sb.WriteString(fmt.Sprintf("%s %s %s;", term.TopologyKey, term.LabelSelector, term.Namespaces))
 				}
 				podObject.PodAntiAffinityRequired = sb.String()
@@ -1954,10 +1954,14 @@ func (pw *PodWorker) OnPodErrorEvent(podName string, eventSchema m.EventSchema) 
 	pw.Logger.Debugf("Adding pod event %s", eventSchema.Reason)
 	list = append(list, eventSchema)
 
+	//TODO: if ImageBackOff, check if the pod is pending instrumentation. If it is, reverse the instrumentation
+
 	pw.EventMap[key] = list
 }
 
 func (pw *PodWorker) GetPodEvents(podSchema *m.PodSchema) []string {
+	lockEventLock.RLock()
+	defer lockEventLock.RUnlock()
 	key := utils.GetKey(podSchema.Namespace, podSchema.Name)
 	if list, ok := pw.EventMap[key]; ok {
 		messages := []string{}
