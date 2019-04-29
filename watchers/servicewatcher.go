@@ -142,7 +142,6 @@ func (pw ServiceWatcher) CloneMap() map[string]m.ServiceSchema {
 
 func (pw *ServiceWatcher) UpdateServiceCache() {
 	lockServices.RLock()
-	defer lockServices.RUnlock()
 
 	external := make(map[string]m.ServiceSchema)
 	for key, svcSchema := range pw.SvcCache {
@@ -150,18 +149,30 @@ func (pw *ServiceWatcher) UpdateServiceCache() {
 			external[key] = svcSchema
 		}
 	}
+	lockServices.RUnlock()
 
 	//check validity of external services
 	for k, headless := range external {
-		for kk, svcObj := range pw.SvcCache {
-			path := fmt.Sprintf("%s.%s", svcObj.Name, svcObj.Namespace)
-			if strings.Contains(headless.ExternalName, path) {
-				headless.ExternalSvcValid = true
-				pw.SvcCache[k] = headless
-				svcObj.ExternallyReferenced(true)
-				pw.SvcCache[kk] = svcObj
-				break
-			}
+		svcObj, kk := pw.findExternalService(headless.ExternalName)
+		if svcObj != nil {
+			lockServices.Lock()
+			headless.ExternalSvcValid = true
+			pw.SvcCache[k] = headless
+			svcObj.ExternallyReferenced(true)
+			pw.SvcCache[kk] = *svcObj
+			lockServices.Unlock()
 		}
 	}
+}
+
+func (pw *ServiceWatcher) findExternalService(headlessName string) (*m.ServiceSchema, string) {
+	lockServices.RLock()
+	defer lockServices.RLock()
+	for kk, svcObj := range pw.SvcCache {
+		path := fmt.Sprintf("%s.%s", svcObj.Name, svcObj.Namespace)
+		if strings.Contains(headlessName, path) {
+			return &svcObj, kk
+		}
+	}
+	return nil, ""
 }

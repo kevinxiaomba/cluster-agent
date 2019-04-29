@@ -443,6 +443,7 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 				result.Spec.Template.Annotations = make(map[string]string)
 			}
 			result.Spec.Template.Annotations[instr.APPD_ATTACH_PENDING] = agentRequests.ToAnnotation()
+			result.Spec.Template.Annotations[instr.APPD_ATTACH_DEPLOYMENT] = result.Name
 			dw.Logger.Debugf("Pending annotation added: %s\n", result.Spec.Template.Annotations[instr.APPD_ATTACH_PENDING])
 
 			//annotate deployment
@@ -490,6 +491,77 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 		dw.Logger.WithField("Name", deployObj.Name).Info("Deployment update for instrumentation is complete")
 	}
 
+}
+
+func ReverseDeploymentInstrumentation(deployName string, namespace string, bag *m.AppDBag, l *log.Logger, client *kubernetes.Clientset) {
+	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		deploymentsClient := client.AppsV1().Deployments(namespace)
+		d, getErr := deploymentsClient.Get(deployName, metav1.GetOptions{})
+		if getErr != nil {
+			return fmt.Errorf("Failed to get deployment object %s. Cannot reverse instrumentation: %v", deployName, getErr)
+		}
+
+		//strip init container with the agent
+		index := -1
+		for i, c := range d.Spec.Template.Spec.InitContainers {
+			if c.Name == bag.AppDInitContainerName {
+				index = i
+				break
+			}
+		}
+		if index >= 0 {
+			d.Spec.Template.Spec.InitContainers[index] = d.Spec.Template.Spec.InitContainers[len(d.Spec.Template.Spec.InitContainers)-1]
+			d.Spec.Template.Spec.InitContainers = d.Spec.Template.Spec.InitContainers[:len(d.Spec.Template.Spec.InitContainers)-1]
+		}
+
+		//strip analytics container
+		indexA := -1
+		for i, c := range d.Spec.Template.Spec.Containers {
+			if c.Name == bag.AnalyticsAgentContainerName {
+				indexA = i
+				break
+			}
+		}
+		if indexA >= 0 {
+			d.Spec.Template.Spec.Containers[indexA] = d.Spec.Template.Spec.Containers[len(d.Spec.Template.Spec.Containers)-1]
+			d.Spec.Template.Spec.Containers = d.Spec.Template.Spec.Containers[:len(d.Spec.Template.Spec.Containers)-1]
+		}
+
+		//strip env vars
+		stripEnvVars(d, bag.AgentEnvVar)
+		stripEnvVars(d, "APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY")
+
+		if d.Spec.Template.Annotations == nil {
+			d.Spec.Template.Annotations = make(map[string]string)
+		}
+
+		d.Spec.Template.Annotations[instr.APPD_ATTACH_PENDING] = "Failed. Image unavailable"
+
+		_, err := deploymentsClient.Update(d)
+		return err
+	})
+
+	if retryErr != nil {
+		l.Errorf("Failed to reverse instrumentation of the deployment %s: %v\n", deployName, retryErr)
+	}
+}
+
+func stripEnvVars(d *appsv1.Deployment, envVarName string) {
+	envVarIndex := -1
+	containerIndex := -1
+	for i, _ := range d.Spec.Template.Spec.Containers {
+		for ii, ev := range d.Spec.Template.Spec.Containers[i].Env {
+			if ev.Name == envVarName {
+				envVarIndex = ii
+				containerIndex = i
+				break
+			}
+		}
+	}
+	if containerIndex >= 0 && envVarIndex >= 0 {
+		d.Spec.Template.Spec.Containers[containerIndex].Env[envVarIndex] = d.Spec.Template.Spec.Containers[containerIndex].Env[len(d.Spec.Template.Spec.Containers[containerIndex].Env)-1]
+		d.Spec.Template.Spec.Containers[containerIndex].Env = d.Spec.Template.Spec.Containers[containerIndex].Env[:len(d.Spec.Template.Spec.Containers[containerIndex].Env)-1]
+	}
 }
 
 func (dw *DeployWorker) findContainer(agentRequest *m.AgentRequest, deployObj *appsv1.Deployment) (int, *v1.Container) {

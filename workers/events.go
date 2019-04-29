@@ -461,7 +461,7 @@ func (ew *EventWorker) addMetricToList(objMap map[string]interface{}, metric m.A
 
 //custom events
 func EmitInstrumentationEvent(pod *v1.Pod, client *kubernetes.Clientset, reason, message, eventType string) error {
-	fmt.Printf("About to emit event: %s %s %s for pod %s-%s\n", reason, message, eventType, pod.Namespace, pod.Name)
+	fmt.Printf("Sending event: %s %s %s for pod %s-%s\n", reason, message, eventType, pod.Namespace, pod.Name)
 	event := eventFromPod(pod, reason, message, eventType)
 	_, err := client.CoreV1().Events(pod.Namespace).Create(event)
 	if err != nil {

@@ -46,12 +46,12 @@ When deploying manually, follow these steps:
   * The "api-user" key with the AppDynamics user account information is required. It needs to be in the following format <username>@<account>:<password>, e.g ` user@customer1:123 `. 
   * The other 2 keys, "controller-key" and "event-key", are optional. If not specified, they will be automatically created by the ClusterAgent
 
-`
+```
 kubectl -n appdynamics-infra create secret generic cluster-agent-secret \
 --from-literal=api-user="username@customer1:password" \
 --from-literal=controller-key="" \
 --from-literal=event-key="" \
-`
+```
 
 * Update the image reference in the ClusterAgent deployment spec (deploy/cluster-agent/appd-cluster-agent.yaml). The default is "docker.io/appdynamics/cluster-agent:latest". 
 

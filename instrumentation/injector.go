@@ -25,6 +25,7 @@ const (
 	GET_JAVA_PID_CMD             string = "ps -o pid,comm,args | grep java | awk '{print$1,$2,$3}'"
 	ATTACHED_ANNOTATION          string = "appd-attached"
 	APPD_ATTACH_PENDING          string = "appd-attach-pending"
+	APPD_ATTACH_DEPLOYMENT       string = "appd-attach-deploy"
 	DEPLOY_ANNOTATION            string = "appd-deploy-updated"
 	DEPLOY_BIQ_ANNOTATION        string = "appd-deploy-biq-updated"
 	APPD_APPID                   string = "appd-appid"
@@ -316,16 +317,17 @@ func (ai AgentInjector) EnsureInstrumentation(statusChanel chan m.AttachStatus, 
 		ai.Logger.Info("Instrumentation not requested. Aborting...")
 		statusChanel <- ai.buildAttachStatus(podObj, nil, nil, true)
 	} else {
-		ai.Logger.Infof("Agent request from pod annotation: %s\n", agentRequests.String())
-
 		for _, r := range agentRequests.Items {
-			c := ai.findContainer(&r, podObj)
-			if r.Method == m.MountAttach {
-				ai.Logger.Infof("Container %s requested. Instrumenting...", c.Name)
-				err := ai.instrumentContainer(r.AppName, r.TierName, c, podObj, m.BiQDeploymentOption(r.BiQ), &r)
-				statusChanel <- ai.buildAttachStatus(podObj, &r, err, false)
-			} else {
-				ai.finilizeAttach(statusChanel, podObj, &r)
+			if r.Valid() {
+				ai.Logger.Infof("Applying Agent Request from pod annotation: %s\n", r.String())
+				c := ai.findContainer(&r, podObj)
+				if r.Method == m.MountAttach {
+					ai.Logger.Infof("Container %s requested. Instrumenting...", c.Name)
+					err := ai.instrumentContainer(r.AppName, r.TierName, c, podObj, m.BiQDeploymentOption(r.BiQ), &r)
+					statusChanel <- ai.buildAttachStatus(podObj, &r, err, false)
+				} else {
+					ai.finilizeAttach(statusChanel, podObj, &r)
+				}
 			}
 		}
 

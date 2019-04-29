@@ -429,3 +429,7 @@ func (al *AgentRequestList) String() string {
 func (ar *AgentRequest) String() string {
 	return fmt.Sprintf("AppName: %s, TieName: %s, BiQ:%s, Tech: %s, Method: %s, Container: %s, Version: %s", ar.AppName, ar.TierName, ar.BiQ, ar.Tech, ar.Method, ar.ContainerName, ar.Version)
 }
+
+func (ar *AgentRequest) Valid() bool {
+	return ar.Method == "" || ar.Method == MountAttach || ar.Method == MountEnv || ar.Method == CopyAttach || ar.Method == None
+}

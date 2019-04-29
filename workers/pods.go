@@ -1004,7 +1004,9 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 
 	podObject.Name = p.Name
 	podObject.Namespace = p.Namespace
+	lockNSMap.Lock()
 	pw.NamespaceMap[p.Namespace] = p.Namespace
+	lockNSMap.Unlock()
 	podObject.NodeName = p.Spec.NodeName
 
 	if p.ClusterName != "" {
@@ -1951,12 +1953,36 @@ func (pw *PodWorker) OnPodErrorEvent(podName string, eventSchema m.EventSchema) 
 		list = append(list[:0], list[1:]...)
 		limit = len(list)
 	}
-	pw.Logger.Debugf("Adding pod event %s", eventSchema.Reason)
+	pw.Logger.Debugf("Registering pod event %s %s", eventSchema.Reason, eventSchema.Message)
 	list = append(list, eventSchema)
 
-	//TODO: if ImageBackOff, check if the pod is pending instrumentation. If it is, reverse the instrumentation
-
 	pw.EventMap[key] = list
+
+	//check if pending pod is failing due to inability to load image
+	issuePod, ok, err := pw.informer.GetStore().GetByKey(key)
+	pendingAttachPod := false
+	deployName := ""
+	var podObj *v1.Pod = nil
+	if err == nil && ok {
+		p := issuePod.(*v1.Pod)
+		for k, v := range p.Annotations {
+			if k == instr.APPD_ATTACH_PENDING {
+				pendingAttachPod = true
+			}
+			if k == instr.APPD_ATTACH_DEPLOYMENT {
+				deployName = v
+			}
+		}
+		if pendingAttachPod && deployName != "" {
+			podObj = p
+		}
+	}
+
+	if podObj != nil && eventSchema.Reason == "Failed" && (strings.Contains(eventSchema.Message, "ErrImagePull") || strings.Contains(eventSchema.Message, "Failed to pull image")) {
+		msg := fmt.Sprintf("AppDynamics instrumentation cannot be complete as one of the agent images is not accessible. The instrumentation is being canceled. Make sure that AppDynamics images are available in namespace %s", eventSchema.Namespace)
+		EmitInstrumentationEvent(podObj, pw.Client, "AppDInstrumentation", msg, v1.EventTypeWarning)
+		ReverseDeploymentInstrumentation(deployName, eventSchema.Namespace, bag, pw.Logger, pw.Client)
+	}
 }
 
 func (pw *PodWorker) GetPodEvents(podSchema *m.PodSchema) []string {
