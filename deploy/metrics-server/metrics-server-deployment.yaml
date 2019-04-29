@@ -32,7 +32,7 @@ spec:
         imagePullPolicy: Always
         securityContext:
           runAsUser: 0 
-        command: [/metrics-server, --kubelet-insecure-tls, --cert-dir="/var/run/kubernetes"] 
+        command: [/metrics-server, --kubelet-insecure-tls, --cert-dir="/var/run/kubernetes", --kubelet-preferred-address-types=InternalIP] 
         volumeMounts:
         - name: tmp-dir
           mountPath: /tmp
