@@ -83,6 +83,11 @@ func (self *MutexConfigManager) Set(conf *m.AppDBag) {
 	if self.Conf != nil && self.Conf.SchemaUpdateCache != nil {
 		conf.SchemaUpdateCache = self.Conf.SchemaUpdateCache
 	}
+
+	if self.Conf != nil && self.Conf.SchemaSkipCache != nil {
+		conf.SchemaSkipCache = self.Conf.SchemaSkipCache
+	}
+
 	self.Conf = conf
 
 	self.validate()
@@ -100,6 +105,9 @@ func (self *MutexConfigManager) validate() {
 	}
 	if self.Conf.SchemaUpdateCache == nil {
 		self.Conf.SchemaUpdateCache = []string{}
+	}
+	if self.Conf.SchemaSkipCache == nil {
+		self.Conf.SchemaSkipCache = []string{}
 	}
 	//update log level
 	l, errLevel := log.ParseLevel(self.Conf.LogLevel)
@@ -128,6 +136,7 @@ func (self *MutexConfigManager) validate() {
 		self.Conf.RemoteBiqHost = host
 		self.Conf.RemoteBiqPort = port
 	}
+	self.Conf.EnsureDefaults()
 }
 
 func (self *MutexConfigManager) reconcile(updated *m.AppDBag) {
@@ -137,9 +146,9 @@ func (self *MutexConfigManager) reconcile(updated *m.AppDBag) {
 	for i := 0; i < updatedVal.Type().NumField(); i++ {
 		field := updatedVal.Type().Field(i)
 		if m.IsUpdatable(field.Name) {
-
 			val := updatedVal.FieldByName(field.Name)
-			currentVal.Elem().FieldByName(field.Name).Set(val)
+			current := currentVal.Elem().FieldByName(field.Name)
+			m.UpdateField(field.Name, &current, &val)
 			self.Logger.WithFields(log.Fields{"name": field.Name, "value": val}).Debug("Updating configMap field")
 		}
 	}

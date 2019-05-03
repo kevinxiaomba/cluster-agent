@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"reflect"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -128,14 +129,53 @@ func (rc *RestClient) EnsureSchema(schemaName string, current m.AppDSchemaInterf
 	if rc.Bag.SchemaUpdateCache == nil {
 		rc.Bag.SchemaUpdateCache = []string{}
 	}
+
+	schemaTypeName := reflect.TypeOf(current).Name()
+
+	//if the schema is marked 'SKIP'
+	if strings.Contains(strings.ToLower(schemaName), "skip") {
+		ar := strings.Split(schemaName, "^")
+		if len(ar) == 2 {
+			oldName := ar[0]
+			if rc.Bag.SchemaSkipCache == nil {
+				rc.Bag.SchemaSkipCache = []string{}
+			}
+
+			if !utils.StringInSlice(schemaTypeName, rc.Bag.SchemaSkipCache) {
+				rc.Bag.SchemaSkipCache = append(rc.Bag.SchemaSkipCache, schemaTypeName)
+				err := rc.DeleteSchema(oldName)
+				if err != nil {
+					return fmt.Errorf("The schema %s was marked for deletion, but Delete call failed. %v", oldName, err)
+				}
+				rc.logger.Infof("Schema %s deleted per user request", oldName)
+				index := utils.GetIndex(oldName, rc.Bag.SchemaUpdateCache)
+				if index >= 0 {
+					rc.Bag.SchemaUpdateCache[index] = rc.Bag.SchemaUpdateCache[len(rc.Bag.SchemaUpdateCache)-1]
+					rc.Bag.SchemaUpdateCache = rc.Bag.SchemaUpdateCache[:len(rc.Bag.SchemaUpdateCache)-1]
+				}
+			}
+			return nil
+		} else {
+			return fmt.Errorf("Schema name %s is invalid", schemaName)
+		}
+	}
+
+	//perform validity check
+
 	if rc.Bag.SchemaUpdateCache != nil && utils.StringInSlice(schemaName, rc.Bag.SchemaUpdateCache) {
 		return nil
 	} else {
 		rc.Bag.SchemaUpdateCache = append(rc.Bag.SchemaUpdateCache, schemaName)
+		skipIndex := utils.GetIndex(schemaTypeName, rc.Bag.SchemaSkipCache)
+		if skipIndex >= 0 {
+			rc.Bag.SchemaSkipCache[skipIndex] = rc.Bag.SchemaSkipCache[len(rc.Bag.SchemaSkipCache)-1]
+			rc.Bag.SchemaSkipCache = rc.Bag.SchemaSkipCache[:len(rc.Bag.SchemaSkipCache)-1]
+		}
+
 	}
 	wrapper, err := rc.LoadSchema(schemaName)
 	if err != nil {
-		rc.logger.Warnf("Enable load existing schema %s. Attempting to create. %v\n", schemaName, err)
+		rc.logger.Warnf("Unable load existing schema %s. Attempting to create. %v\n", schemaName, err)
 		//try to create
 		schemaDef, e := json.Marshal(current)
 		if e != nil {
@@ -254,6 +294,10 @@ func (rc *RestClient) CreateSchema(schemaName string, data []byte) ([]byte, erro
 		rc.logger.Debugf("Create schema %s response Status: %s", schemaName, resp.Status)
 		body, _ := ioutil.ReadAll(resp.Body)
 		rc.logger.Debugf("response Body: %s", string(body))
+
+		if resp.StatusCode < 200 || resp.StatusCode > 204 {
+			return nil, fmt.Errorf("Controller request failed with status %s. Message: %s", resp.Status, string(body))
+		}
 
 		return body, nil
 	}
@@ -440,4 +484,34 @@ func (rc *RestClient) MarkNodeHistorical(nodeId int) error {
 	}
 
 	return nil
+}
+
+func (rc *RestClient) GetControllerVersion() ([]byte, error) {
+	url := fmt.Sprintf("%srest/serverstatus", rc.getControllerUrl())
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to create request to obtain controller version. %v\n", err)
+	}
+	ar := strings.Split(rc.Bag.RestAPICred, ":")
+	if len(ar) != 2 {
+		return nil, fmt.Errorf("Rest API credentials are formatted incorrectly. Must be <username>@<account>:<password>")
+	}
+
+	req.SetBasicAuth(ar[0], ar[1])
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		rc.logger.Errorf("Failed to get controller version. %v", err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	b, _ := ioutil.ReadAll(resp.Body)
+
+	if resp.StatusCode < 200 || resp.StatusCode > 202 {
+		return b, fmt.Errorf("Controller request failed with status %s", resp.Status)
+	}
+
+	return b, nil
 }

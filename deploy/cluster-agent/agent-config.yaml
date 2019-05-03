@@ -44,7 +44,7 @@ data:
     "AppDInitContainerName": "appd-agent-attach",
     "AnalyticsAgentImage": "docker.io/appdynamics/analytics-agent:latest",
     "AppDJavaAttachImage": "docker.io/appdynamics/java-agent:latest",
-    "AppDDotNetAttachImage": "docker.io/appdynamics/dotnet-agent-attach:latest",
+    "AppDDotNetAttachImage": "docker.io/appdynamics/dotnet-core-agent:latest",
     "ProxyInfo": "",
     "ProxyUser": "",
     "ProxyPass": "",
@@ -78,4 +78,4 @@ data:
 kind: ConfigMap
 metadata:
   name: cluster-agent-config
-  namespace: appdynamics-infra
+  namespace: appdynamics

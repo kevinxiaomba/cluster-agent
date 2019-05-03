@@ -918,8 +918,9 @@ func (dw *DashboardWorker) updateMetricName(expTemplate map[string]interface{}, 
 
 	metricID, err := dw.AppdController.GetMetricID(dw.Bag.AppID, metricPath)
 	if err != nil {
-		dw.Logger.Printf("Cannot get metric ID for %s. %v\n", metricPath, err)
 		return fmt.Errorf("Cannot get metric ID for %s. %v\n", metricPath, err)
+	} else if metricID == 0 {
+		return fmt.Errorf("Metrics are not fully registered with the controller %s. Delaying dashboard generation...\n", metricPath)
 	} else {
 		expTemplate["metricId"] = metricID
 	}

@@ -2,9 +2,11 @@ package controller
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -63,16 +65,18 @@ func NewControllerClient(cm *config.MutexConfigManager, logger *log.Logger) (*Co
 
 	controller := ControllerClient{ConfManager: cm, logger: logger, regMetrics: make(map[string]bool), MetricsCache: make(map[string]float64)}
 
+	controller.GetControllerStatus(bag)
+
 	appID, tierID, nodeID, errAppd := controller.DetermineNodeID(bag.AppName, bag.TierName, bag.NodeName)
 	if errAppd != nil {
-		logger.Printf("Enable to fetch component IDs. Error: %v\n", errAppd)
+		logger.Errorf("Enable to fetch component IDs. Error: %v\n", errAppd)
 	} else {
 		bag.AppID = appID
 		bag.TierID = tierID
 		bag.NodeID = nodeID
 		(*cm).Set(bag)
 	}
-
+	logger.Infof("Controller version: %s", bag.PrintControllerVersion())
 	return &controller, nil
 }
 
@@ -282,6 +286,67 @@ func (c *ControllerClient) FindNodeID(appID int, tierName string, nodeName strin
 
 func (c *ControllerClient) GetMetricID(appID int, metricPath string) (float64, error) {
 
+	bag := (*c.ConfManager).Get()
+	// if controller version is less than 4.5.7 use an older restui call
+	if bag.CompareControllerVersions(4, 5, 7, 0) < 0 {
+		c.logger.Debug("Using older version of GetMetricID call")
+		return c.GetMetricID456(appID, metricPath)
+	}
+
+	path := "restui/metricBrowser/async/metric-tree/root"
+	arr := strings.Split(metricPath, "|")
+	arrPath := arr[:len(arr)-1]
+	metricName := arr[len(arr)-1]
+	basePath := strings.Join(arrPath, "|")
+	baseKey := fmt.Sprintf("%d_%s", appID, basePath)
+	mk := fmt.Sprintf("%s|%s", baseKey, metricName)
+	if id, ok := c.MetricsCache[mk]; ok {
+		return id, nil
+	} else {
+		c.logger.Debugf("Key %s does not exist in metrics cache\n", mk)
+	}
+
+	arr = arr[:len(arr)-1]
+
+	body, eM := json.Marshal(arr)
+	if eM != nil {
+		fmt.Printf("Unable to serialize metrics path. %v \n", eM)
+	}
+
+	jsonData := fmt.Sprintf(`{"applicationId": %d, "livenessStatus": "ALL", "pathData": %s}`, appID, string(body))
+	d := []byte(jsonData)
+
+	rc := NewRestClient((*c.ConfManager).Get(), c.logger)
+	c.logger.Debugf("Calling metrics update: %s. %s\n", path, d)
+	data, err := rc.CallAppDController(path, "POST", d)
+	if err != nil {
+		return 0, fmt.Errorf("Unable to find metric ID. %v", err)
+	}
+
+	var list []map[string]interface{}
+	errJson := json.Unmarshal(data, &list)
+	if errJson != nil {
+		return 0, fmt.Errorf("Unable to deserialize metrics list\n")
+	}
+
+	var metricID float64 = 0
+	for _, metricObj := range list {
+		id, ok := metricObj["metricId"]
+		mn := metricObj["name"]
+		mp := fmt.Sprintf("%s|%s", baseKey, mn)
+		c.logger.Debugf("Adding metric key %s\n", mp)
+		c.MetricsCache[mp] = id.(float64)
+		if ok && metricObj["name"] == metricName {
+			c.logger.Debugf("Metrics ID = %f \n", id.(float64))
+			metricID = id.(float64)
+		}
+	}
+
+	return metricID, nil
+}
+
+func (c *ControllerClient) GetMetricID456(appID int, metricPath string) (float64, error) {
+
 	path := fmt.Sprintf("restui/metricBrowser/%d", appID)
 	arr := strings.Split(metricPath, "|")
 	arrPath := arr[:len(arr)-1]
@@ -344,41 +409,6 @@ func (c *ControllerClient) EnableAppAnalytics(appID int, appName string) error {
 	}
 	fmt.Printf("Successfully enabled analytics for app %s\n", appName)
 
-	//	//get BTs
-	//	path = fmt.Sprintf("restui/analyticsConfigTxnAnalyticsUiService/enableAnalyticsDataCollectionForBTs/%d", appID)
-	//	bts, errBT := rc.CallAppDController(path, "GET", nil)
-	//	if errBT != nil {
-	//		return fmt.Errorf("Unable to get the list of BTs for App %s. %v", appName, errBT)
-	//	}
-	//	var list []map[string]interface{}
-	//	errJson := json.Unmarshal(bts, &list)
-	//	if errJson != nil {
-	//		return fmt.Errorf("Unable to deserialize metrics list")
-	//	}
-	//	btIDs := []int{}
-	//	for _, obj := range list {
-	//		for k, val := range obj {
-	//			if k == "id" {
-	//				btIDs = append(btIDs, val.(int))
-	//			}
-	//		}
-	//	}
-
-	//	//save BTs for analytics
-	//	b, eM := json.Marshal(btIDs)
-	//	if eM != nil {
-	//		return fmt.Errorf("Unable to serialize list of BT ids. %v ", eM)
-	//	}
-
-	//	path = "restui/analyticsConfigTxnAnalyticsUiService/enableAnalyticsDataCollectionForBTs"
-
-	//	_, errSave := rc.CallAppDController(path, "POST", b)
-	//	if errSave != nil && !strings.Contains(errSave.Error(), "204") {
-	//		return fmt.Errorf("Unable to save BTs for analytics. %v ", errSave)
-	//	}
-
-	//	fmt.Printf("Successfully enabled analytics for all BTs in app %s\n", appName)
-
 	return nil
 
 }
@@ -405,14 +435,28 @@ func (c *ControllerClient) MarkNodeHistorical(nodeID int) {
 	}
 }
 
-// enable analytics
-// POST controller/restui/analyticsConfigTxnAnalyticsUiService/enableAnalyticsForApplication?enabled=true
-// appId: 12
-// name: "RemoteBiQ"
+func (c *ControllerClient) GetControllerStatus(bag *m.AppDBag) error {
+	rc := NewRestClient((*c.ConfManager).Get(), c.logger)
+	data, err := rc.GetControllerVersion()
+	if err != nil {
+		c.logger.Error(err)
+	}
 
-// all business transactions
-// restui/bt/allBusinessTransactions/<appID>
+	var controllerInfo ControllerInfo
+	errJson := xml.Unmarshal(data, &controllerInfo)
+	if errJson != nil {
+		return fmt.Errorf("Unable to deserialize controller version\n")
+	}
 
-// save = enable BTs for analytics
-// POST controller/restui/analyticsConfigTxnAnalyticsUiService/enableAnalyticsDataCollectionForBTs
-// [1, 2, 3]
+	c.logger.Infof("Controller version: %s", controllerInfo.Serverinfo.Serverversion)
+	numAr := strings.Split(controllerInfo.Serverinfo.Serverversion, "-")
+	if len(numAr) == 4 {
+		bag.ControllerVer1, _ = strconv.Atoi(numAr[0])
+		bag.ControllerVer2, _ = strconv.Atoi(numAr[1])
+		bag.ControllerVer3, _ = strconv.Atoi(numAr[2])
+		bag.ControllerVer4, _ = strconv.Atoi(numAr[3])
+	}
+
+	return nil
+
+}

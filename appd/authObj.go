@@ -16,3 +16,10 @@ func NewRestAuth(t string, s string) AppDRestAuth {
 func (ra *AppDRestAuth) getAuthCookie() string {
 	return fmt.Sprintf("X-CSRF-TOKEN=%s; JSESSIONID=%s", ra.Token, ra.SessionID)
 }
+
+type ControllerInfo struct {
+	Available  string `xml:"available"`
+	Serverinfo struct {
+		Serverversion string `xml:"serverversion"`
+	} `xml:"serverinfo"̀`
+}

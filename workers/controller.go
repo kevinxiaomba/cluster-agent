@@ -48,17 +48,27 @@ func (c *MainController) ValidateParameters() error {
 	//validate controller URL
 	if strings.Contains(bag.ControllerUrl, "http") {
 		arr := strings.Split(bag.ControllerUrl, ":")
-		if len(arr) != 3 {
+		if len(arr) > 3 || len(arr) < 2 {
 			return fmt.Errorf("Controller Url is invalid. Use this format: protocol://url:port")
 		}
 		protocol := arr[0]
 		controllerUrl := strings.TrimLeft(arr[1], "//")
-		port, errPort := strconv.Atoi(arr[2])
-		if errPort != nil {
-			return fmt.Errorf("Controller port is invalid. %v", errPort)
+		controllerPort := 0
+		if len(arr) != 3 {
+			if strings.Contains(protocol, "s") {
+				controllerPort = 443
+			} else {
+				controllerPort = 80
+			}
+		} else {
+			port, errPort := strconv.Atoi(arr[2])
+			if errPort != nil {
+				return fmt.Errorf("Controller port is invalid. %v", errPort)
+			}
+			controllerPort = port
 		}
 		bag.ControllerUrl = controllerUrl
-		bag.ControllerPort = uint16(port)
+		bag.ControllerPort = uint16(controllerPort)
 		bag.SSLEnabled = strings.Contains(protocol, "s")
 	} else {
 		return fmt.Errorf("Controller Url is invalid. Use this format: protocol://dns:port")
@@ -126,6 +136,7 @@ func (c *MainController) ValidateParameters() error {
 		}
 		bag.EventKey = key
 	}
+
 	if bag.ProxyUrl != "" {
 		arr := strings.Split(bag.ProxyUrl, ":")
 		if len(arr) != 3 {
@@ -277,6 +288,7 @@ func (c *MainController) EnsureEventAPIKey(bag *m.AppDBag) (string, error) {
 	//check if the key is already in the known secret
 	api := c.K8sClient.CoreV1()
 	listOptions := metav1.ListOptions{}
+	secretExists := false
 
 	secrets, err := api.Secrets(bag.AgentNamespace).List(listOptions)
 	if err != nil {
@@ -287,12 +299,15 @@ func (c *MainController) EnsureEventAPIKey(bag *m.AppDBag) (string, error) {
 			if s.Name == AGENT_EVENT_SECRET {
 				keyData := s.Data[AGENT_EVENT_KEY]
 				key = string(keyData)
-				c.Logger.Info("Saved secret data")
+				c.Logger.Info("Secret found")
+				secretExists = true
+				c.Logger.Info("Secret for events found")
 				break
 			}
 		}
 	}
 	if key != "" {
+		c.Logger.Info("Checking the key")
 		//sanity check if the key still exists and enabled
 		p := "restui/analyticsApiKeyGen/listApiKeys"
 		rc := app.NewRestClient(bag, c.Logger)
@@ -315,6 +330,7 @@ func (c *MainController) EnsureEventAPIKey(bag *m.AppDBag) (string, error) {
 					if obj["enabled"] == true &&
 						obj["suffix"] == last4 {
 						found = true
+						c.Logger.Info("Key found in AppD Controller")
 						break
 					}
 
@@ -327,6 +343,7 @@ func (c *MainController) EnsureEventAPIKey(bag *m.AppDBag) (string, error) {
 	}
 
 	if key == "" {
+		c.Logger.Info("Key Not found in AppD Controller")
 		keyName := fmt.Sprintf("%s-%d", bag.AppName, time.Now().Unix())
 		jsonStr := fmt.Sprintf(`{"enabled": "true", "eventAccessFilters": [], "name": "%s", "permissions": {"±CUSTOM_EVENTS±": ["MANAGE_SCHEMA", "QUERY", "PUBLISH"]}}`, keyName)
 		body := []byte(jsonStr)
@@ -355,13 +372,24 @@ func (c *MainController) EnsureEventAPIKey(bag *m.AppDBag) (string, error) {
 				},
 			},
 		}
-		_, errCreate := api.Secrets(bag.AgentNamespace).Create(secret)
-		if errCreate != nil {
-			c.Logger.WithFields(log.Fields{"namespace": bag.AgentNamespace, "error": errCreate}).
-				Warn("Unable to save secret with event API key in namespace")
+		if !secretExists {
+			_, errCreate := api.Secrets(bag.AgentNamespace).Create(secret)
+			if errCreate != nil {
+				c.Logger.WithFields(log.Fields{"namespace": bag.AgentNamespace, "error": errCreate}).
+					Warn("Unable to create secret with event API key in namespace")
+			} else {
+				c.Logger.WithField("secret key", AGENT_EVENT_KEY).Info("Persisted event API key in a new secret")
+			}
 		} else {
-			c.Logger.WithField("secret key", AGENT_EVENT_KEY).Info("Persisted event API key in secret")
+			_, errUpdate := api.Secrets(bag.AgentNamespace).Update(secret)
+			if errUpdate != nil {
+				c.Logger.WithFields(log.Fields{"namespace": bag.AgentNamespace, "error": errUpdate}).
+					Warn("Unable to update secret with event API key in namespace")
+			} else {
+				c.Logger.WithField("secret key", AGENT_EVENT_KEY).Info("Persisted event API key in the existing secret")
+			}
 		}
+
 	}
 	return key, nil
 }

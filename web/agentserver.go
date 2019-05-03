@@ -13,6 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/appdynamics/cluster-agent/config"
+	m "github.com/appdynamics/cluster-agent/models"
 	"github.com/appdynamics/cluster-agent/version"
 	"github.com/gorilla/mux"
 )
@@ -70,7 +71,28 @@ func (ws *AgentWebServer) getStatus(w http.ResponseWriter, req *http.Request) {
 	bag := ws.ConfigManager.Conf
 	if req.Method == "GET" {
 		w.Header().Set("Content-Type", "application/json")
-		result, _ := json.Marshal(bag)
+		statusObj := m.AgentStatus{}
+		statusObj.Version = version.Version
+		statusObj.NsToMonitor = bag.NsToMonitor
+		statusObj.NodesToMonitor = bag.NodesToMonitor
+
+		statusObj.InstrumentationMethod = bag.InstrumentationMethod
+		statusObj.DefaultInstrumentationTech = bag.DefaultInstrumentationTech
+		statusObj.NsToInstrument = bag.NsToInstrument
+		statusObj.NSInstrumentRule = bag.NSInstrumentRule
+		statusObj.AnalyticsAgentImage = bag.AnalyticsAgentImage
+		statusObj.AppDJavaAttachImage = bag.AppDJavaAttachImage
+		statusObj.AppDDotNetAttachImage = bag.AppDDotNetAttachImage
+		statusObj.AnalyticsAgentImage = bag.AnalyticsAgentImage
+		statusObj.BiqService = bag.BiqService
+		statusObj.InstrumentMatchString = bag.InstrumentMatchString
+
+		statusObj.LogLevel = bag.LogLevel
+		statusObj.LogLines = bag.LogLines
+		statusObj.MetricsSyncInterval = bag.MetricsSyncInterval
+		statusObj.SnapshotSyncInterval = bag.SnapshotSyncInterval
+
+		result, _ := json.Marshal(statusObj)
 		io.WriteString(w, string(result))
 	} else {
 		http.Error(w, "Only GET is supported", 404)

@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: appdynamics-operator
-namespace: appdynamics-infra
+namespace: appdynamics
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -88,7 +88,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: appdynamics-operator
-  namespace: appdynamics-infra
+  namespace: appdynamics
 roleRef:
   kind: ClusterRole
   name: appdynamics-operator
