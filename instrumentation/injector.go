@@ -179,7 +179,7 @@ func GetAgentRequestsForDeployment(deploy *appsv1.Deployment, bag *m.AppDBag, l 
 
 		//in case a namespace-wide rule exists
 		if len(arr) == 0 && namespaceRule != nil {
-			namespaceRule.AppName, namespaceRule.TierName, namespaceRule.BiQ = GetAttachMetadata(namespaceRule.AppDAppLabel, namespaceRule.AppDTierLabel, deploy, bag)
+			namespaceRule.AppName, namespaceRule.TierName, _ = GetAttachMetadata(namespaceRule.AppDAppLabel, namespaceRule.AppDTierLabel, deploy, bag)
 			arr = append(arr, (*namespaceRule))
 		}
 		if len(arr) > 0 {
