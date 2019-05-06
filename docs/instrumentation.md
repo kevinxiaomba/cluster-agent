@@ -53,74 +53,59 @@ appd-agent: "dotnet" 		# Optional. Alternatively, the system-wide default "Defau
 
 
 ### ClusterAgent configuration use cases
-Below are several use cases with matching configuration settings for instrumentation.
+Below are several use cases with examples of instrumentation settings.
 
-#### Instrument using global defaults
-All applications deployed to specific namespaces are Java. All apps leverage $JAVA_OPTS environment variable
+#### Use case 1
+All Java applications deployed to namespaces ns1 will be instrumented. These apps leverage $JAVA_OPTS environment variable
 
 ```
-InstrumentationMethod: "mountEnv"
-NSToInstrument:
-	- ns1
-	- ns2
+instrumentationMethod: "mountEnv"
+nsToInstrument:
+- ns1
+```
+
+#### Use case 2 
+All Java applications with the name or metadata labels matching "client-api"
+and deployed to namespace ns 1 will be instrumented. All apps leverage $JAVA_OPTS environment variable
+
+```
+instrumentationMethod: "mountEnv"
+instrumentMatchString:
+- client-api
+nsToInstrument:
+- ns1
 ```
 
 
-#### Instrument using namespace-wide rules
-One namespace is for Java workloads. Another is for .Net Core microservices
+#### Use case 3
+Use instrumentation rule to instrument Java apps with the name matching "java-app" in namespace ns1. Use the value of pod label "name" for the AppDynamics application name. Add analytics agent as a sidecar.
 
 ```instrumentRule:
-	- namespaces:
-	    - java-namspace
-	  appDAppLabel: "appName"
-	  appDTierLabel: "tierName"	# if not set, deployment name is used
-	  tech: "java"					# if not set, "DefaultInstrumentationTech" is used
-	- namespaces:
-	    - netcore-namspace
-	  appDAppLabel: "appName"
-	  appDTierLabel: "tierName"	# if not set, deployment name is used
-	  tech: "dotnet"
+  - appDAppLabel: name
+    namespaces:
+    - ns1
+    matchString: 
+    - java-app
+    biQ: sidecar
 ```
 
 
-#### Instrument using more granular rules
-* Instrumnent Java into the first app container in specific namespaces, when deployment name matches "*api":
-```
- instrumentRule:
-	- matchString: "*api"          # if not set, all deployments in the namespace are considered
-	  namespaces:
-	    - ns1
-	  appDAppLabel: "appName"
-	  appDTierLabel: "tierName"	# if not set, deployment name is used
-	  tech: "java"					# if not set, "DefaultInstrumentationTech" is used
-	  method: "mountEnv"			# if not set, "InstrumentationMethod" is used
-	  containerName: "first"		# if not set, "InstrumentContainer" is used
-```
+#### Use case 4
+Use instrumentation rules to instrument Java apps with the name matching "java-app"  and .Net Core apps with the name matching "dotnet-app" in namespace ns1.  Use the value of pod label "name" for the AppDynamics application name. Add analytics agent as a sidecar to the Java application.
 
-* Instrumnent Java into the "api-container" app container in specific namespaces, when deployment name matches "*api". Also instrument Analytics
-```
- instrumentRule:
-	- matchString: "*api"
-	  namespaces:
-	    - ns1
-	  appDAppLabel: "appName"
-	  appDTierLabel: "tierName"	# if not set, deployment name is used
-	  tech: "java"
-	  method: "mountEnv"			# if not set, "DefaultInstrumentationTech" is used
-      biq: "sidecar"				# if not set, "BiqService" is used
-	  containerName: "api-container"
-```
 
-* Instrumnent .Net Core into the all app container in specific namespaces, when deployment name matches "*api". Also instrument Analytics
 ```
- instrumentRule:
-	- matchString: "*api"
-	  namespaces:
-	    - ns1
-	  appDAppLabel: "appName"		 
-	  appDTierLabel: "tierName"	# if not set, deployment name is used
-	  tech: "dotnet"
-	  method: "mountEnv"			# if not set, "DefaultInstrumentationTech" is used
-      biq: "sidecar"				# if not set, "BiqService" is used
-	  containerName: "all"
-```
+instrumentRule:
+  - appDAppLabel: name
+    biQ: sidecar
+    matchString:
+    - java-app
+    namespaces:
+    - dev
+  - appDAppLabel: name
+    matchString:
+    - dotnet-app
+    namespaces:
+    - dev
+    tech: dotnet
+   ```

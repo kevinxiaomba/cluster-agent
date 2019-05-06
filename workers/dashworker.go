@@ -375,6 +375,15 @@ func (dw *DashboardWorker) updateClusterOverview(bag *m.DashboardBag) error {
 
 	dashName := fmt.Sprintf("Cluster-Overview-%s-%s", dw.Bag.AppName, dw.Bag.DashboardSuffix)
 
+	//	if dashboard != nil {
+	//		// if the dashboard was created earlier, make sure it still exists
+	//		existingDash, _ := dw.loadDashboard(dashName)
+	//		//if the dashboard got deleted or exists with a different ID, force to create a new one
+	//		if existingDash == nil || dashboard.ID != existingDash.ID {
+	//			dashboard = nil
+	//		}
+	//	}
+
 	if dashboard == nil {
 		dw.Logger.Info("Saved template not found. Creating cluster overview dashboard from scratch\n")
 		dashboard, err, exists = dw.loadDashboardTemplate(FULL_CLUSTER)

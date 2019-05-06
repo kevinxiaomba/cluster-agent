@@ -101,7 +101,7 @@ The Cluster Overview Dashboard displays the following metrics (from left to righ
 
 - Heat map of deployed pods. 
 
-The heat map display the status of all pods deployed to the monitored namespaces of the cluster. 
+The heat map displays the status of all pods deployed to the monitored namespaces of the cluster. 
 The pods are depicted as color-coded squares:
 
 * Running pods
@@ -143,11 +143,6 @@ The snapshots are collected for the following entities:
 
 
 
-
-### Metrics Index
-
-
-### Snapshot Fields
 
 
 

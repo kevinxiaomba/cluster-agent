@@ -12,20 +12,24 @@ The following permissions need to be assigned to the usr account directly or to 
 * Applications
 	* Create, View, Edit Applications
 * Analytics
-	* Create Searches
-	* View event data from all applications
-	* Manage logs, fields, APIs and metrics
+	 	* General - Manage logs, fields, APIs and metrics
+	* Searches - Create Searches
+	* Events - View event data from all applications (Transactions, Custom Analytics Events)
 * Dashboards
 	* Create, View, Edit, Delete
 	
 ### Event API key
 
-The ClusterAgent sends snapshots of the state of Kubernetes resources to the AppDynamics controller at a configurable interval. For this operation an Event API key is required. If the user account is configured with the required permissions, the ClusterAgent will generate the key automatically and will store it in the ClusterAgent secret. 
+The ClusterAgent sends snapshots of the state of Kubernetes resources to the AppDynamics controller at a configurable interval. For this operation an Event API key is required. If the user account is configured with the required permissions, the ClusterAgent will generate the key automatically and will store it in the ClusterAgent secret.
+
+
+#### Generate event API key manually
+ 
 Follow these steps to create the event API key manually:
 
-In the AppDynamics controller UI, navigat to
+In the AppDynamics controller UI, navigate to
 Analytics - Configuration - API keys - Add
-Name the key and Set the following permissions:
+Name the key and set the following permissions:
 * Custom Analytics Events permissions
 	* Can manage schema
 	* Can query all Custom Analytics Events
