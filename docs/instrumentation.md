@@ -17,16 +17,17 @@ By default, the instrumentation is disabled. The instrumentation is controlled b
 * NSInstrumentRule - list of specific instrumentation rules. The rules can be applied to one or more namspaces. The can be granular to target specific deployments. Each instrumentation rule has the following structure: 
 
 ```	  
-	  namespaces:
-	    - prod						# List of namespaces wher the rule applies. Required	
-	  matchString: "client-api"	# Regex to match against deployment names and label values. Optional	
-	  appDAppLabel: "appName"		# Value of this label will become AppDynamics application name. Optional			
-	  appDTierLabel: "tierName"	# Value of this label will become AppDynamics tier name. Optional			
-	  version: "appdynamics/java"	# Agent image reference. Optional	
-	  tech: "java"					# Type of agent to use. Optional	
-	  method: "mountEnv"			# Instrumentation method to use. Optional	
-      biq: "sidecar"				# Method of Analytics instrumentation
-	  containerName: "first"		# Regex supported match string to identify the container in the pod. Other options: "first", "all". Default is "first"
+namespaces:
+- ns1						# List of namespaces wher the rule applies. Required
+matchString: 
+- "client-api"	# Regex to match against deployment names and label values. Optional
+appDAppLabel: "appName"		# Value of this label will become AppDynamics application name. Optional			
+appDTierLabel: "tierName"	# Value of this label will become AppDynamics tier name. Optional			
+version: "appdynamics/java"	# Agent image reference. Optional
+tech: "java"					# Type of agent to use. Optional
+method: "mountEnv"			# Instrumentation method to use. Optional
+biq: "sidecar"				# Method of Analytics instrumentation
+containerName: "first"		# Regex supported match string to identify the container in the pod. Other options: "first", "all". Default is "first"
 ```
 
 ### Enabling instrumentation
