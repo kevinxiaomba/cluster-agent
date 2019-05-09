@@ -140,6 +140,8 @@ func (aw *AdqlSearchWorker) DeleteSearch(searchID int) error {
 
 func (aw *AdqlSearchWorker) getQueryMap() map[string]m.AdqlSearch {
 	var queryMap = map[string]m.AdqlSearch{
+		BASE_PATH + "EventError": m.AdqlSearch{SchemaDef: m.EventSchemaDef{}, SearchName: fmt.Sprintf("%s. EventError", aw.Bag.AppName), SchemaName: aw.Bag.EventSchemaName,
+			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and category = 'error' ORDER BY creationTimestamp DESC", aw.Bag.EventSchemaName, aw.Bag.AppName)},
 		BASE_PATH + "EventCount": m.AdqlSearch{SchemaDef: m.EventSchemaDef{}, SearchName: fmt.Sprintf("%s. EventCount", aw.Bag.AppName), SchemaName: aw.Bag.EventSchemaName,
 			Query: fmt.Sprintf("select * from %s where clusterName = '%s' ORDER BY creationTimestamp DESC", aw.Bag.EventSchemaName, aw.Bag.AppName)},
 		BASE_PATH + "EvictionThreats": m.AdqlSearch{SchemaDef: m.EventSchemaDef{}, SearchName: aw.buildFullMetricName("EvictionThreats"), SchemaName: aw.Bag.EventSchemaName,
@@ -165,7 +167,7 @@ func (aw *AdqlSearchWorker) getQueryMap() map[string]m.AdqlSearch {
 		BASE_PATH + "StorageIssues": m.AdqlSearch{SchemaDef: m.EventSchemaDef{}, SearchName: fmt.Sprintf("%s. StorageIssues", aw.Bag.AppName), SchemaName: aw.Bag.EventSchemaName,
 			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and category = 'error' AND subCategory IN ('storage', 'quota') ORDER BY creationTimestamp DESC", aw.Bag.EventSchemaName, aw.Bag.AppName)},
 		BASE_PATH + "MissingDependencies": m.AdqlSearch{SchemaDef: m.ContainerSchemaDef{}, SearchName: fmt.Sprintf("%s. MissingDependencies", aw.Bag.AppName), SchemaName: aw.Bag.ContainerSchemaName,
-			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and (missingConfigs != \"\" OR missingSecrets != \"\") ", aw.Bag.ContainerSchemaName, aw.Bag.AppName)},
+			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and (missingConfigs != '' OR missingSecrets != '') ", aw.Bag.ContainerSchemaName, aw.Bag.AppName)},
 		BASE_PATH + "NoConnectivity": m.AdqlSearch{SchemaDef: m.ContainerSchemaDef{}, SearchName: fmt.Sprintf("%s. NoConnectivity", aw.Bag.AppName), SchemaName: aw.Bag.ContainerSchemaName,
 			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and missingServices != \"\" ", aw.Bag.ContainerSchemaName, aw.Bag.AppName)},
 		BASE_PATH + "PodOverconsume": m.AdqlSearch{SchemaDef: m.ContainerSchemaDef{}, SearchName: fmt.Sprintf("%s. PodOverconsume", aw.Bag.AppName), SchemaName: aw.Bag.ContainerSchemaName,
@@ -187,7 +189,7 @@ func (aw *AdqlSearchWorker) getQueryMap() map[string]m.AdqlSearch {
 		BASE_PATH + "OrphanEndpoint": m.AdqlSearch{SchemaDef: m.EpSchemaDef{}, SearchName: fmt.Sprintf("%s. OrphanEndpoint", aw.Bag.AppName), SchemaName: aw.Bag.EpSchemaName,
 			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and isOrphan = true", aw.Bag.EpSchemaName, aw.Bag.AppName)},
 		BASE_PATH + "EPNotReadyCount": m.AdqlSearch{SchemaDef: m.EpSchemaDef{}, SearchName: fmt.Sprintf("%s. EPNotReadyCount", aw.Bag.AppName), SchemaName: aw.Bag.EpSchemaName,
-			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and notReadyIPs != \"\" ", aw.Bag.EpSchemaName, aw.Bag.AppName)},
+			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and notReadyIPs != '' ", aw.Bag.EpSchemaName, aw.Bag.AppName)},
 	}
 
 	return queryMap

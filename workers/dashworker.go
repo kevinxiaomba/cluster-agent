@@ -504,10 +504,11 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 	backTop := 517
 	startLine := 540
 	backHeight := 159
-	minSize := 15
+	minSize := 24
 	healthsize := 10
 	leftMargin := 26
 	nodeMargin := minSize
+	backgroundWidetY := 506
 
 	currentX := leftMargin
 	currentY := startLine
@@ -536,20 +537,19 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 	rightMargin := backWidth - nodeMargin
 	lastLine := backTop + backHeight - nodeMargin - height
 
-	//heat background  14: 506  1465x159 is the second widget of the widget array
-	//	bkwidgetList, err, exists := dw.loadWidgetTemplate(BACKGROUND_IMAGE)
-	//	if err != nil && exists {
-	//		return nil, fmt.Errorf("Background template exists, but cannot be loaded. %v\n", err)
-	//	}
-	//	if !exists {
-	//		return nil, fmt.Errorf("Background template does not exist, skipping cluster dashboard. %v\n", err)
-	//	}
 	backgroundWidet := dashboard.Widgets[1]
 	backgroundWidet["dashboardId"] = dashboard.ID
 	backgroundWidet["height"] = backHeight
 	backgroundWidet["width"] = backWidth
 	backgroundWidet["x"] = 14
-	backgroundWidet["y"] = 506
+	backgroundWidet["y"] = backgroundWidetY
+
+	dashBack := dashboard.Widgets[0]
+	dashBack["dashboardId"] = dashboard.ID
+	dashBack["height"] = 659
+	dashBack["width"] = 1479
+	dashBack["x"] = 10
+	dashBack["y"] = 13
 
 	widgetList, err, exists := dw.loadWidgetTemplate(HEAT_MAP)
 	if err != nil && exists {
@@ -634,7 +634,7 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 			currentX += nsGap
 		}
 		//revalidate dimensions after the adjustment
-		currentX, currentY = dw.validateDimensions(currentX, currentY, lastLine, height, nodeMargin, minSize, rightMargin, leftMargin, dashboard, &backgroundWidet)
+		currentX, currentY = dw.validateDimensions(currentX, currentY, lastLine, height, nodeMargin, minSize, rightMargin, leftMargin, dashboard, &backgroundWidet, &dashBack)
 
 		//position
 		dot["x"] = currentX
@@ -684,7 +684,7 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 		dotArray = append(dotArray, dot)
 
 		currentX = currentX + minSize + nodeMargin
-		currentX, currentY = dw.validateDimensions(currentX, currentY, lastLine, height, nodeMargin, minSize, rightMargin, leftMargin, dashboard, &backgroundWidet)
+		currentX, currentY = dw.validateDimensions(currentX, currentY, lastLine, height, nodeMargin, minSize, rightMargin, leftMargin, dashboard, &backgroundWidet, &dashBack)
 	}
 
 	//append widgets
@@ -699,17 +699,21 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 	return dashboard, nil
 }
 
-func (dw *DashboardWorker) validateDimensions(currentX, currentY, lastLine, height, nodeMargin, minSize, rightMargin, leftMargin int, dashboard *m.Dashboard, backgroundWidet *map[string]interface{}) (int, int) {
+func (dw *DashboardWorker) validateDimensions(currentX, currentY, lastLine, height, nodeMargin, minSize, rightMargin, leftMargin int, dashboard *m.Dashboard, backgroundWidet *map[string]interface{}, dashBack *map[string]interface{}) (int, int) {
 	if currentX > rightMargin {
 		currentX = leftMargin
 		currentY = currentY + minSize + nodeMargin
 		if currentY > lastLine {
 			//make the background taller
 			lastLine = lastLine + height + nodeMargin
-			(*backgroundWidet)["height"] = lastLine + minSize + nodeMargin
-			if dashboard.Height < float64((*backgroundWidet)["height"].(int)+2*minSize) {
-				dashboard.Height = float64((*backgroundWidet)["height"].(int) + 4*minSize)
+			(*dashBack)["height"] = currentY + minSize + nodeMargin //lastLine + 2*minSize + 2*nodeMargin
+			(*backgroundWidet)["height"] = (*dashBack)["height"].(int) - (*backgroundWidet)["y"].(int)
+			if dashboard.Height < float64((*dashBack)["height"].(int)+2*minSize) {
+				dashboard.Height = float64((*dashBack)["height"].(int) + 2*minSize)
 			}
+			dw.Logger.Infof("currentY = %d, height = %d, lastLine = %d", currentY, height, lastLine)
+			dw.Logger.Infof("dashBack height = %d", (*dashBack)["height"])
+			dw.Logger.Infof("backgroundWidet height = %d", (*backgroundWidet)["height"])
 		}
 	}
 	return currentX, currentY

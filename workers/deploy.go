@@ -294,6 +294,7 @@ func (pw *DeployWorker) processObject(d *appsv1.Deployment, old *appsv1.Deployme
 	deployObject := m.NewDeployObj()
 	deployObject.Name = d.Name
 	deployObject.Namespace = d.Namespace
+	deployObject.DeploymentType = "d"
 
 	if d.ClusterName != "" {
 		deployObject.ClusterName = d.ClusterName

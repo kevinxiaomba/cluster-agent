@@ -168,9 +168,9 @@ func (pw *RsWorker) flushQueue() {
 		return
 	}
 
-	var objList []m.RsSchema
+	var objList []m.DeploySchema
 
-	var RsRecord *m.RsSchema
+	var RsRecord *m.DeploySchema
 	var ok bool = true
 
 	for count >= 0 {
@@ -191,35 +191,35 @@ func (pw *RsWorker) flushQueue() {
 	pw.AppdController.StopBT(bth)
 }
 
-func (pw *RsWorker) postRsRecords(objList *[]m.RsSchema) {
+func (pw *RsWorker) postRsRecords(objList *[]m.DeploySchema) {
 	bag := (*pw.ConfigManager).Get()
 
 	rc := app.NewRestClient(bag, pw.Logger)
 
-	schemaDefObj := m.NewRsSchemaDefWrapper()
+	schemaDefObj := m.NewDeploySchemaDefWrapper()
 
-	err := rc.EnsureSchema(bag.RSSchemaName, &schemaDefObj)
+	err := rc.EnsureSchema(bag.DeploySchemaName, &schemaDefObj)
 	if err != nil {
-		pw.Logger.Errorf("Issues when ensuring %s schema. %v\n", bag.RSSchemaName, err)
+		pw.Logger.Errorf("Issues when ensuring %s schema. %v\n", bag.DeploySchemaName, err)
 	} else {
 		data, err := json.Marshal(objList)
 		if err != nil {
 			pw.Logger.Errorf("Problems when serializing array of rs schemas. %v", err)
 		}
-		rc.PostAppDEvents(bag.RSSchemaName, data)
+		rc.PostAppDEvents(bag.DeploySchemaName, data)
 	}
 }
 
-func (pw *RsWorker) getNextQueueItem() (*m.RsSchema, bool) {
+func (pw *RsWorker) getNextQueueItem() (*m.DeploySchema, bool) {
 	RsRecord, quit := pw.WQ.Get()
 
 	if quit {
-		return RsRecord.(*m.RsSchema), false
+		return RsRecord.(*m.DeploySchema), false
 	}
 	defer pw.WQ.Done(RsRecord)
 	pw.WQ.Forget(RsRecord)
 
-	return RsRecord.(*m.RsSchema), true
+	return RsRecord.(*m.DeploySchema), true
 }
 
 func (pw *RsWorker) buildAppDMetrics() {
@@ -229,8 +229,8 @@ func (pw *RsWorker) buildAppDMetrics() {
 	var count int = 0
 	for _, obj := range pw.informer.GetStore().List() {
 		RsObject := obj.(*appsv1.ReplicaSet)
-		RsSchema, _ := pw.processObject(RsObject, nil)
-		pw.summarize(&RsSchema)
+		DeploySchema, _ := pw.processObject(RsObject, nil)
+		pw.summarize(&DeploySchema)
 		count++
 	}
 
@@ -242,7 +242,7 @@ func (pw *RsWorker) buildAppDMetrics() {
 	pw.AppdController.StopBT(bth)
 }
 
-func (pw *RsWorker) summarize(RsObject *m.RsSchema) {
+func (pw *RsWorker) summarize(RsObject *m.DeploySchema) {
 	bag := (*pw.ConfigManager).Get()
 	//global metrics
 	summary, okSum := pw.SummaryMap[m.ALL]
@@ -261,31 +261,32 @@ func (pw *RsWorker) summarize(RsObject *m.RsSchema) {
 	summary.RsCount++
 	summaryNS.RsCount++
 
-	if RsObject.RsReplicas == 0 {
+	if RsObject.Replicas == 0 {
 		summary.RsStaleCount++
 		summaryNS.RsStaleCount++
 	}
 
-	summary.RsReplicas = summary.RsReplicas + int64(RsObject.RsReplicas)
-	summaryNS.RsReplicas = summaryNS.RsReplicas + int64(RsObject.RsReplicas)
+	summary.RsReplicas = summary.RsReplicas + int64(RsObject.Replicas)
+	summaryNS.RsReplicas = summaryNS.RsReplicas + int64(RsObject.Replicas)
 
-	summary.RsReplicasUnAvailable = summary.RsReplicasUnAvailable + int64(RsObject.RsReplicasUnAvailable)
-	summaryNS.RsReplicasUnAvailable = summaryNS.RsReplicasUnAvailable + int64(RsObject.RsReplicasUnAvailable)
+	summary.RsReplicasUnAvailable = summary.RsReplicasUnAvailable + int64(RsObject.ReplicasUnAvailable)
+	summaryNS.RsReplicasUnAvailable = summaryNS.RsReplicasUnAvailable + int64(RsObject.ReplicasUnAvailable)
 
-	summary.RsReplicasAvailable = summary.RsReplicasAvailable + int64(RsObject.RsReplicasAvailable)
-	summaryNS.RsReplicasAvailable = summaryNS.RsReplicasAvailable + int64(RsObject.RsReplicasAvailable)
+	summary.RsReplicasAvailable = summary.RsReplicasAvailable + int64(RsObject.ReplicasAvailable)
+	summaryNS.RsReplicasAvailable = summaryNS.RsReplicasAvailable + int64(RsObject.ReplicasAvailable)
 
 	pw.SummaryMap[m.ALL] = summary
 	pw.SummaryMap[RsObject.Namespace] = summaryNS
 }
 
-func (pw *RsWorker) processObject(d *appsv1.ReplicaSet, old *appsv1.ReplicaSet) (m.RsSchema, bool) {
+func (pw *RsWorker) processObject(d *appsv1.ReplicaSet, old *appsv1.ReplicaSet) (m.DeploySchema, bool) {
 	changed := true
 	bag := (*pw.ConfigManager).Get()
 
-	RsObject := m.NewRsObj()
+	RsObject := m.NewDeployObj()
 	RsObject.Name = d.Name
 	RsObject.Namespace = d.Namespace
+	RsObject.DeploymentType = "rs"
 
 	if d.ClusterName != "" {
 		RsObject.ClusterName = d.ClusterName
@@ -300,12 +301,12 @@ func (pw *RsWorker) processObject(d *appsv1.ReplicaSet, old *appsv1.ReplicaSet) 
 	}
 	RsObject.MinReadySecs = d.Spec.MinReadySeconds
 
-	RsObject.RsReplicas = d.Status.Replicas
+	RsObject.Replicas = d.Status.Replicas
 
-	RsObject.RsReplicasAvailable = d.Status.AvailableReplicas
-	RsObject.RsReplicasUnAvailable = d.Status.Replicas - d.Status.AvailableReplicas
-	RsObject.RsReplicasReady = d.Status.ReadyReplicas
-	RsObject.RsReplicasLabeled = d.Status.FullyLabeledReplicas
+	RsObject.ReplicasAvailable = d.Status.AvailableReplicas
+	RsObject.ReplicasUnAvailable = d.Status.Replicas - d.Status.AvailableReplicas
+	RsObject.ReplicasReady = d.Status.ReadyReplicas
+	RsObject.ReplicasLabeled = d.Status.FullyLabeledReplicas
 
 	return RsObject, changed
 }

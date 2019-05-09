@@ -167,9 +167,9 @@ func (pw *DaemonWorker) flushQueue() {
 		return
 	}
 
-	var objList []m.DaemonSchema
+	var objList []m.DeploySchema
 
-	var DaemonRecord *m.DaemonSchema
+	var DaemonRecord *m.DeploySchema
 	var ok bool = true
 
 	for count >= 0 {
@@ -190,34 +190,34 @@ func (pw *DaemonWorker) flushQueue() {
 	pw.AppdController.StopBT(bth)
 }
 
-func (pw *DaemonWorker) postDaemonRecords(objList *[]m.DaemonSchema) {
+func (pw *DaemonWorker) postDaemonRecords(objList *[]m.DeploySchema) {
 	bag := (*pw.ConfigManager).Get()
 	rc := app.NewRestClient(bag, pw.Logger)
 
-	schemaDefObj := m.NewDaemonSchemaDefWrapper()
+	schemaDefObj := m.NewDeploySchemaDefWrapper()
 
-	err := rc.EnsureSchema(bag.DaemonSchemaName, &schemaDefObj)
+	err := rc.EnsureSchema(bag.DeploySchemaName, &schemaDefObj)
 	if err != nil {
-		pw.Logger.Errorf("Issues when ensuring %s schema. %v\n", bag.DaemonSchemaName, err)
+		pw.Logger.Errorf("Issues when ensuring %s schema. %v\n", bag.DeploySchemaName, err)
 	} else {
 		data, err := json.Marshal(objList)
 		if err != nil {
 			pw.Logger.Errorf("Problems when serializing array of daemon schemas. %v", err)
 		}
-		rc.PostAppDEvents(bag.DaemonSchemaName, data)
+		rc.PostAppDEvents(bag.DeploySchemaName, data)
 	}
 }
 
-func (pw *DaemonWorker) getNextQueueItem() (*m.DaemonSchema, bool) {
+func (pw *DaemonWorker) getNextQueueItem() (*m.DeploySchema, bool) {
 	DaemonRecord, quit := pw.WQ.Get()
 
 	if quit {
-		return DaemonRecord.(*m.DaemonSchema), false
+		return DaemonRecord.(*m.DeploySchema), false
 	}
 	defer pw.WQ.Done(DaemonRecord)
 	pw.WQ.Forget(DaemonRecord)
 
-	return DaemonRecord.(*m.DaemonSchema), true
+	return DaemonRecord.(*m.DeploySchema), true
 }
 
 func (pw *DaemonWorker) buildAppDMetrics() {
@@ -240,7 +240,7 @@ func (pw *DaemonWorker) buildAppDMetrics() {
 	pw.AppdController.StopBT(bth)
 }
 
-func (pw *DaemonWorker) summarize(DaemonObject *m.DaemonSchema) {
+func (pw *DaemonWorker) summarize(DaemonObject *m.DeploySchema) {
 	bag := (*pw.ConfigManager).Get()
 	//global metrics
 	summary, okSum := pw.SummaryMap[m.ALL]
@@ -275,13 +275,14 @@ func (pw *DaemonWorker) summarize(DaemonObject *m.DaemonSchema) {
 	pw.SummaryMap[DaemonObject.Namespace] = summaryNS
 }
 
-func (pw *DaemonWorker) processObject(d *appsv1.DaemonSet, old *appsv1.DaemonSet) (m.DaemonSchema, bool) {
+func (pw *DaemonWorker) processObject(d *appsv1.DaemonSet, old *appsv1.DaemonSet) (m.DeploySchema, bool) {
 	changed := true
 	bag := (*pw.ConfigManager).Get()
 
-	DaemonObject := m.NewDaemonObj()
+	DaemonObject := m.NewDeployObj()
 	DaemonObject.Name = d.Name
 	DaemonObject.Namespace = d.Namespace
+	DaemonObject.DeploymentType = "ds"
 
 	if d.ClusterName != "" {
 		DaemonObject.ClusterName = d.ClusterName
