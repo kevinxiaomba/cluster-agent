@@ -56,7 +56,7 @@ The Cluster Overview Dashboard displays the following metrics (from left to righ
 - Used Cpu vs total cluster capacity
 - Used Memory vs total cluster capacity
 - Number of pods vs total number of pods allowed per kublet configuration
-- Number of master nodes
+- Number of master nodes. On managed environments (e.g. EKS) this number will show 0.
 - Number of worker nodes
 - % nodes under disk pressure
 - % nodes under memory pressure
