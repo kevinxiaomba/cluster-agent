@@ -25,8 +25,11 @@ The ClusterAgent can be configured to auto instrument Java and .Net Core workloa
 
 ## Prerequisites
 
-* [Kuberenetes Metrics server](https://github.com/kubernetes-incubator/metrics-server) enables collection of resource utilization metrics. If it is not already deployed to the cluster, 
+* [Kuberenetes Metrics server](https://github.com/kubernetes-incubator/metrics-server) enables collection of resource utilization metrics. If it is not already deployed to the cluster, run the following command:
+`kubectl create -f metrics-server/`
 * [An AppDynamics user account](https://github.com/Appdynamics/cluster-agent/blob/master/docs/rest-user-role.md) must be setup for the ClusterAgent to communicate to the AppDynamics controller via REST API.
+* Access to AppDynamics Controller 4.5.5+
+* At least 1 APM license (Golang). AppDynamics offers a [free trial](https://www.appdynamics.com/free-trial/)
 
 ## How to deploy
 
@@ -38,7 +41,7 @@ When deploying manually, follow these steps:
   * Kubernetes
    `kubectl create namespace appdynamics`
   * OpenShift
-   `oc new-project appdynamics --description="AppDynamics Infrastructure"`
+   `oc new-project appdynamics --description="AppDynamics"`
 * Update controller URL in the configMap (deploy/cluster-agent/cluster-agent-config.yaml). The controller URL must be in the following format:
 ` <protocol>://<controller-url>:<port> `
 
