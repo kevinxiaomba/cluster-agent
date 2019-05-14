@@ -42,7 +42,7 @@ When deploying manually, follow these steps:
 * Update controller URL in the configMap (deploy/cluster-agent/cluster-agent-config.yaml). The controller URL must be in the following format:
 ` <protocol>://<controller-url>:<port> `
 
-* Create Secret `cluster-agent-secret` (deploy/cluster-agent/cluster-agent-secret.yaml). 
+* Create Secret `cluster-agent-secret`. 
   * The "api-user" key with the AppDynamics user account information is required. It needs to be in the following format <username>@<account>:<password>, e.g ` user@customer1:123 `. 
   * The other 2 keys, "controller-key" and "event-key", are optional. If not specified, the ClusterAgent will attempt to obtain them automatically.
 
@@ -59,7 +59,7 @@ kubectl -n appdynamics-infra create secret generic cluster-agent-secret \
 
 By default "docker.io/appdynamics/cluster-agent:latest" is used.
 
-[AppDynamics images](https://access.redhat.com/containers/#/product/f5e13e601dc05eaa) are also available from [Red Hat Container Catalog](https://access.redhat.com/containers/). Here are the steps to enable pulling in OpenShift.
+[AppDynamics images](https://access.redhat.com/containers/#/product/f5e13e601dc05eaa) are also available from [Red Hat Container Catalog](https://access.redhat.com/containers/). Here are the steps to enable pulling in OpenShift.
 
 Create a secret in the ClusterAgent namespace. In this example, namespace **appdynamics** is used and appdynamics-operator account is linked to the secret.
 
