@@ -50,7 +50,7 @@ When deploying manually, follow these steps:
   * The other 2 keys, "controller-key" and "event-key", are optional. If not specified, the ClusterAgent will attempt to obtain them automatically.
 
 ```
-kubectl -n appdynamics-infra create secret generic cluster-agent-secret \
+kubectl -n appdynamics create secret generic cluster-agent-secret \
 --from-literal=api-user="username@customer1:password" \
 --from-literal=controller-key="" \
 --from-literal=event-key="" \
