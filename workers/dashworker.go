@@ -625,6 +625,7 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 			dot["borderEnabled"] = true
 			dot["borderThickness"] = 2
 			dot["borderColor"] = 13369344 //red
+			searchPath = fmt.Sprintf("%s%s", BASE_PATH, "PodRestarts")
 		}
 
 		if oldDeploy != "" && oldDeploy != hn.Owner {
