@@ -580,6 +580,7 @@ func (pw *PodWorker) buildAppDMetrics() {
 	epList := []m.EpSchema{}
 	for _, ep := range updatedEPs {
 		epSchema := m.NewEpSchema(&ep)
+		epSchema.ClusterName = bag.AppName
 		epList = append(epList, epSchema)
 	}
 

@@ -62,6 +62,7 @@ type EpSchema struct {
 func NewEpSchema(ep *v1.Endpoints) EpSchema {
 	epSchema := EpSchema{}
 	epSchema.Namespace = ep.Namespace
+	epSchema.Name = ep.Name
 
 	var sb strings.Builder
 	var sbReady strings.Builder
