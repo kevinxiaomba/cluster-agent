@@ -600,12 +600,13 @@ func (dw *DashboardWorker) addPodHeatMap(dashboard *m.Dashboard, bag *m.Dashboar
 		colorCode := 0 //black
 		enableBorder := false
 		searchPath := fmt.Sprintf("%s%s", BASE_PATH, "Evictions")
-		if hn.State == "Running" {
+		if hn.State == "Running" || hn.State == "Succeeded" {
 			if hn.IsOverconsuming() {
 				colorCode = 10040319 //purple
 				searchPath = fmt.Sprintf("%s%s", BASE_PATH, "PodOverconsume")
 			} else {
 				colorCode = 34021 //blue
+				searchPath = fmt.Sprintf("%s%s", BASE_PATH, "PodRunning")
 			}
 			enableBorder = true
 		} else if hn.State == "Pending" {

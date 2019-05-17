@@ -124,6 +124,7 @@ type ContainerSchema struct {
 	LimitMemString       string          `json:"-"`
 	ConsumptionCpuString string          `json:"-"`
 	ConsumptionMemString string          `json:"-"`
+	PendingTime          int64           `json:"-"`
 }
 
 type ContainerObjList struct {
@@ -135,7 +136,7 @@ func NewContainerObjList() ContainerObjList {
 }
 
 func NewContainerObj() ContainerSchema {
-	return ContainerSchema{ContainerPorts: []ContainerPort{}, ExitCode: 0}
+	return ContainerSchema{ContainerPorts: []ContainerPort{}, ExitCode: 0, PendingTime: 0, CpuUse: 0, ConsumptionCpu: 0, MemUse: 0, ConsumptionMem: 0}
 }
 
 func (p ContainerSchema) ToString() string {

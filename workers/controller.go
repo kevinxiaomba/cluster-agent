@@ -71,7 +71,7 @@ func (c *MainController) ValidateParameters() error {
 		bag.ControllerPort = uint16(controllerPort)
 		bag.SSLEnabled = strings.Contains(protocol, "s")
 	} else {
-		return fmt.Errorf("Controller Url is invalid. Use this format: protocol://dns:port")
+		return fmt.Errorf("Controller Url %s is invalid. Use this format: protocol://dns:port", bag.ControllerUrl)
 	}
 
 	//build rest api url
@@ -101,7 +101,7 @@ func (c *MainController) ValidateParameters() error {
 	if bag.RestAPICred == "" {
 		return fmt.Errorf("Rest API user account is required. Create a user account in AppD and add it to the cluster-agent-secret (key api-user) in this form <user>@<account>:<pass>")
 	}
-	if bag.AccessKey == "" {
+	if bag.AccessKey == "" || bag.Account == "" || bag.GlobalAccount == "" {
 
 		path := "restui/user/account"
 

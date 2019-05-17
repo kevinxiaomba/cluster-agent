@@ -73,7 +73,7 @@ type PodWorker struct {
 	PendingAssociationQueue map[string]m.AgentRetryRequest
 	EventMap                map[string][]m.EventSchema
 	NodesMonitor            *NodesWorker
-	//	MetricsServerExists     bool
+	ContainerCache          map[string]m.ContainerSchema
 }
 
 var lockOwnerMap = sync.RWMutex{}
@@ -86,6 +86,7 @@ var lockEventLock = sync.RWMutex{}
 var lockServices = sync.RWMutex{}
 var lockEPs = sync.RWMutex{}
 var lockNSMap = sync.RWMutex{}
+var lockContainerCache = sync.RWMutex{}
 
 func NewPodWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient, config *rest.Config, l *log.Logger, nw *NodesWorker) PodWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
@@ -95,7 +96,8 @@ func NewPodWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, c
 		ServiceCache: make(map[string]m.ServiceSchema), EndpointCache: make(map[string]v1.Endpoints),
 		OwnerMap: make(map[string]string), NamespaceMap: make(map[string]string), EventMap: make(map[string][]m.EventSchema),
 		RQCache: make(map[string]v1.ResourceQuota), PVCCache: make(map[string]v1.PersistentVolumeClaim), PendingAssociationQueue: make(map[string]m.AgentRetryRequest),
-		CMCache: make(map[string]v1.ConfigMap), SecretCache: make(map[string]v1.Secret), NSCache: make(map[string]m.NsSchema), DashboardCache: make(map[string]m.PodSchema)}
+		CMCache: make(map[string]v1.ConfigMap), SecretCache: make(map[string]v1.Secret), NSCache: make(map[string]m.NsSchema), DashboardCache: make(map[string]m.PodSchema),
+		ContainerCache: make(map[string]m.ContainerSchema)}
 	pw.initPodInformer(client)
 	pw.ServiceWatcher = w.NewServiceWatcher(client, cm, &pw.ServiceCache, pw, l)
 	pw.EndpointWatcher = w.NewEndpointWatcher(client, cm, &pw.EndpointCache, l)
@@ -384,9 +386,21 @@ func (pw *PodWorker) onDeletePod(obj interface{}) {
 	pw.Logger.Debugf("Deleted Pod: %s %s\n", podObj.Namespace, podObj.Name)
 	podRecord, _ := pw.processObject(podObj, nil)
 	pw.WQ.Add(&podRecord)
+	pw.clearContainerCache(&podRecord)
 	if podRecord.NodeID > 0 {
 		//mark node as historial
 		pw.AppdController.MarkNodeHistorical(podRecord.NodeID)
+	}
+}
+
+func (pw *PodWorker) clearContainerCache(podObject *m.PodSchema) {
+	lockContainerCache.Lock()
+	defer lockContainerCache.Unlock()
+	for _, c := range podObject.Containers {
+		key := utils.GetContainerKey(podObject, &c)
+		if _, exists := pw.ContainerCache[key]; exists {
+			delete(pw.ContainerCache, key)
+		}
 	}
 }
 
@@ -400,12 +414,12 @@ func (pw *PodWorker) onUpdatePod(objOld interface{}, objNew interface{}) {
 	}
 	podOldObj := objOld.(*v1.Pod)
 
-	podRecord, changed := pw.processObject(podObj, podOldObj)
+	podRecord, _ := pw.processObject(podObj, podOldObj)
 	pw.tryDashboardCache(&podRecord)
-	if changed {
-		pw.Logger.Debugf("Pod changed: %s %s\n", podObj.Namespace, podObj.Name)
-		pw.WQ.Add(&podRecord)
-	}
+
+	pw.Logger.Debugf("Pod changed: %s %s\n", podObj.Namespace, podObj.Name)
+	pw.WQ.Add(&podRecord)
+
 	pw.checkForInstrumentation(podObj, &podRecord)
 }
 
@@ -580,7 +594,10 @@ func (pw *PodWorker) buildAppDMetrics() {
 	var count int = 0
 	for _, obj := range pw.informer.GetStore().List() {
 		podObject := obj.(*v1.Pod)
-		podSchema, _ := pw.processObject(podObject, nil)
+		podSchema, changed := pw.processObject(podObject, nil)
+		if changed {
+			pw.WQ.Add(&podSchema)
+		}
 		pw.summarize(&podSchema)
 		//endpoints
 		for _, ep := range epList {
@@ -970,11 +987,15 @@ func (pw *PodWorker) getPodOwner(p *v1.Pod) string {
 
 func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 	bag := (*pw.ConfManager).Get()
-	changed := true
-	var oldObject *m.PodSchema = nil
-	if old != nil {
-		temp := m.NewPodObj()
-		oldObject = &temp
+	changed := false
+
+	if p != nil && old != nil {
+		if p.Status.Reason != old.Status.Reason ||
+			p.DeletionTimestamp == nil && old.DeletionTimestamp != nil ||
+			len(p.Labels) != len(old.Labels) ||
+			len(p.GetAnnotations()) != len(old.GetAnnotations()) {
+			changed = true
+		}
 	}
 
 	podObject := m.NewPodObj()
@@ -983,6 +1004,18 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 		fmt.Fprintf(&sb, "%s:%s;", k, v)
 		if k == "name" {
 			podObject.Owner = v
+		}
+		if k == bag.AppDAppLabel {
+			podObject.AppName = v
+		}
+
+		if k == bag.AppDTierLabel {
+			podObject.TierName = v
+		}
+		if old != nil {
+			if _, exists := old.Labels[k]; !exists {
+				changed = false
+			}
 		}
 	}
 
@@ -1025,16 +1058,6 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 		podObject.TerminationTimeMillis = podObject.TerminationTime.UnixNano() / 1000000
 	}
 
-	for kl, vl := range p.Labels {
-		if kl == bag.AppDAppLabel {
-			podObject.AppName = vl
-		}
-
-		if kl == bag.AppDTierLabel {
-			podObject.TierName = vl
-		}
-	}
-
 	for k, v := range p.GetAnnotations() {
 		fmt.Fprintf(&sb, "%s:%s;", k, v)
 		if k == instr.APPD_APPID {
@@ -1072,6 +1095,12 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 			podObject.AppID = bag.AppID
 			podObject.TierID = bag.TierID
 			podObject.NodeID = bag.NodeID
+		}
+
+		if old != nil {
+			if _, exists := old.GetAnnotations()[k]; !exists {
+				changed = false
+			}
 		}
 	}
 	ps := sb.String()
@@ -1120,6 +1149,9 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 			podObject.LimitsDefined = limitsDefined
 			podObject.MissingDependencies = containerObj.HasMissingDependencies()
 			podObject.NoConnectivity = containerObj.NoConnectivity()
+			if podObject.MissingDependencies || podObject.NoConnectivity {
+				changed = true
+			}
 		}
 
 		for _, c := range p.Spec.InitContainers {
@@ -1218,9 +1250,6 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 	}
 
 	podObject.Phase = string(p.Status.Phase)
-	if oldObject != nil {
-		oldObject.Phase = string(old.Status.Phase)
-	}
 
 	if !podObject.IsEvicted {
 		var lastCondition *v1.PodCondition = nil
@@ -1271,7 +1300,10 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 
 			for _, st := range p.Status.ContainerStatuses {
 				containerObj := findContainer(&podObject, st.Name)
-				pw.updateConatainerStatus(&podObject, containerObj, st)
+				mod := pw.updateConatainerStatus(&podObject, containerObj, st)
+				if mod {
+					changed = true
+				}
 			}
 		}
 
@@ -1284,7 +1316,12 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 		}
 
 		//determine start time
+		var firstContainer *m.ContainerSchema = nil
+		i := 0
 		for _, c := range podObject.Containers {
+			if i == 0 {
+				firstContainer = &c
+			}
 			if c.StartTime != nil {
 				podObject.RunningStartTime = c.StartTime
 				podObject.RunningStartTimeMillis = podObject.RunningStartTime.UnixNano() / 1000000
@@ -1296,6 +1333,7 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 				}
 				break
 			}
+			i++
 		}
 
 		//check PendingTime
@@ -1313,6 +1351,20 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 				podObject.PendingTime = now - podObject.StartTimeMillis
 			}
 			pw.Logger.Debugf("Pending time: %s/%s %d. StartTimeMillis: %d, RunningStartTimeMillis: %d, TerminationTimeMillis: %d BreakPointMillis: %d\n", podObject.Namespace, podObject.Name, podObject.PendingTime, podObject.StartTimeMillis, podObject.RunningStartTimeMillis, podObject.TerminationTimeMillis, podObject.BreakPointMillis)
+			if firstContainer != nil {
+				firstContKey := utils.GetContainerKey(&podObject, firstContainer)
+				oldSnapshot, exists := pw.ContainerCache[firstContKey]
+				if exists {
+					if oldSnapshot.PendingTime != podObject.PendingTime {
+						changed = true
+					}
+				} else {
+					changed = true
+				}
+				lockContainerCache.Lock()
+				pw.ContainerCache[firstContKey] = *firstContainer
+				lockContainerCache.Unlock()
+			}
 		}
 
 		//metrics
@@ -1333,6 +1385,21 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 					pw.Logger.WithField("Percent", c.ConsumptionCpu).Debug("Cpu consumption")
 					pw.Logger.WithField("Percent", c.ConsumptionMem).Debug("Memory consumption")
 					podObject.Containers[cname] = c
+					key := utils.GetContainerKey(&podObject, &c)
+					lastSnapshot, ok := pw.ContainerCache[key]
+					if ok {
+						if lastSnapshot.CpuUse != c.CpuUse ||
+							lastSnapshot.MemUse != c.MemUse ||
+							lastSnapshot.ConsumptionCpu != c.ConsumptionCpu ||
+							lastSnapshot.ConsumptionMem != c.ConsumptionMem {
+							changed = true
+						}
+					} else {
+						changed = true
+					}
+					lockContainerCache.Lock()
+					pw.ContainerCache[key] = c
+					lockContainerCache.Unlock()
 				}
 
 				for cname, c := range podObject.InitContainers {
@@ -1345,17 +1412,12 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 		}
 	}
 
-	//check for changes
-	if oldObject != nil {
-		changed = compareString(podObject.Phase, oldObject.Phase, changed)
-		//		changed = compareInt64(podObject.CpuUse, oldObject.CpuUse, changed)
-		//		changed = compareInt64(podObject.MemUse, oldObject.MemUse, changed)
-	}
-
 	return podObject, changed
 }
 
-func (pw PodWorker) updateConatainerStatus(podObject *m.PodSchema, containerObj *m.ContainerSchema, st v1.ContainerStatus) {
+func (pw PodWorker) updateConatainerStatus(podObject *m.PodSchema, containerObj *m.ContainerSchema, st v1.ContainerStatus) bool {
+	changed := false
+
 	bag := (*pw.ConfManager).Get()
 	if containerObj != nil {
 		containerObj.Restarts = st.RestartCount
@@ -1402,6 +1464,22 @@ func (pw PodWorker) updateConatainerStatus(podObject *m.PodSchema, containerObj 
 		po.TailLines = &lines
 		pw.saveLogs(podObject.ClusterName, podObject.Namespace, podObject.Owner, podObject.Name, &po)
 	}
+
+	key := utils.GetContainerKey(podObject, containerObj)
+	lastSnapshot, ok := pw.ContainerCache[key]
+	if ok {
+		if lastSnapshot.Restarts != st.RestartCount ||
+			containerObj.LastTerminationTime == nil && st.LastTerminationState.Terminated != nil {
+			changed = true
+		}
+	} else {
+		changed = true
+	}
+	lockContainerCache.Lock()
+	pw.ContainerCache[key] = *containerObj
+	lockContainerCache.Unlock()
+
+	return changed
 }
 
 func findContainer(podObject *m.PodSchema, containerName string) *m.ContainerSchema {

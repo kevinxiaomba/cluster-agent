@@ -32,6 +32,10 @@ func GetPodKey(podObj *v1.Pod) string {
 	return GetKey(podObj.Namespace, podObj.Name)
 }
 
+func GetContainerKey(podObj *m.PodSchema, c *m.ContainerSchema) string {
+	return fmt.Sprintf("%s_%s_%s", podObj.Namespace, podObj.Name, c.Name)
+}
+
 func GetKey(namespace, podName string) string {
 	return fmt.Sprintf("%s/%s", namespace, podName)
 }

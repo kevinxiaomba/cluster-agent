@@ -282,7 +282,7 @@ func (pw *DaemonWorker) processObject(d *appsv1.DaemonSet, old *appsv1.DaemonSet
 	DaemonObject := m.NewDeployObj()
 	DaemonObject.Name = d.Name
 	DaemonObject.Namespace = d.Namespace
-	DaemonObject.DeploymentType = "ds"
+	DaemonObject.DeploymentType = m.DEPLOYMENT_TYPE_DS
 
 	if d.ClusterName != "" {
 		DaemonObject.ClusterName = d.ClusterName

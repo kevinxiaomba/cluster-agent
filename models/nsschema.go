@@ -20,6 +20,11 @@ type NsSchemaDef struct {
 	Quotas      string `json:"quotas"`
 }
 
+func (sd NsSchemaDef) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(sd)
+	return &objMap
+}
+
 func (sd NsSchemaDefWrapper) Unwrap() *map[string]interface{} {
 	objMap := structs.Map(sd)
 	return &objMap

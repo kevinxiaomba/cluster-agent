@@ -169,7 +169,7 @@ func (aw *AdqlSearchWorker) getQueryMap() map[string]m.AdqlSearch {
 		BASE_PATH + "MissingDependencies": m.AdqlSearch{SchemaDef: m.ContainerSchemaDef{}, SearchName: fmt.Sprintf("%s. MissingDependencies", aw.Bag.AppName), SchemaName: aw.Bag.ContainerSchemaName,
 			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and (missingConfigs != '' OR missingSecrets != '') ", aw.Bag.ContainerSchemaName, aw.Bag.AppName)},
 		BASE_PATH + "NoConnectivity": m.AdqlSearch{SchemaDef: m.ContainerSchemaDef{}, SearchName: fmt.Sprintf("%s. NoConnectivity", aw.Bag.AppName), SchemaName: aw.Bag.ContainerSchemaName,
-			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and missingServices != \"\" ", aw.Bag.ContainerSchemaName, aw.Bag.AppName)},
+			Query: fmt.Sprintf("select * from %s where missingServices != '' AND clusterName = '%s' ", aw.Bag.ContainerSchemaName, aw.Bag.AppName)},
 		BASE_PATH + "PodOverconsume": m.AdqlSearch{SchemaDef: m.ContainerSchemaDef{}, SearchName: fmt.Sprintf("%s. PodOverconsume", aw.Bag.AppName), SchemaName: aw.Bag.ContainerSchemaName,
 			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and (consumptionCpu > %d or consumptionMem > %d)", aw.Bag.ContainerSchemaName, aw.Bag.AppName, aw.Bag.OverconsumptionThreshold, aw.Bag.OverconsumptionThreshold)},
 		BASE_PATH + "UseCpu": m.AdqlSearch{SchemaDef: m.ContainerSchemaDef{}, SearchName: fmt.Sprintf("%s. UseCpu", aw.Bag.AppName), SchemaName: aw.Bag.ContainerSchemaName,
@@ -189,7 +189,17 @@ func (aw *AdqlSearchWorker) getQueryMap() map[string]m.AdqlSearch {
 		BASE_PATH + "OrphanEndpoint": m.AdqlSearch{SchemaDef: m.EpSchemaDef{}, SearchName: fmt.Sprintf("%s. OrphanEndpoint", aw.Bag.AppName), SchemaName: aw.Bag.EpSchemaName,
 			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and isOrphan = true", aw.Bag.EpSchemaName, aw.Bag.AppName)},
 		BASE_PATH + "EPNotReadyCount": m.AdqlSearch{SchemaDef: m.EpSchemaDef{}, SearchName: fmt.Sprintf("%s. EPNotReadyCount", aw.Bag.AppName), SchemaName: aw.Bag.EpSchemaName,
-			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and notReadyIPs != '' ", aw.Bag.EpSchemaName, aw.Bag.AppName)},
+			Query: fmt.Sprintf("select * from %s where notReadyIPs != '' AND clusterName = '%s' ", aw.Bag.EpSchemaName, aw.Bag.AppName)},
+		BASE_PATH + "DeployCount": m.AdqlSearch{SchemaDef: m.DeploySchemaDef{}, SearchName: fmt.Sprintf("%s. DeployCount", aw.Bag.AppName), SchemaName: aw.Bag.DeploySchemaName,
+			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and deploymentType = '%s' ORDER by namespace, name", aw.Bag.DeploySchemaName, aw.Bag.AppName, m.DEPLOYMENT_TYPE_DEPLOYMENT)},
+		BASE_PATH + "RsCount": m.AdqlSearch{SchemaDef: m.DeploySchemaDef{}, SearchName: fmt.Sprintf("%s. RsCount", aw.Bag.AppName), SchemaName: aw.Bag.DeploySchemaName,
+			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and deploymentType = '%s' ORDER by namespace, name", aw.Bag.DeploySchemaName, aw.Bag.AppName, m.DEPLOYMENT_TYPE_RS)},
+		BASE_PATH + "DaemonCount": m.AdqlSearch{SchemaDef: m.DeploySchemaDef{}, SearchName: fmt.Sprintf("%s. DaemonCount", aw.Bag.AppName), SchemaName: aw.Bag.DeploySchemaName,
+			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and deploymentType = '%s' ORDER by namespace, name", aw.Bag.DeploySchemaName, aw.Bag.AppName, m.DEPLOYMENT_TYPE_DS)},
+		BASE_PATH + "NamespaceNoQuotas": m.AdqlSearch{SchemaDef: m.NsSchemaDef{}, SearchName: fmt.Sprintf("%s. NamespaceNoQuotas", aw.Bag.AppName), SchemaName: aw.Bag.NsSchemaName,
+			Query: fmt.Sprintf("select * from %s where clusterName = '%s' and quotas = 0 ORDER by name", aw.Bag.NsSchemaName, aw.Bag.AppName)},
+		BASE_PATH + "NamespaceCount": m.AdqlSearch{SchemaDef: m.NsSchemaDef{}, SearchName: fmt.Sprintf("%s. NamespaceCount", aw.Bag.AppName), SchemaName: aw.Bag.NsSchemaName,
+			Query: fmt.Sprintf("select * from %s where clusterName = '%s' ORDER by name", aw.Bag.NsSchemaName, aw.Bag.AppName)},
 	}
 
 	return queryMap

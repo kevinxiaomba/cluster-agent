@@ -90,7 +90,8 @@ func (nw *JobsWorker) onNewJob(obj interface{}) {
 		return
 	}
 	nw.Logger.Debugf("Added Job: %s\n", jobObj.Name)
-
+	jobSchema := nw.processObject(jobObj)
+	nw.WQ.Add(&jobSchema)
 }
 
 func (nw *JobsWorker) onDeleteJob(obj interface{}) {
@@ -99,6 +100,8 @@ func (nw *JobsWorker) onDeleteJob(obj interface{}) {
 		return
 	}
 	nw.Logger.Debugf("Deleted Job: %s\n", jobObj.Name)
+	jobSchema := nw.processObject(jobObj)
+	nw.WQ.Add(&jobSchema)
 }
 
 func (nw *JobsWorker) onUpdateJob(objOld interface{}, objNew interface{}) {
@@ -107,6 +110,8 @@ func (nw *JobsWorker) onUpdateJob(objOld interface{}, objNew interface{}) {
 		return
 	}
 	nw.Logger.Debugf("Updated Job: %s\n", jobObj.Name)
+	jobSchema := nw.processObject(jobObj)
+	nw.WQ.Add(&jobSchema)
 }
 
 func (pw JobsWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {

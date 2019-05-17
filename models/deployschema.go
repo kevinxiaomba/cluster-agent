@@ -10,6 +10,12 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 )
 
+const (
+	DEPLOYMENT_TYPE_DEPLOYMENT string = "d"
+	DEPLOYMENT_TYPE_RS         string = "rs"
+	DEPLOYMENT_TYPE_DS         string = "ds"
+)
+
 type DeploySchemaDefWrapper struct {
 	Schema DeploySchemaDef `json:"schema"`
 }
@@ -63,6 +69,11 @@ func NewDeploySchemaDef() DeploySchemaDef {
 		NumberScheduled: "integer", DesiredNumber: "integer", MissScheduled: "integer", UpdatedNumberScheduled: "integer",
 		DeploymentType: "string"}
 	return pdsd
+}
+
+func (sd DeploySchemaDef) Unwrap() *map[string]interface{} {
+	objMap := structs.Map(sd)
+	return &objMap
 }
 
 type DeploySchema struct {

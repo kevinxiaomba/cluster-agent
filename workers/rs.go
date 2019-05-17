@@ -286,7 +286,7 @@ func (pw *RsWorker) processObject(d *appsv1.ReplicaSet, old *appsv1.ReplicaSet) 
 	RsObject := m.NewDeployObj()
 	RsObject.Name = d.Name
 	RsObject.Namespace = d.Namespace
-	RsObject.DeploymentType = "rs"
+	RsObject.DeploymentType = m.DEPLOYMENT_TYPE_RS
 
 	if d.ClusterName != "" {
 		RsObject.ClusterName = d.ClusterName
