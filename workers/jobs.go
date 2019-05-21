@@ -196,10 +196,9 @@ func (pw *JobsWorker) processObject(j *batchTypes.Job) m.JobSchema {
 	for k, v := range j.GetAnnotations() {
 		fmt.Fprintf(&sb, "%s:%s;", k, v)
 	}
-	ja := sb.String()
-	if len(ja) >= app.MAX_FIELD_LENGTH {
-		ja = ja[len(ja)-app.MAX_FIELD_LENGTH:]
-	}
+
+	ja := utils.TruncateString(sb.String(), app.MAX_FIELD_LENGTH)
+
 	jobObject.Annotations = ja
 
 	jobObject.Active = j.Status.Active

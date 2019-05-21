@@ -1104,10 +1104,9 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 			}
 		}
 	}
-	ps := sb.String()
-	if len(ps) >= app.MAX_FIELD_LENGTH {
-		ps = ps[len(ps)-app.MAX_FIELD_LENGTH:]
-	}
+
+	ps := utils.TruncateString(sb.String(), app.MAX_FIELD_LENGTH)
+
 	podObject.Annotations = ps
 
 	podObject.HostIP = p.Status.HostIP
@@ -1764,10 +1763,8 @@ func (pw PodWorker) saveLogs(clusterName string, namespace string, podOwner stri
 					m = strings.TrimLeft(l, line[0]+" ")
 				}
 			}
-			if len(m) >= app.MAX_FIELD_LENGTH {
-				m = m[len(m)-app.MAX_FIELD_LENGTH:]
-			}
-			logSchema.Message = m
+
+			logSchema.Message = utils.TruncateString(m, app.MAX_FIELD_LENGTH)
 			logSchema.BatchTimestamp = batchTS
 			objList = append(objList, logSchema)
 		}

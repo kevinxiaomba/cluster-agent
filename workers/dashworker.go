@@ -50,7 +50,7 @@ func (dw *DashboardWorker) ensureClusterDashboard() error {
 		return err
 	}
 	if dashboard == nil {
-		fmt.Printf("Dashaboard %s does not exist. Creating...\n", dashName)
+		fmt.Printf("Dashboard %s does not exist. Creating...\n", dashName)
 		dw.createClusterDashboard(dashName)
 	}
 	return nil
@@ -66,12 +66,12 @@ func (dw *DashboardWorker) createDashboard(dashboard *m.Dashboard) (*m.Dashboard
 	saved, errSave := rc.CallAppDController("restui/dashboards/createDashboard", "POST", data)
 	if errSave != nil {
 
-		return dashObject, fmt.Errorf("Unable to create dashaboard %s. %v\n", dashboard.Name, errSave)
+		return dashObject, fmt.Errorf("Unable to create dashboard %s. %v\n", dashboard.Name, errSave)
 	}
 
 	e := json.Unmarshal(saved, &dashObject)
 	if e != nil {
-		fmt.Printf("Unable to deserialize the new dashaboard %v\n", e)
+		fmt.Printf("Unable to deserialize the new dashboard %v\n", e)
 		return dashObject, e
 	}
 
@@ -87,12 +87,12 @@ func (dw *DashboardWorker) saveDashboard(dashboard *m.Dashboard) (*m.Dashboard, 
 	rc := app.NewRestClient(dw.Bag, dw.Logger)
 	saved, errSave := rc.CallAppDController("restui/dashboards/updateDashboard", "POST", data)
 	if errSave != nil {
-		return nil, fmt.Errorf("Unable to save dashaboard %s. %v\n", dashboard.Name, errSave)
+		return nil, fmt.Errorf("Unable to save dashboard %s. %v\n", dashboard.Name, errSave)
 	}
 
 	e := json.Unmarshal(saved, &dashObject)
 	if e != nil {
-		fmt.Printf("Unable to deserialize the saved dashaboard %v\n", e)
+		fmt.Printf("Unable to deserialize the saved dashboard %v\n", e)
 		return nil, e
 	}
 
@@ -120,13 +120,13 @@ func (dw *DashboardWorker) loadDashboardByID(id float64) (*m.Dashboard, error) {
 	rc := app.NewRestClient(dw.Bag, dw.Logger)
 	data, err := rc.CallAppDController(fmt.Sprintf("restui/dashboards/dashboardIfUpdated/%.0f/-1", id), "GET", nil)
 	if err != nil {
-		fmt.Printf("Unable to get the dashaboard by id %.0f. %v\n", id, err)
+		fmt.Printf("Unable to get the dashboard by id %.0f. %v\n", id, err)
 		return nil, err
 	}
 
 	e := json.Unmarshal(data, &theDash)
 	if e != nil {
-		fmt.Printf("Unable to deserialize the dashaboards. %v\n", e)
+		fmt.Printf("Unable to deserialize the dashboards. %v\n", e)
 		return nil, e
 	}
 
@@ -140,19 +140,19 @@ func (dw *DashboardWorker) loadDashboard(dashName string) (*m.Dashboard, error) 
 	rc := app.NewRestClient(dw.Bag, dw.Logger)
 	data, err := rc.CallAppDController("restui/dashboards/getAllDashboardsByType/false", "GET", nil)
 	if err != nil {
-		fmt.Printf("Unable to get the list of dashaboard. %v\n", err)
+		fmt.Printf("Unable to get the list of dashboard. %v\n", err)
 		return theDash, err
 	}
 	var list []m.Dashboard
 	e := json.Unmarshal(data, &list)
 	if e != nil {
-		fmt.Printf("Unable to deserialize the list of dashaboards. %v\n", e)
+		fmt.Printf("Unable to deserialize the list of dashboards. %v\n", e)
 		return theDash, e
 	}
 
 	for _, d := range list {
 		if d.Name == dashName {
-			fmt.Printf("Dashaboard %s exists.\n", dashName)
+			fmt.Printf("Dashboard %s exists.\n", dashName)
 			theDash = &d
 			break
 		}
@@ -252,16 +252,16 @@ func (dw *DashboardWorker) createDashboardFromFile(dashboard *m.Dashboard, genPa
 	var raw map[string]interface{}
 	e := json.Unmarshal(data, &raw)
 	if e != nil {
-		return nil, fmt.Errorf("Unable to create dashaboard. Unable to deserialize the new dashaboards. %v\n", err)
+		return nil, fmt.Errorf("Unable to create dashboard. Unable to deserialize the new dashboards. %v\n", err)
 	}
 	bytes, errM := json.Marshal(raw)
 	if errM != nil {
-		return nil, fmt.Errorf("Unable to extract dashaboard node. %v\n", errM)
+		return nil, fmt.Errorf("Unable to extract dashboard node. %v\n", errM)
 	}
 	var dashObj m.Dashboard
 	eD := json.Unmarshal(bytes, &dashObj)
 	if eD != nil {
-		return nil, fmt.Errorf("Unable to create dashaboard. Unable to deserialize the new dashaboards. %v\n", eD)
+		return nil, fmt.Errorf("Unable to create dashboard. Unable to deserialize the new dashboards. %v\n", eD)
 	}
 
 	dw.Logger.Debugf("Dashboard saved %.0f %s\n", dashObj.ID, dashObj.Name)

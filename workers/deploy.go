@@ -307,20 +307,17 @@ func (pw *DeployWorker) processObject(d *appsv1.Deployment, old *appsv1.Deployme
 	for k, l := range d.Labels {
 		fmt.Fprintf(&sb, "%s:%s;", k, l)
 	}
-	ls := sb.String()
-	if len(ls) >= app.MAX_FIELD_LENGTH {
-		ls = ls[len(ls)-app.MAX_FIELD_LENGTH:]
-	}
+
+	ls := utils.TruncateString(sb.String(), app.MAX_FIELD_LENGTH)
+
 	deployObject.Labels = ls
 	sb.Reset()
 
 	for k, l := range d.Annotations {
 		fmt.Fprintf(&sb, "%s:%s;", k, l)
 	}
-	as := sb.String()
-	if len(as) >= app.MAX_FIELD_LENGTH {
-		as = ls[len(as)-app.MAX_FIELD_LENGTH:]
-	}
+
+	as := utils.TruncateString(sb.String(), app.MAX_FIELD_LENGTH)
 
 	deployObject.Annotations = as
 	sb.Reset()

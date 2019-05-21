@@ -168,3 +168,12 @@ func SplitUrl(url string) (string, string, int, error) {
 	}
 
 }
+
+func TruncateString(str string, maxLength int) string {
+	result := str
+	if len(str) > maxLength {
+		diff := len(str) - maxLength
+		result = str[0:diff]
+	}
+	return result
+}
