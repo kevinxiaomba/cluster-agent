@@ -102,31 +102,7 @@ func (c *MainController) ValidateParameters() error {
 		return fmt.Errorf("Rest API user account is required. Create a user account in AppD and add it to the cluster-agent-secret (key api-user) in this form <user>@<account>:<pass>")
 	}
 	if bag.AccessKey == "" || bag.Account == "" || bag.GlobalAccount == "" {
-
-		path := "restui/user/account"
-
-		c.Logger.Info("Loading account info...")
-
-		rc := app.NewRestClient(bag, c.Logger)
-		data, err := rc.CallAppDController(path, "GET", nil)
-		if err != nil {
-			return fmt.Errorf("Unable to get the AppDynamics account information. %v", err)
-		}
-		var accountObj map[string]interface{}
-		errJson := json.Unmarshal(data, &accountObj)
-		if errJson != nil {
-			return fmt.Errorf("Unable to deserialize AppDynamics account object. %v", errJson)
-		}
-		for k, v := range accountObj {
-			if k == "account" {
-				obj := v.(map[string]interface{})
-				bag.AccessKey = obj["accessKey"].(string)
-				bag.Account = obj["name"].(string)
-				bag.GlobalAccount = obj["globalAccountName"].(string)
-				break
-			}
-		}
-		c.Logger.Info("Account info loaded...")
+		app.ValidateAccount(bag, c.Logger)
 	}
 	if bag.EventKey == "" {
 		c.Logger.Printf("Event API key not specified. Trying to obtain an existing key...\n")
@@ -158,7 +134,7 @@ func (c *MainController) ValidateParameters() error {
 	c.Logger.WithFields(log.Fields{"accessKey": bag.AccessKey, "global account": bag.GlobalAccount}).Debug("Account info")
 	appdC, errInitSdk := app.NewControllerClient(c.ConfManager, c.Logger)
 	if errInitSdk != nil {
-		return fmt.Errorf("Unable to initialize AppDynamics Golang SDK. Metrics collection will not be possible")
+		return fmt.Errorf("Unable to initialize AppDynamics Golang SDK. %v. Metrics collection will not be possible", errInitSdk)
 	}
 	c.AppdController = appdC
 	return nil

@@ -26,7 +26,7 @@ type RestClient struct {
 }
 
 const (
-	MAX_FIELD_LENGTH int = 4000
+	MAX_FIELD_LENGTH int = 3000
 )
 
 func NewRestClient(bag *m.AppDBag, logger *log.Logger) *RestClient {
@@ -514,4 +514,56 @@ func (rc *RestClient) GetControllerVersion() ([]byte, error) {
 	}
 
 	return b, nil
+}
+
+func (rc *RestClient) validateLicense(accountID int) (bool, error) {
+	licenseExists := false
+	url := fmt.Sprintf("%sapi/accounts/%d/licensemodules", rc.getControllerUrl(), accountID)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return false, fmt.Errorf("Unable to get license information for account %d. %v\n", accountID, err)
+	}
+	ar := strings.Split(rc.Bag.RestAPICred, ":")
+	if len(ar) != 2 {
+		return false, fmt.Errorf("Rest API credentials are formatted incorrectly. Must be <username>@<account>:<password>")
+	}
+
+	req.SetBasicAuth(ar[0], ar[1])
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		rc.logger.Errorf("Failed to get license information for account %d. %v", accountID, err)
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	rc.logger.Debugf("Call validateLicense. Response Status: %s", resp.Status)
+	data, _ := ioutil.ReadAll(resp.Body)
+
+	if resp.StatusCode < 200 || resp.StatusCode > 202 {
+		return false, fmt.Errorf("Controller request failed with status %s.", resp.Status)
+	}
+
+	var licObj map[string]interface{}
+	errJson := json.Unmarshal(data, &licObj)
+	if errJson != nil {
+		return false, fmt.Errorf("Unable to deserialize licensing data. %v", errJson)
+	}
+	for k, v := range licObj {
+		if k == "modules" {
+			mList := v.([]interface{})
+			for _, mod := range mList {
+				modObj := mod.(map[string]interface{})
+				rc.logger.Debugf("Module name: %s\n", modObj["name"])
+				if modObj["name"] == "golang-sdk" {
+					licenseExists = true
+					break
+				}
+			}
+			break
+		}
+	}
+
+	return licenseExists, nil
 }

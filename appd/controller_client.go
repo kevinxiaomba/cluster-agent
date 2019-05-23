@@ -65,7 +65,10 @@ func NewControllerClient(cm *config.MutexConfigManager, logger *log.Logger) (*Co
 
 	controller := ControllerClient{ConfManager: cm, logger: logger, regMetrics: make(map[string]bool), MetricsCache: make(map[string]float64)}
 
-	controller.GetControllerStatus(bag)
+	compatErr := controller.GetControllerStatus(bag)
+	if compatErr != nil {
+		return nil, compatErr
+	}
 
 	appID, tierID, nodeID, errAppd := controller.DetermineNodeID(bag.AppName, bag.TierName, bag.NodeName)
 	if errAppd != nil {
@@ -457,6 +460,55 @@ func (c *ControllerClient) GetControllerStatus(bag *m.AppDBag) error {
 		bag.ControllerVer4, _ = strconv.Atoi(numAr[3])
 	}
 
+	if bag.ControllerVer1 < 4 ||
+		(bag.ControllerVer1 >= 4 && bag.ControllerVer2 < 5) ||
+		(bag.ControllerVer1 == 4 && bag.ControllerVer2 == 5 && bag.ControllerVer3 < 5) {
+		return fmt.Errorf("AppDynamics controller version %s is incompatible. 4.5.5+ is required", bag.PrintControllerVersion())
+	}
+
 	return nil
 
+}
+
+func ValidateAccount(bag *m.AppDBag, logger *log.Logger) error {
+	path := "restui/user/account"
+
+	logger.Info("Loading account info...")
+
+	rc := NewRestClient(bag, logger)
+	data, err := rc.CallAppDController(path, "GET", nil)
+	if err != nil {
+		return fmt.Errorf("Unable to get the AppDynamics account information. %v", err)
+	}
+	var accountObj map[string]interface{}
+	errJson := json.Unmarshal(data, &accountObj)
+	if errJson != nil {
+		return fmt.Errorf("Unable to deserialize AppDynamics account object. %v", errJson)
+	}
+	accountID := 0
+	for k, v := range accountObj {
+		if k == "account" {
+			obj := v.(map[string]interface{})
+			accountID = int(obj["id"].(float64))
+			bag.AccessKey = obj["accessKey"].(string)
+			bag.Account = obj["name"].(string)
+			bag.GlobalAccount = obj["globalAccountName"].(string)
+			break
+		}
+	}
+	if accountID > 0 {
+		logger.Info("Account info loaded. Validating access...")
+		valid, licErr := rc.validateLicense(accountID)
+		if licErr != nil {
+			return fmt.Errorf("Unable to get license information for the AppDynamics account. %v", licErr)
+		}
+		if !valid {
+			return fmt.Errorf("AppDynamics account does not have the required Golang license")
+		}
+		logger.Info("Golang license validated...")
+
+	} else {
+		return fmt.Errorf("Failed to get the AppDynamics account information. Invalid response from server")
+	}
+	return nil
 }

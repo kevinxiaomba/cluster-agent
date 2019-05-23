@@ -29,7 +29,7 @@ The ClusterAgent can be configured to auto instrument Java and .Net Core workloa
 `kubectl create -f metrics-server/`
 * [An AppDynamics user account](https://github.com/Appdynamics/cluster-agent/blob/master/docs/rest-user-role.md) must be setup for the ClusterAgent to communicate to the AppDynamics controller via REST API.
 * Access to AppDynamics Controller 4.5.5+
-* At least 1 APM license (Golang). AppDynamics offers a [free trial](https://www.appdynamics.com/free-trial/)
+* At least 1 APM license (Golang) and 1 Analytics license. AppDynamics offers a [free trial](https://www.appdynamics.com/free-trial/)
 
 ## How to deploy
 
@@ -89,4 +89,7 @@ To build your own image, use the provided ./build.sh script:
 ## Configuration properties
 
 The ClusterAgent behavior is driven by configuration settings. Refer to the [list of configuration settings](https://github.com/Appdynamics/cluster-agent/blob/master/docs/configs.md) for details
+
+## Support
+Support is provided by the author. Please post your inquiries and bug reports in the [Issues](https://github.com/Appdynamics/cluster-agent/issues) area. To expedite issue resolution, please include the first 30 lines of logs with the ClusterAgent version and AppDynamics controller version, along with the log of the actual error. 
 
