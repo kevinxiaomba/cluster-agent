@@ -43,6 +43,8 @@ type ClusterPodMetrics struct {
 	LimitMemory         int64
 	UseCpu              int64
 	UseMemory           int64
+	ConsumptionCpu      int64
+	ConsumptionMem      int64
 	MissingDependencies int64
 	NoConnectivity      int64
 	QuotasSpec          RQFields
@@ -93,7 +95,7 @@ func NewClusterPodMetrics(bag *AppDBag, ns string, node string) ClusterPodMetric
 		NoLimits: 0, NoReadinessProbe: 0, NoLivenessProbe: 0, Privileged: 0, RequestCpu: 0, RequestMemory: 0, LimitCpu: 0, LimitMemory: 0,
 		UseCpu: 0, UseMemory: 0, PodStorageRequest: 0, PodStorageLimit: 0, StorageRequest: 0, StorageCapacity: 0, NamespaceCount: 0,
 		NamespaceNoQuotas: 0, ServiceCount: 0, EndpointCount: 0, OrphanEndpoint: 0, EPReadyCount: 0, EPNotReadyCount: 0,
-		ExtServiceCount: 0, MissingDependencies: 0, NoConnectivity: 0, QuotasSpec: NewRQFields(), QuotasUsed: NewRQFields(), Path: p}
+		ExtServiceCount: 0, MissingDependencies: 0, NoConnectivity: 0, ConsumptionCpu: 0, ConsumptionMem: 0, QuotasSpec: NewRQFields(), QuotasUsed: NewRQFields(), Path: p}
 }
 
 func NewClusterPodMetricsMetadata(bag *AppDBag, ns string, node string) ClusterPodMetrics {

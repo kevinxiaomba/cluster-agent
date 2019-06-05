@@ -876,15 +876,15 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 	}
 
 	//Pending phase duration
-	summary.PendingTime += podObject.PendingTime / summary.PodCount
-	summaryNS.PendingTime += podObject.PendingTime / summaryNS.PodCount
-	summaryNode.PendingTime += podObject.PendingTime / summaryNode.PodCount
-	summaryApp.PendingTime += podObject.PendingTime / summaryApp.PodCount
+	summary.PendingTime = (summary.PendingTime + podObject.PendingTime) / summary.PodCount
+	summaryNS.PendingTime = (summaryNS.PendingTime + podObject.PendingTime) / summaryNS.PodCount
+	summaryNode.PendingTime = (summaryNode.PendingTime + podObject.PendingTime) / summaryNode.PodCount
+	summaryApp.PendingTime = (summaryApp.PendingTime + podObject.PendingTime) / summaryApp.PodCount
 
-	summary.UpTime += podObject.UpTimeMillis / summary.PodCount
-	summaryNS.UpTime += podObject.UpTimeMillis / summaryNS.PodCount
-	summaryNode.UpTime += podObject.UpTimeMillis / summaryNode.PodCount
-	summaryApp.UpTime += podObject.UpTimeMillis / summaryApp.PodCount
+	summary.UpTime = (summary.UpTime + podObject.UpTimeMillis) / summary.PodCount
+	summaryNS.UpTime = (summaryNS.UpTime + podObject.UpTimeMillis) / summaryNS.PodCount
+	summaryNode.UpTime = (summaryNode.UpTime + podObject.UpTimeMillis) / summaryNode.PodCount
+	summaryApp.UpTime = (summaryApp.UpTime + podObject.UpTimeMillis) / summaryApp.PodCount
 
 	summary.PodRestarts += int64(podObject.PodRestarts)
 	summaryNS.PodRestarts += int64(podObject.PodRestarts)
@@ -899,6 +899,17 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 
 	summaryApp.UseCpu += podObject.CpuUse
 	summaryApp.UseMemory += podObject.MemUse
+
+	//consumption
+	summary.ConsumptionCpu = (summary.ConsumptionCpu + int64(podObject.ConsumptionCpu)) / summary.PodCount
+	summaryNS.ConsumptionCpu = (summaryNS.ConsumptionCpu + int64(podObject.ConsumptionCpu)) / summaryNS.PodCount
+	summaryNode.ConsumptionCpu = (summaryNode.ConsumptionCpu + int64(podObject.ConsumptionCpu)) / summaryNode.PodCount
+	summaryApp.ConsumptionCpu = (summaryApp.ConsumptionCpu + int64(podObject.ConsumptionCpu)) / summaryApp.PodCount
+
+	summary.ConsumptionMem = (summary.ConsumptionMem + int64(podObject.ConsumptionMem)) / summary.PodCount
+	summaryNS.ConsumptionMem = (summaryNS.ConsumptionMem + int64(podObject.ConsumptionMem)) / summaryNS.PodCount
+	summaryNode.ConsumptionMem = (summaryNode.ConsumptionMem + int64(podObject.ConsumptionMem)) / summaryNode.PodCount
+	summaryApp.ConsumptionMem = (summaryApp.ConsumptionMem + int64(podObject.ConsumptionMem)) / summaryApp.PodCount
 
 	//app summary for containers
 	if !podObject.IsEvicted {
@@ -1377,13 +1388,25 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 				podObject.MemUse = usageObj.Memory
 
 				for cname, c := range podObject.Containers {
+					pw.Logger.WithField("Name", cname).Debug("Processing container metrics:")
 					contUsageObj := podMetricsObj.GetContainerUsage(cname)
 					c.CpuUse = contUsageObj.CPU
 					c.MemUse = contUsageObj.Memory
+					pw.Logger.WithField("CPU", c.CpuUse).Debug("CPU usage")
+					pw.Logger.WithField("Mem", c.MemUse).Debug("Mem usage")
 					c.ConsumptionCpu, c.ConsumptionCpuString = pw.GetCpuConsumption(&podObject, &c)
 					c.ConsumptionMem, c.ConsumptionMemString = pw.GetMemConsumption(&podObject, &c)
+					fmt.Printf("ConsumptionMem: %v\n", c.ConsumptionMem)
 					pw.Logger.WithField("Percent", c.ConsumptionCpu).Debug("Cpu consumption")
 					pw.Logger.WithField("Percent", c.ConsumptionMem).Debug("Memory consumption")
+					if podObject.ConsumptionCpu < c.ConsumptionCpu {
+						podObject.ConsumptionCpu = c.ConsumptionCpu
+					}
+
+					if podObject.ConsumptionMem < c.ConsumptionMem {
+						podObject.ConsumptionMem = c.ConsumptionMem
+					}
+
 					podObject.Containers[cname] = c
 					key := utils.GetContainerKey(&podObject, &c)
 					lastSnapshot, ok := pw.ContainerCache[key]
@@ -2103,7 +2126,7 @@ func (pw *PodWorker) GetMemConsumption(podSchema *m.PodSchema, containerSchema *
 		if containerSchema.MemRequest > 0 {
 			pw.Logger.WithFields(log.Fields{"Pod": podSchema.Name, "MemUsed": containerSchema.MemUse, "MemRequest": containerSchema.MemRequest}).Debug("Mem Consumption check")
 			return float64(containerSchema.MemUse) / float64(containerSchema.MemRequest) * float64(100), containerSchema.RequestMemString
-		} else if podSchema.MemLimit > 0 {
+		} else if containerSchema.MemLimit > 0 {
 			return float64(containerSchema.MemUse) / float64(containerSchema.MemLimit) * float64(100), containerSchema.LimitMemString
 		} else if pw.NodesMonitor != nil {
 			nodeInfo := pw.NodesMonitor.GetNodeData(podSchema.NodeName)

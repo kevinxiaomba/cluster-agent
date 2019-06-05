@@ -164,6 +164,8 @@ type PodSchema struct {
 	BreakPointMillis              int64                      `json:"-"` //time when a container exited
 	MissingDependencies           bool                       `json:"-"`
 	NoConnectivity                bool                       `json:"-"`
+	ConsumptionCpu                float64                    `json:"-"`
+	ConsumptionMem                float64                    `json:"-"`
 }
 
 type PodObjList struct {
@@ -183,7 +185,7 @@ func NewPodObjList() PodObjList {
 }
 
 func NewPodObj() PodSchema {
-	return PodSchema{PendingTime: 0, UpTimeMillis: 0, RunningStartTimeMillis: 0, TerminationTimeMillis: 0, Services: []ServiceSchema{}, Endpoints: []v1.Endpoints{}}
+	return PodSchema{PendingTime: 0, UpTimeMillis: 0, RunningStartTimeMillis: 0, TerminationTimeMillis: 0, ConsumptionCpu: 0, ConsumptionMem: 0, Services: []ServiceSchema{}, Endpoints: []v1.Endpoints{}}
 }
 
 func (p PodSchema) ToString() string {

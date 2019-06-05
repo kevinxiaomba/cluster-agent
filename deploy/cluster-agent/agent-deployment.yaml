@@ -98,6 +98,7 @@ apiVersion: extensions/v1beta1
 kind: Deployment
 metadata: 
   name: appd-cluster-agent
+  namespace: appdynamics
 spec: 
   replicas: 1
   template: 

@@ -165,6 +165,10 @@ func (pw *JobsWorker) buildAppDMetrics() {
 		pw.summarize(&jobSchema)
 		count++
 	}
+	if count == 0 {
+		bag := (*pw.ConfigManager).Get()
+		pw.SummaryMap[m.ALL] = m.NewClusterJobMetrics(bag, m.ALL, m.ALL)
+	}
 
 	ml := pw.builAppDMetricsList()
 
