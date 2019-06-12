@@ -26,13 +26,13 @@ RUN yum install -y bash && \
     rm -rf /var/cache/yum
 
 COPY --from=builder /usr/local/go/src/github.com/appdynamics/cluster-agent/cluster-agent /opt/appdynamics/cluster-agent
+COPY --from=builder /usr/local/go/src/github.com/appdynamics/cluster-agent/build/systemSSL.crt /opt/appdynamics/ssl/systemSSL.crt
 COPY --from=builder /usr/local/go/src/github.com/appdynamics/cluster-agent/templates/*.json /opt/appdynamics/templates/
 COPY --from=builder /usr/local/go/src/github.com/appdynamics/cluster-agent/vendor/appdynamics/lib/libappdynamics.so /opt/appdynamics/lib/libappdynamics.so
 
 COPY --from=builder /usr/local/go/src/github.com/appdynamics/cluster-agent/LICENSE /licenses/
 
 RUN mkdir -p /opt/appdynamics/templates/deploy
-RUN mkdir -p /opt/appdynamics/ssl
 
 ENV LD_LIBRARY_PATH  /opt/appdynamics/lib/
 

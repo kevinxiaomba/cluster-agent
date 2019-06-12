@@ -496,7 +496,7 @@ func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tier
 
 	//BIQ instrumentation. If Analytics agent is remote, provide the url when attaching
 	ai.Logger.Infof("BiQ deployment option is %s.", biQDeploymentOption)
-	if biQDeploymentOption != m.Sidecar {
+	if agentRequest.IsBiQRemote() {
 		ai.Logger.Debugf("Will add remote url %s\n", ai.Bag.AnalyticsAgentUrl)
 		if ai.Bag.AnalyticsAgentUrl != "" {
 			cmd = fmt.Sprintf("%s,appdynamics.analytics.agent.url=%s/v2/sinks/bt", cmd, ai.Bag.AnalyticsAgentUrl)
@@ -602,7 +602,7 @@ func (ai AgentInjector) Associate(podObj *v1.Pod, exec *Executor, agentRequest *
 	if appID > 0 && agentRequest.BiQRequested() {
 		analyticsErr := ai.AppdController.EnableAppAnalytics(appID, agentRequest.AppName)
 		if analyticsErr != nil {
-			ai.Logger.Errorf("Unable to enable analytics for application %s. %v\n", agentRequest.AppName, analyticsErr)
+			ai.Logger.Errorf("Unable to turn analytics on for application %s. %v\n", agentRequest.AppName, analyticsErr)
 		}
 	}
 	_, updateErr := ai.ClientSet.CoreV1().Pods(podObj.Namespace).Update(podObj)

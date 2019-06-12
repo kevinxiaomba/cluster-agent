@@ -39,14 +39,12 @@ func NewControllerClient(cm *config.MutexConfigManager, logger *log.Logger) (*Co
 	cfg.Controller.Port = bag.ControllerPort
 	cfg.Controller.UseSSL = bag.SSLEnabled
 	if bag.SSLEnabled {
-		err := writeSSLFromEnv(bag, logger)
-		if err != nil {
-			logger.Errorf("Unable to set SSL certificates. Using system certs %s", bag.SystemSSLCert)
-			cfg.Controller.CertificateFile = bag.SystemSSLCert
-
-		} else {
-			logger.Errorf("Setting agent certs to %s", bag.AgentSSLCert)
+		if bag.AgentSSLCert != "" {
+			logger.Infof("Setting custom agent cert:  %s", bag.AgentSSLCert)
 			cfg.Controller.CertificateFile = bag.AgentSSLCert
+		} else {
+			logger.Infof("Using default system cert: %s", bag.SystemSSLCert)
+			cfg.Controller.CertificateFile = bag.SystemSSLCert
 		}
 	}
 	cfg.Controller.Account = bag.Account

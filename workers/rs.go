@@ -234,6 +234,11 @@ func (pw *RsWorker) buildAppDMetrics() {
 		count++
 	}
 
+	if count == 0 {
+		bag := (*pw.ConfigManager).Get()
+		pw.SummaryMap[m.ALL] = m.NewClusterRsMetrics(bag, m.ALL)
+	}
+
 	ml := pw.builAppDMetricsList()
 
 	pw.Logger.Infof("Ready to push %d ReplicaSet metrics\n", len(ml.Items))

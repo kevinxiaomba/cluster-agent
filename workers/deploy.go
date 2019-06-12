@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"k8s.io/apimachinery/pkg/util/intstr"
+
 	log "github.com/sirupsen/logrus"
 
 	app "github.com/appdynamics/cluster-agent/appd"
@@ -116,6 +118,9 @@ func (dw *DeployWorker) onDeleteDeployment(obj interface{}) {
 		return
 	}
 	dw.Logger.Debugf("Deleted Deployment: %s\n", deployObj.Name)
+	//clean caches
+	utils.RemoveFromSlice(utils.GetDeployKey(deployObj), dw.PendingCache)
+	delete(dw.FailedCache, utils.GetDeployKey(deployObj))
 }
 
 func (dw *DeployWorker) onUpdateDeployment(objOld interface{}, objNew interface{}) {
@@ -465,6 +470,32 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 				result.Annotations = make(map[string]string)
 			}
 			result.Annotations[instr.DEPLOY_BIQ_ANNOTATION] = time.Now().String()
+		} else { //remote Biq
+			if agentRequests.BiQRequested() {
+				//ensure external name service in the namespace
+				svcClient := dw.Client.CoreV1().Services(deployObj.Namespace)
+				proxySvc, svcErr := svcClient.Get("analytics-proxy", metav1.GetOptions{})
+				if svcErr != nil {
+					if errors.IsNotFound(svcErr) {
+						//create
+						proxySvc.Name = "analytics-proxy"
+						proxySvc.Namespace = deployObj.Namespace
+						proxySvc.Spec.Type = "ExternalName"
+						extName := agentRequests.GetFirstRequest().BiQ
+						if !strings.Contains(extName, "svc.cluster.local") {
+							extName = fmt.Sprintf("appd-infraviz.%s.svc.cluster.local", bag.AgentNamespace)
+						}
+						proxySvc.Spec.ExternalName = extName
+						proxySvc.Spec.Ports = []v1.ServicePort{{Port: 9090, TargetPort: intstr.FromInt(9090)}}
+						_, createErr := svcClient.Create(proxySvc)
+						if createErr != nil {
+							dw.Logger.Warn("Unable to create analytics-proxy service. The analytics transaction collection will not be possible")
+						}
+					} else {
+						dw.Logger.Warn("Could not ensure that analytics-proxy service exists. The analytics transaction collection may not be possible")
+					}
+				}
+			}
 		}
 
 		_, err := deploymentsClient.Update(result)

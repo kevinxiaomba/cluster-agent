@@ -77,11 +77,12 @@ func (c *MainController) ValidateParameters() error {
 	//build rest api url
 	restApiUrl := bag.ControllerUrl
 	if bag.SSLEnabled {
-		restApiUrl = fmt.Sprintf("https://%s/controller/", restApiUrl)
+		restApiUrl = fmt.Sprintf("https://%s:%d/controller/", restApiUrl, bag.ControllerPort)
 	} else {
 		restApiUrl = fmt.Sprintf("http://%s:%d/controller/", restApiUrl, bag.ControllerPort)
 	}
 	bag.RestAPIUrl = restApiUrl
+	c.Logger.Debugf("RestAPI Url: %s", bag.RestAPIUrl)
 
 	//events API url
 	if bag.EventServiceUrl == "" {

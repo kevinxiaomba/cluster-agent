@@ -232,6 +232,11 @@ func (pw *DaemonWorker) buildAppDMetrics() {
 		count++
 	}
 
+	if count == 0 {
+		bag := (*pw.ConfigManager).Get()
+		pw.SummaryMap[m.ALL] = m.NewClusterDaemonMetrics(bag, m.ALL)
+	}
+
 	ml := pw.builAppDMetricsList()
 
 	pw.Logger.Infof("Ready to push %d Daemonset metrics\n", len(ml.Items))

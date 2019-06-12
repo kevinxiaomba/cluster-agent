@@ -167,7 +167,7 @@ func (pw *ServiceWatcher) UpdateServiceCache() {
 
 func (pw *ServiceWatcher) findExternalService(headlessName string) (*m.ServiceSchema, string) {
 	lockServices.RLock()
-	defer lockServices.RLock()
+	defer lockServices.RUnlock()
 	for kk, svcObj := range pw.SvcCache {
 		path := fmt.Sprintf("%s.%s", svcObj.Name, svcObj.Namespace)
 		if strings.Contains(headlessName, path) {
