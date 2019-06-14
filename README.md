@@ -5,11 +5,11 @@ AppDynamics ClusterAgent is an application for monitoring workloads on Kubernete
 The ClusterAgent has 2 purposes.
  
  * It collects metrics and state of Kubernetes resources and reports them to the AppDynamics controller.
- * It instruments AppDynamics application agents into workloads deployed to the Kuberenetes cluster.
+ * It instruments AppDynamics application agents into workloads deployed to the Kubernetes cluster.
 
 
 ## Cluster monitoring
-The ClusterAgent monitors state of Kuberenetes resources and derives metrics to provide visibility into common application impacting issues. The metrics are displayed in the cluster overview dashboard and the snapshot data is stored in AppDynamics analytics engine for drill-downs and further analysis.
+The ClusterAgent monitors state of Kubernetes resources and derives metrics to provide visibility into common application impacting issues. The metrics are displayed in the cluster overview dashboard and the snapshot data is stored in AppDynamics analytics engine for drill-downs and further analysis.
 
 ![Cluster Overview Dashboard](https://github.com/Appdynamics/cluster-agent/blob/master/docs/assets/cluster-dashboard.png)
 
@@ -25,7 +25,7 @@ The ClusterAgent can be configured to auto instrument Java and .Net Core workloa
 
 ## Prerequisites
 
-* [Kuberenetes Metrics server](https://github.com/kubernetes-incubator/metrics-server) enables collection of resource utilization metrics. If it is not already deployed to the cluster, run the following command:
+* [Kubernetes Metrics server](https://github.com/kubernetes-incubator/metrics-server) enables collection of resource utilization metrics. If it is not already deployed to the cluster, run the following command:
 `kubectl create -f metrics-server/`
 * [An AppDynamics user account](https://github.com/Appdynamics/cluster-agent/blob/master/docs/rest-user-role.md) must be setup for the ClusterAgent to communicate to the AppDynamics controller via REST API.
 * Access to AppDynamics Controller 4.5.5+
