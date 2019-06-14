@@ -172,7 +172,7 @@ func (c *MainController) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 
 func (c *MainController) startAppIDUpdater(stopCh <-chan struct{}) {
 	bag := (*c.ConfManager).Get()
-	c.appAppIDTicker(stopCh, time.NewTicker(time.Duration(bag.SnapshotSyncInterval)*time.Second))
+	c.appAppIDTicker(stopCh, time.NewTicker(time.Duration(bag.MetricsSyncInterval)*time.Second))
 }
 
 func (c *MainController) appAppIDTicker(stop <-chan struct{}, ticker *time.Ticker) {
@@ -180,7 +180,7 @@ func (c *MainController) appAppIDTicker(stop <-chan struct{}, ticker *time.Ticke
 		select {
 		case <-ticker.C:
 			bag := (*c.ConfManager).Get()
-			c.Logger.Info("Making an attempt to find out Agent Application ID ...")
+			c.Logger.Infof("Making an attempt to find out ID of Agent Application %s ...", bag.AppName)
 			appID, tierID, nodeID, errAppd := c.AppdController.DetermineNodeID(bag.AppName, bag.TierName, bag.NodeName)
 			if errAppd != nil {
 				c.Logger.Errorf("Enable to fetch component IDs. Error: %v\n", errAppd)

@@ -161,6 +161,9 @@ func (pw *JobsWorker) buildAppDMetrics() {
 	var count int = 0
 	for _, obj := range pw.informer.GetStore().List() {
 		jobObject := obj.(*batchTypes.Job)
+		if !pw.qualifies(jobObject) {
+			continue
+		}
 		jobSchema := pw.processObject(jobObject)
 		pw.summarize(&jobSchema)
 		count++

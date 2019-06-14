@@ -33,13 +33,14 @@ func NewRestClient(bag *m.AppDBag, logger *log.Logger) *RestClient {
 	return &RestClient{logger, bag}
 }
 
-func (rc *RestClient) getClient() *http.Client {
+func (rc *RestClient) getClient(req *http.Request) *http.Client {
 	if rc.Bag.ProxyUrl != "" {
 		proxyUrl, err := url.Parse(rc.Bag.ProxyUrl)
 		if err != nil {
 			rc.logger.Error("Proxy url is invalid")
 			return &http.Client{}
 		}
+		rc.addProxyAuth(req)
 		return &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyUrl)}}
 	}
 	return &http.Client{}
@@ -66,7 +67,7 @@ func (rc *RestClient) LoadSchema(schemaName string) (*map[string]interface{}, er
 		req.Header.Set("X-Events-API-AccountName", rc.Bag.GlobalAccount)
 		req.Header.Set("X-Events-API-Key", rc.Bag.EventKey)
 		//		fmt.Printf("Sending request. Account: %s   Event Key %s", rc.Bag.GlobalAccount, rc.Bag.EventKey)
-		client := &http.Client{}
+		client := rc.getClient(req)
 		resp, err := client.Do(req)
 		if err != nil {
 			rc.logger.Errorf("Unable to load event schema %s. %v", schemaName, err)
@@ -106,7 +107,7 @@ func (rc *RestClient) SchemaExists(schemaName string) bool {
 		req.Header.Set("X-Events-API-AccountName", rc.Bag.GlobalAccount)
 		req.Header.Set("X-Events-API-Key", rc.Bag.EventKey)
 
-		client := &http.Client{}
+		client := rc.getClient(req)
 		resp, err := client.Do(req)
 		if err != nil {
 			rc.logger.Errorf("Unable to check event schema %s. %v", schemaName, err)
@@ -250,7 +251,7 @@ func (rc *RestClient) DeleteSchema(schemaName string) error {
 		req.Header.Set("Content-Type", "application/vnd.appd.events+json;v=2")
 		req.Header.Set("X-Events-API-AccountName", rc.Bag.GlobalAccount)
 		req.Header.Set("X-Events-API-Key", rc.Bag.EventKey)
-		client := &http.Client{}
+		client := rc.getClient(req)
 		resp, err := client.Do(req)
 		if err != nil {
 			rc.logger.Errorf("Unable to delete event schema %s. %v", schemaName, err)
@@ -283,7 +284,7 @@ func (rc *RestClient) CreateSchema(schemaName string, data []byte) ([]byte, erro
 		req.Header.Set("X-Events-API-AccountName", rc.Bag.GlobalAccount)
 		req.Header.Set("X-Events-API-Key", rc.Bag.EventKey)
 
-		client := &http.Client{}
+		client := rc.getClient(req)
 		resp, err := client.Do(req)
 		if err != nil {
 			rc.logger.Errorf("Unable to create event schema %s. %v", schemaName, err)
@@ -311,7 +312,7 @@ func (rc *RestClient) PostAppDEvents(schemaName string, data []byte) []byte {
 	req.Header.Set("X-Events-API-AccountName", rc.Bag.GlobalAccount)
 	req.Header.Set("X-Events-API-Key", rc.Bag.EventKey)
 
-	client := &http.Client{}
+	client := rc.getClient(req)
 	resp, err := client.Do(req)
 	if err != nil {
 		rc.logger.Errorf("Unable to post events. %v", err)
@@ -343,7 +344,7 @@ func (rc *RestClient) GetRestAuth() (AppDRestAuth, error) {
 	req.Header.Set("Authorization", authHeader)
 	rc.logger.Debugf("Header: %s", authHeader)
 
-	client := &http.Client{}
+	client := rc.getClient(req)
 	resp, err := client.Do(req)
 	if err != nil {
 		rc.logger.Errorf("Issues obtaining session and cookie. %v", err)
@@ -384,7 +385,7 @@ func (rc *RestClient) CallAppDController(path, method string, data []byte) ([]by
 	req.Header.Set("X-CSRF-TOKEN", auth.Token)
 	req.Header.Set("Cookie", auth.getAuthCookie())
 
-	client := &http.Client{}
+	client := rc.getClient(req)
 	resp, err := client.Do(req)
 	if err != nil {
 		rc.logger.Errorf("Failed to call AppD controller. %v", err)
@@ -449,7 +450,7 @@ func (rc *RestClient) CreateDashboard(templatePath string) ([]byte, error) {
 	req.Header.Set("Authorization", authHeader)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	client := &http.Client{}
+	client := rc.getClient(req)
 	resp, err := client.Do(req)
 	if err != nil {
 		rc.logger.Errorf("Unable to create dashboard. %v\n", err)
@@ -477,7 +478,7 @@ func (rc *RestClient) MarkNodeHistorical(nodeId int) error {
 	}
 
 	req.SetBasicAuth(ar[0], ar[1])
-	client := &http.Client{}
+	client := rc.getClient(req)
 	_, errReq := client.Do(req)
 	if errReq != nil {
 		return fmt.Errorf("Unable to mark node as historical. %v\n", errReq)
@@ -499,7 +500,7 @@ func (rc *RestClient) GetControllerVersion() ([]byte, error) {
 	}
 
 	req.SetBasicAuth(ar[0], ar[1])
-	client := &http.Client{}
+	client := rc.getClient(req)
 	resp, err := client.Do(req)
 	if err != nil {
 		rc.logger.Errorf("Failed to get controller version. %v", err)
@@ -530,7 +531,7 @@ func (rc *RestClient) validateLicense(accountID int) (bool, error) {
 	}
 
 	req.SetBasicAuth(ar[0], ar[1])
-	client := &http.Client{}
+	client := rc.getClient(req)
 	resp, err := client.Do(req)
 	if err != nil {
 		rc.logger.Errorf("Failed to get license information for account %d. %v", accountID, err)

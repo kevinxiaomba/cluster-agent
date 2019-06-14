@@ -227,6 +227,9 @@ func (pw *DaemonWorker) buildAppDMetrics() {
 	var count int = 0
 	for _, obj := range pw.informer.GetStore().List() {
 		DaemonObject := obj.(*appsv1.DaemonSet)
+		if !pw.qualifies(DaemonObject) {
+			continue
+		}
 		DaemonSchema, _ := pw.processObject(DaemonObject, nil)
 		pw.summarize(&DaemonSchema)
 		count++

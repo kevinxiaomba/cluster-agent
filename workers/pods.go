@@ -594,6 +594,9 @@ func (pw *PodWorker) buildAppDMetrics() {
 	var count int = 0
 	for _, obj := range pw.informer.GetStore().List() {
 		podObject := obj.(*v1.Pod)
+		if !pw.qualifies(podObject) {
+			continue
+		}
 		podSchema, changed := pw.processObject(podObject, nil)
 		if changed {
 			pw.WQ.Add(&podSchema)
@@ -2079,17 +2082,19 @@ func (pw *PodWorker) OnPodErrorEvent(podName string, eventSchema m.EventSchema) 
 	pendingAttachPod := false
 	deployName := ""
 	var podObj *v1.Pod = nil
+	var agentRequests *m.AgentRequestList = nil
 	if err == nil && ok {
 		p := issuePod.(*v1.Pod)
 		for k, v := range p.Annotations {
 			if k == instr.APPD_ATTACH_PENDING {
+				agentRequests = m.FromAnnotation(v)
 				pendingAttachPod = true
 			}
 			if k == instr.APPD_ATTACH_DEPLOYMENT {
 				deployName = v
 			}
 		}
-		if pendingAttachPod && deployName != "" {
+		if pendingAttachPod && deployName != "" && agentRequests != nil {
 			podObj = p
 		}
 	}
@@ -2097,7 +2102,7 @@ func (pw *PodWorker) OnPodErrorEvent(podName string, eventSchema m.EventSchema) 
 	if podObj != nil && eventSchema.Reason == "Failed" && (strings.Contains(eventSchema.Message, "ErrImagePull") || strings.Contains(eventSchema.Message, "Failed to pull image")) {
 		msg := fmt.Sprintf("AppDynamics instrumentation cannot be complete as one of the agent images is not accessible. The instrumentation is being canceled. Make sure that AppDynamics images are available in namespace %s", eventSchema.Namespace)
 		EmitInstrumentationEvent(podObj, pw.Client, "AppDInstrumentation", msg, v1.EventTypeWarning)
-		ReverseDeploymentInstrumentation(deployName, eventSchema.Namespace, bag, pw.Logger, pw.Client)
+		ReverseDeploymentInstrumentation(deployName, eventSchema.Namespace, agentRequests, false, bag, pw.Logger, pw.Client)
 	}
 }
 

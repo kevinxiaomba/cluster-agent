@@ -44,9 +44,12 @@ type AppDBag struct {
 	DashboardDelayMin           int
 	AgentEnvVar                 string
 	AgentLabel                  string
+	AppNameLiteral              string
 	AppDAppLabel                string
 	AppDTierLabel               string
 	AppDAnalyticsLabel          string
+	AgentLogOverride            string
+	AgentUserOverride           string
 	AgentMountName              string
 	AgentMountPath              string
 	AppLogMountName             string
@@ -100,6 +103,7 @@ type AppDBag struct {
 	ControllerVer2              int
 	ControllerVer3              int
 	ControllerVer4              int
+	InstrumentationUpdated      bool
 }
 
 type AgentStatus struct {
@@ -256,7 +260,10 @@ func GetDefaultProperties() *AppDBag {
 		InstrumentMatchString:       []string{},
 		InitContainerDir:            "/opt/temp",
 		AgentLabel:                  "appd-agent",
+		AgentUserOverride:           "",
+		AgentLogOverride:            "",
 		AgentEnvVar:                 "JAVA_OPTS",
+		AppNameLiteral:              "",
 		AppDAppLabel:                "appd-app",
 		AppDTierLabel:               "appd-tier",
 		AppDAnalyticsLabel:          "appd-biq",
@@ -290,6 +297,7 @@ func GetDefaultProperties() *AppDBag {
 		PodEventNumber:              1,
 		LogLevel:                    "info",
 		OverconsumptionThreshold:    80,
+		InstrumentationUpdated:      false,
 	}
 
 	return &bag

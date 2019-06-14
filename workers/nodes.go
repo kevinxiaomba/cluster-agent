@@ -241,12 +241,20 @@ func (pw *NodesWorker) buildAppDMetrics() {
 	bth := pw.AppdController.StartBT("PostNodeMetrics")
 	pw.SummaryMap = make(map[string]m.ClusterNodeMetrics)
 
-	var count int = 0
+	count := 0
 	for _, obj := range pw.informer.GetStore().List() {
 		nodeObject := obj.(*v1.Node)
+		if !pw.qualifies(nodeObject) {
+			continue
+		}
 		nodeSchema, _ := pw.processObject(nodeObject, nil)
 		pw.summarize(&nodeSchema)
 		count++
+	}
+
+	if len(pw.SummaryMap) == 0 {
+		bag := (*pw.ConfigManager).Get()
+		pw.SummaryMap[m.ALL] = m.NewClusterNodeMetrics(bag, m.ALL)
 	}
 
 	ml := pw.builAppDMetricsList()

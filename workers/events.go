@@ -217,6 +217,9 @@ func (ew *EventWorker) buildAppDMetrics() {
 	toDelete := []interface{}{}
 	for _, obj := range ew.informer.GetStore().List() {
 		eventObject := obj.(*v1.Event)
+		if !ew.qualifies(eventObject) {
+			continue
+		}
 		eventSchema := ew.processObject(eventObject)
 		ew.summarize(&eventSchema)
 		count++

@@ -229,6 +229,9 @@ func (pw *RsWorker) buildAppDMetrics() {
 	var count int = 0
 	for _, obj := range pw.informer.GetStore().List() {
 		RsObject := obj.(*appsv1.ReplicaSet)
+		if !pw.qualifies(RsObject) {
+			continue
+		}
 		DeploySchema, _ := pw.processObject(RsObject, nil)
 		pw.summarize(&DeploySchema)
 		count++

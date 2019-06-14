@@ -211,7 +211,7 @@ func (c *ControllerClient) FindAppID(appName string) (int, error) {
 	data, err := rc.CallAppDController(path, "GET", nil)
 	if err != nil {
 		c.logger.Errorf("App by name response: %v %v\n", data, err)
-		return appID, fmt.Errorf("Unable to find appID\n")
+		return appID, fmt.Errorf("Unable to find appID %s\n", appName)
 	}
 	var appObj map[string]interface{}
 	errJson := json.Unmarshal(data, &appObj)
@@ -288,10 +288,10 @@ func (c *ControllerClient) FindNodeID(appID int, tierName string, nodeName strin
 func (c *ControllerClient) GetMetricID(appID int, metricPath string) (float64, error) {
 
 	bag := (*c.ConfManager).Get()
-	// if controller version is less than 4.5.7 use an older restui call
-	if bag.CompareControllerVersions(4, 5, 7, 0) < 0 {
+	// if controller version is less than 4.5.7.5 use an older restui call
+	if bag.CompareControllerVersions(4, 5, 7, 5) < 0 {
 		c.logger.Debug("Using older version of GetMetricID call")
-		return c.GetMetricID456(appID, metricPath)
+		return c.GetMetricID457(appID, metricPath)
 	}
 
 	path := "restui/metricBrowser/async/metric-tree/root"
@@ -346,9 +346,15 @@ func (c *ControllerClient) GetMetricID(appID int, metricPath string) (float64, e
 	return metricID, nil
 }
 
-func (c *ControllerClient) GetMetricID456(appID int, metricPath string) (float64, error) {
+func (c *ControllerClient) GetMetricID457(appID int, metricPath string) (float64, error) {
 
+	bag := (*c.ConfManager).Get()
 	path := fmt.Sprintf("restui/metricBrowser/%d", appID)
+
+	if bag.ControllerVer3 >= 7 {
+		path = fmt.Sprintf("restui/metricBrowser/metricTreeRoots/%d", appID)
+	}
+
 	arr := strings.Split(metricPath, "|")
 	arrPath := arr[:len(arr)-1]
 	metricName := arr[len(arr)-1]
@@ -362,7 +368,7 @@ func (c *ControllerClient) GetMetricID456(appID int, metricPath string) (float64
 	}
 
 	arr = arr[:len(arr)-1]
-	//	logger.Printf("Asking for metrics with payload: %s\n", strings.Join(arr, ","))
+	//	c.logger.Infof("Asking for metrics with payload: %s\n", strings.Join(arr, ","))
 
 	body, eM := json.Marshal(arr)
 	if eM != nil {
@@ -370,7 +376,7 @@ func (c *ControllerClient) GetMetricID456(appID int, metricPath string) (float64
 	}
 
 	rc := NewRestClient((*c.ConfManager).Get(), c.logger)
-	//	logger.Printf("Calling metrics update: %s. %s\n", path, string(body))
+	//	c.logger.Infof("Calling metrics update: %s. %s\n", path, string(body))
 	data, err := rc.CallAppDController(path, "POST", body)
 	if err != nil {
 		return 0, fmt.Errorf("Unable to find metric ID")

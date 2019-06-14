@@ -25,6 +25,7 @@ const (
 	GET_JAVA_PID_CMD             string = "ps -o pid,comm,args | grep java | awk '{print$1,$2,$3}'"
 	ATTACHED_ANNOTATION          string = "appd-attached"
 	APPD_ATTACH_PENDING          string = "appd-attach-pending"
+	APPD_ATTACH_FAILED           string = "Failed. Image unavailable"
 	APPD_ATTACH_DEPLOYMENT       string = "appd-attach-deploy"
 	DEPLOY_ANNOTATION            string = "appd-deploy-updated"
 	DEPLOY_BIQ_ANNOTATION        string = "appd-deploy-biq-updated"
@@ -494,6 +495,10 @@ func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tier
 	cmd := fmt.Sprintf("java -Xbootclasspath/a:%s/tools.jar -jar %s/javaagent.jar %d appdynamics.controller.hostName=%s,appdynamics.controller.port=%d,appdynamics.controller.ssl.enabled=%t,appdynamics.agent.accountName=%s,appdynamics.agent.accountAccessKey=%s,appdynamics.agent.applicationName=%s,appdynamics.agent.tierName=%s,appdynamics.agent.reuse.nodeName=true,appdynamics.agent.reuse.nodeName.prefix=%s",
 		jarPath, jarPath, pid, ai.Bag.ControllerUrl, ai.Bag.ControllerPort, ai.Bag.SSLEnabled, ai.Bag.Account, ai.Bag.AccessKey, appName, tierName, nodePrefix)
 
+	if ai.Bag.AgentLogOverride != "" {
+		cmd = fmt.Sprintf("%s,appdynamics.agent.logs.dir=%s", cmd, ai.Bag.AgentLogOverride)
+	}
+
 	//BIQ instrumentation. If Analytics agent is remote, provide the url when attaching
 	ai.Logger.Infof("BiQ deployment option is %s.", biQDeploymentOption)
 	if agentRequest.IsBiQRemote() {
@@ -552,7 +557,7 @@ func (ai AgentInjector) Associate(podObj *v1.Pod, exec *Executor, agentRequest *
 	}
 	if appID == 0 {
 		//mark to retry to give the agent time to initialize
-		ai.Logger.Warn("Association error. No appID\n")
+		ai.Logger.Warnf("Association error. No appID for app %s", agentRequest.AppName)
 		associateError = APPD_ASSOCIATE_ERROR
 	}
 

@@ -31,10 +31,11 @@ type ConfigManager interface {
  preforming locking around access to the Config struct.
 */
 type MutexConfigManager struct {
-	Conf   *m.AppDBag
-	Mutex  *sync.Mutex
-	Watch  *ConfigWatcher
-	Logger *log.Logger
+	Conf               *m.AppDBag
+	Mutex              *sync.Mutex
+	Watch              *ConfigWatcher
+	Logger             *log.Logger
+	InstrumentCallback func()
 }
 
 func NewMutexConfigManager(env *m.AppDBag, l *log.Logger) *MutexConfigManager {
@@ -53,6 +54,10 @@ func NewMutexConfigManager(env *m.AppDBag, l *log.Logger) *MutexConfigManager {
 	}
 	cm.Watch = watcher
 	return &cm
+}
+
+func (self *MutexConfigManager) SubscribeToInstrumentationUpdates(callback func()) {
+	self.InstrumentCallback = callback
 }
 
 func (self *MutexConfigManager) setDefaults(env *m.AppDBag) {
@@ -154,6 +159,13 @@ func (self *MutexConfigManager) reconcile(updated *m.AppDBag) {
 	}
 	self.validate()
 	self.Mutex.Unlock()
+
+	//	if self.Get().InstrumentationUpdated {
+	//		go self.InstrumentCallback()
+	//		self.Mutex.Lock()
+	//		self.Conf.InstrumentationUpdated = false
+	//		self.Mutex.Unlock()
+	//	}
 }
 
 func (self *MutexConfigManager) Get() *m.AppDBag {

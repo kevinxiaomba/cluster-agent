@@ -11,7 +11,7 @@ type TechnologyName string
 
 const (
 	REQUEST_SEPARATOR string         = ";"
-	FIELD_SEPARATOR   string         = "_"
+	FIELD_SEPARATOR   string         = "__"
 	Java              TechnologyName = "java"
 	DotNet            TechnologyName = "dotnet"
 	NodeJS            TechnologyName = "nodejs"
@@ -42,6 +42,8 @@ type AgentRequest struct {
 	Method        InstrumentationMethod
 	BiQ           string //"sidecar" or reference to the remote analytics agent
 
+	AppNameLiteral string
+	AgentEnvVar    string
 }
 
 type AgentRequestList struct {
@@ -63,6 +65,8 @@ func (ar *AgentRequest) Clone() AgentRequest {
 	}
 	clone.Method = ar.Method
 	clone.BiQ = ar.BiQ
+	clone.AppNameLiteral = ar.AppNameLiteral
+	clone.AgentEnvVar = ar.AgentEnvVar
 
 	return clone
 }
@@ -131,6 +135,17 @@ func NewAgentRequestListFromArray(ar []AgentRequest, bag *AppDBag, containers []
 			r.BiQ = bag.BiqService
 		}
 
+		if r.AgentEnvVar == "" {
+			r.AgentEnvVar = bag.AgentEnvVar
+		}
+
+		if r.AppNameLiteral == "" {
+			r.AppNameLiteral = bag.AppNameLiteral
+		}
+		if r.AppNameLiteral != "" {
+			r.AppName = r.AppNameLiteral
+		}
+
 		list.Items = append(list.Items, r)
 		index++
 	}
@@ -150,6 +165,10 @@ func NewAgentRequestListFromArray(ar []AgentRequest, bag *AppDBag, containers []
 
 func NewAgentRequestList(appdAgentLabel string, appName string, tierName string, biq string, containers []v1.Container, bag *AppDBag) AgentRequestList {
 	list := AgentRequestList{}
+
+	if bag.AppNameLiteral != "" {
+		appName = bag.AppNameLiteral
+	}
 
 	if appdAgentLabel == "" {
 		if bag.InstrumentContainer == FIRST_CONTAINER {
@@ -218,6 +237,8 @@ func getDefaultAgentRequest(appName string, tierName string, biq string, bag *Ap
 	if r.BiQ == "" && r.BiQ != string(NoBiq) {
 		r.BiQ = bag.BiqService
 	}
+
+	r.AgentEnvVar = bag.AgentEnvVar
 
 	r.Version = VERSION_LATEST
 	return r
@@ -354,7 +375,7 @@ func (al *AgentRequestList) ToAnnotation() string {
 }
 
 func (ar *AgentRequest) ToAnnotation() string {
-	return fmt.Sprintf("%s_%s_%s_%s_%s_%s_%s", ar.Method, ar.Tech, ar.ContainerName, ar.AppName, ar.TierName, ar.BiQ, ar.Version)
+	return fmt.Sprintf("%s__%s__%s__%s__%s__%s__%s__%s", ar.Method, ar.Tech, ar.ContainerName, ar.AppName, ar.TierName, ar.BiQ, ar.Version, ar.AgentEnvVar)
 }
 
 func FromAnnotation(annotation string) *AgentRequestList {
@@ -415,6 +436,16 @@ func RequestFromAnnotation(annotation string) AgentRequest {
 		r.BiQ = arr[5]
 		r.Version = arr[6]
 	}
+	if len(arr) > 7 {
+		r.Method = InstrumentationMethod(arr[0])
+		r.Tech = TechnologyName(arr[1])
+		r.ContainerName = arr[2]
+		r.AppName = arr[3]
+		r.TierName = arr[4]
+		r.BiQ = arr[5]
+		r.Version = arr[6]
+		r.AgentEnvVar = arr[7]
+	}
 	return r
 }
 
@@ -427,7 +458,7 @@ func (al *AgentRequestList) String() string {
 }
 
 func (ar *AgentRequest) String() string {
-	return fmt.Sprintf("AppName: %s, TieName: %s, BiQ:%s, Tech: %s, Method: %s, Container: %s, Version: %s", ar.AppName, ar.TierName, ar.BiQ, ar.Tech, ar.Method, ar.ContainerName, ar.Version)
+	return fmt.Sprintf("AppName: %s, TieName: %s, BiQ:%s, Tech: %s, Method: %s, Container: %s, Version: %s, EnvVar: %s", ar.AppName, ar.TierName, ar.BiQ, ar.Tech, ar.Method, ar.ContainerName, ar.Version, ar.AgentEnvVar)
 }
 
 func (ar *AgentRequest) Valid() bool {

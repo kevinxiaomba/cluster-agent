@@ -57,20 +57,22 @@ appd-agent: "dotnet" 		# Optional. Alternatively, the system-wide default "Defau
 Below are several use cases with examples of instrumentation settings.
 
 #### Use case 1
-All Java applications deployed to namespaces ns1 will be instrumented. These apps leverage $JAVA_OPTS environment variable
+All Java deployments in namespaces ns1 will be instrumented. These apps leverage `$JAVA_OPTS` environment variable. All deployments will be grouped under application `appd-application01` in AppDynamics.
 
 ```
 instrumentationMethod: "mountEnv"
+appNameLiteral: appd-application01
 nsToInstrument:
 - ns1
 ```
 
 #### Use case 2 
 All Java applications with the name or metadata labels matching "client-api"
-and deployed to namespace ns 1 will be instrumented. All apps leverage $JAVA_OPTS environment variable
+and deployed to namespace ns 1 will be instrumented. All apps leverage $JAVA_OPTS environment variable. All deployments will be grouped under application `appd-application01` in AppDynamics.
 
 ```
 instrumentationMethod: "mountEnv"
+appNameLiteral: appd-application01
 instrumentMatchString:
 - client-api
 nsToInstrument:
@@ -110,3 +112,17 @@ instrumentRule:
     - dev
     tech: dotnet
    ```
+   
+#### Use case 4
+Use instrumentation rule to instrument Java apps with the name matching "java-app" in namespace ns1. Use the value of pod label "name" for the AppDynamics application name. 
+The Java agent will be logging to a custom location, /dev/myapp/logs. All directories with AppDynamics agent artifacts will be accessible for read/write operations by user 2000 / group 2000.
+
+```instrumentRule:
+  - appDAppLabel: name
+    namespaces:
+    - ns1
+    matchString: 
+    - java-app
+    agentLogOverride: /dev/myapp/logs
+    agentUserOverride: 2000:2000
+```

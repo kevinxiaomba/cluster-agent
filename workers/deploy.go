@@ -46,6 +46,7 @@ func NewDeployWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 	dw := DeployWorker{Client: client, ConfigManager: cm, SummaryMap: make(map[string]m.ClusterDeployMetrics), WQ: queue,
 		AppdController: controller, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus), Logger: l}
+	//	cm.SubscribeToInstrumentationUpdates(dw.uninstrument)
 	dw.initDeployInformer(client)
 	return dw
 }
@@ -244,12 +245,20 @@ func (pw *DeployWorker) buildAppDMetrics() {
 	bth := pw.AppdController.StartBT("PostDeploymentMetrics")
 	pw.SummaryMap = make(map[string]m.ClusterDeployMetrics)
 
-	var count int = 0
+	count := 0
 	for _, obj := range pw.informer.GetStore().List() {
 		deployObject := obj.(*appsv1.Deployment)
+		if !pw.qualifies(deployObject) {
+			continue
+		}
 		deploySchema, _ := pw.processObject(deployObject, nil)
 		pw.summarize(&deploySchema)
 		count++
+	}
+
+	if count == 0 {
+		bag := (*pw.ConfigManager).Get()
+		pw.SummaryMap[m.ALL] = m.NewClusterDeployMetrics(bag, m.ALL)
 	}
 
 	ml := pw.builAppDMetricsList()
@@ -522,7 +531,41 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 
 }
 
-func ReverseDeploymentInstrumentation(deployName string, namespace string, bag *m.AppDBag, l *log.Logger, client *kubernetes.Clientset) {
+func (dw *DeployWorker) uninstrument() {
+	bag := (*dw.ConfigManager).Get()
+	dw.Logger.Info("Starting de-instrumentation check due to changes in instrumentation config")
+	//loop through cached deployments
+	count := 0
+	for _, obj := range dw.informer.GetStore().List() {
+		deployObject := obj.(*appsv1.Deployment)
+		count++
+		if v, ok := deployObject.Spec.Template.Annotations[instr.APPD_ATTACH_PENDING]; ok {
+			if v != instr.APPD_ATTACH_FAILED {
+				newReq := instr.GetAgentRequestsForDeployment(deployObject, bag, dw.Logger)
+				//if instrumented, but does not have any matching requests based on new rules
+				if newReq == nil {
+					//re-create request from annotaion
+					oldRequests := m.FromAnnotation(v)
+					dw.Logger.Infof("Deployment %s does not match the instrumentation rules any longer. Removing instrumentation...", deployObject.Name)
+					// call ReverseDeploymentInstrumentation
+					ReverseDeploymentInstrumentation(deployObject.Name, deployObject.Namespace, oldRequests, true, bag, dw.Logger, dw.Client)
+				}
+			}
+		} else {
+			//check if needs to be instrumented
+			init, biq, agentRequests := dw.shouldUpdate(deployObject)
+			if init || biq {
+				dw.Logger.Debugf("Deployment update is required. Init: %t. BiQ: %t\n", init, biq)
+				dw.updateDeployment(deployObject, init, biq, agentRequests)
+			}
+		}
+	}
+
+	dw.Logger.Infof("De-instrumentation check complete. Scanned %d deployments", count)
+
+}
+
+func ReverseDeploymentInstrumentation(deployName string, namespace string, agentRequests *m.AgentRequestList, removeAnnotations bool, bag *m.AppDBag, l *log.Logger, client *kubernetes.Clientset) {
 	retryErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		deploymentsClient := client.AppsV1().Deployments(namespace)
 		d, getErr := deploymentsClient.Get(deployName, metav1.GetOptions{})
@@ -557,25 +600,103 @@ func ReverseDeploymentInstrumentation(deployName string, namespace string, bag *
 		}
 
 		//strip env vars
-		stripEnvVars(d, bag.AgentEnvVar)
-		stripEnvVars(d, "APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY")
+		match := []string{"Dappdynamics", "javaagent"}
+		stripEnvVars(d, agentRequests.GetFirstRequest().AgentEnvVar, match)
+		stripEnvVars(d, "APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY", []string{})
 
-		if d.Spec.Template.Annotations == nil {
-			d.Spec.Template.Annotations = make(map[string]string)
+		//strip volumes and volume mounts
+		if d.Spec.Template.Spec.Volumes != nil {
+			for _, r := range agentRequests.Items {
+				volName := fmt.Sprintf("%s-%s", bag.AgentMountName, string(r.Tech))
+				volIndex := -1
+				for i, ev := range d.Spec.Template.Spec.Volumes {
+					if ev.Name == volName {
+						volIndex = i
+					}
+				}
+				if volIndex >= 0 {
+					d.Spec.Template.Spec.Volumes[volIndex] = d.Spec.Template.Spec.Volumes[len(d.Spec.Template.Spec.Volumes)-1]
+					d.Spec.Template.Spec.Volumes = d.Spec.Template.Spec.Volumes[:len(d.Spec.Template.Spec.Volumes)-1]
+				}
+
+				analyticsIndex := -1
+				for i, ev := range d.Spec.Template.Spec.Volumes {
+
+					if ev.Name == bag.AppLogMountName {
+						analyticsIndex = i
+					}
+				}
+
+				if analyticsIndex >= 0 {
+					d.Spec.Template.Spec.Volumes[analyticsIndex] = d.Spec.Template.Spec.Volumes[len(d.Spec.Template.Spec.Volumes)-1]
+					d.Spec.Template.Spec.Volumes = d.Spec.Template.Spec.Volumes[:len(d.Spec.Template.Spec.Volumes)-1]
+				}
+
+				for containerIndex, c := range d.Spec.Template.Spec.Containers {
+					if c.Name == r.ContainerName {
+						//strip volume mounts
+						if d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts != nil {
+							volMountIndex := -1
+							for i, vm := range d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts {
+								if vm.Name == volName {
+									volMountIndex = i
+								}
+							}
+							if volMountIndex >= 0 {
+								d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts[volMountIndex] = d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts[len(d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts)-1]
+								d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts = d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts[:len(d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts)-1]
+							}
+
+							volMountBiq := -1
+							for i, vm := range d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts {
+
+								if vm.Name == bag.AppLogMountName {
+									volMountBiq = i
+								}
+							}
+
+							if volMountBiq >= 0 {
+								d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts[volMountBiq] = d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts[len(d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts)-1]
+								d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts = d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts[:len(d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts)-1]
+							}
+						}
+					}
+				}
+			}
 		}
 
-		d.Spec.Template.Annotations[instr.APPD_ATTACH_PENDING] = "Failed. Image unavailable"
+		if removeAnnotations == false {
+			if d.Spec.Template.Annotations == nil {
+				d.Spec.Template.Annotations = make(map[string]string)
+			}
+
+			d.Spec.Template.Annotations[instr.APPD_ATTACH_PENDING] = instr.APPD_ATTACH_FAILED
+		} else {
+			if d.Spec.Template.Annotations != nil {
+				delete(d.Spec.Template.Annotations, instr.APPD_ATTACH_PENDING)
+				delete(d.Spec.Template.Annotations, instr.APPD_ATTACH_DEPLOYMENT)
+			}
+			if d.Annotations != nil {
+				delete(d.Annotations, instr.DEPLOY_ANNOTATION)
+			}
+		}
 
 		_, err := deploymentsClient.Update(d)
+		if err != nil {
+			l.Errorf("Unable to save deployment after reversing the instrumentation. %v", err)
+		}
 		return err
 	})
 
 	if retryErr != nil {
 		l.Errorf("Failed to reverse instrumentation of the deployment %s: %v\n", deployName, retryErr)
+	} else {
+		l.Info("Successfully removed instrumentation from %s", deployName)
 	}
 }
 
-func stripEnvVars(d *appsv1.Deployment, envVarName string) {
+func stripEnvVars(d *appsv1.Deployment, envVarName string, match []string) {
+	//strip only what was added
 	envVarIndex := -1
 	containerIndex := -1
 	for i, _ := range d.Spec.Template.Spec.Containers {
@@ -588,8 +709,29 @@ func stripEnvVars(d *appsv1.Deployment, envVarName string) {
 		}
 	}
 	if containerIndex >= 0 && envVarIndex >= 0 {
-		d.Spec.Template.Spec.Containers[containerIndex].Env[envVarIndex] = d.Spec.Template.Spec.Containers[containerIndex].Env[len(d.Spec.Template.Spec.Containers[containerIndex].Env)-1]
-		d.Spec.Template.Spec.Containers[containerIndex].Env = d.Spec.Template.Spec.Containers[containerIndex].Env[:len(d.Spec.Template.Spec.Containers[containerIndex].Env)-1]
+		if len(match) > 0 {
+			envVar := d.Spec.Template.Spec.Containers[containerIndex].Env[envVarIndex]
+			ar := strings.Fields(envVar.Value)
+			noApm := []string{}
+			for _, v := range ar {
+				for _, ms := range match {
+					if !strings.Contains(v, ms) {
+						noApm = append(noApm, v)
+					}
+				}
+			}
+			if len(noApm) > 0 {
+				originalValue := strings.Join(noApm, " ")
+				d.Spec.Template.Spec.Containers[containerIndex].Env[envVarIndex].Value = originalValue
+			} else {
+				d.Spec.Template.Spec.Containers[containerIndex].Env[envVarIndex] = d.Spec.Template.Spec.Containers[containerIndex].Env[len(d.Spec.Template.Spec.Containers[containerIndex].Env)-1]
+				d.Spec.Template.Spec.Containers[containerIndex].Env = d.Spec.Template.Spec.Containers[containerIndex].Env[:len(d.Spec.Template.Spec.Containers[containerIndex].Env)-1]
+			}
+
+		} else {
+			d.Spec.Template.Spec.Containers[containerIndex].Env[envVarIndex] = d.Spec.Template.Spec.Containers[containerIndex].Env[len(d.Spec.Template.Spec.Containers[containerIndex].Env)-1]
+			d.Spec.Template.Spec.Containers[containerIndex].Env = d.Spec.Template.Spec.Containers[containerIndex].Env[:len(d.Spec.Template.Spec.Containers[containerIndex].Env)-1]
+		}
 	}
 }
 
@@ -629,11 +771,16 @@ func (dw *DeployWorker) updateContainerEnv(ar *m.AgentRequest, deployObj *appsv1
 		if ar.IsBiQRemote() {
 			javaOptsVal = fmt.Sprintf("%s -Dappdynamics.analytics.agent.url=%s/v2/sinks/bt", javaOptsVal, bag.AnalyticsAgentUrl)
 		}
+
+		if bag.AgentLogOverride != "" {
+			javaOptsVal = fmt.Sprintf("%s -Dappdynamics.agent.logs.dir=%s", javaOptsVal, bag.AgentLogOverride)
+		}
+
 		if deployObj.Spec.Template.Spec.Containers[containerIndex].Env == nil {
 			deployObj.Spec.Template.Spec.Containers[containerIndex].Env = []v1.EnvVar{}
 		} else {
 			for i, ev := range deployObj.Spec.Template.Spec.Containers[containerIndex].Env {
-				if ev.Name == bag.AgentEnvVar {
+				if ev.Name == ar.AgentEnvVar {
 					deployObj.Spec.Template.Spec.Containers[containerIndex].Env[i].Value += javaOptsVal
 					optsExist = true
 					break
@@ -645,7 +792,7 @@ func (dw *DeployWorker) updateContainerEnv(ar *m.AgentRequest, deployObj *appsv1
 			Name: instr.APPD_SECRET_NAME}}
 		envVarKey := v1.EnvVar{Name: "APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY", ValueFrom: &v1.EnvVarSource{SecretKeyRef: &keyRef}}
 		if !optsExist {
-			envJavaOpts := v1.EnvVar{Name: bag.AgentEnvVar, Value: javaOptsVal}
+			envJavaOpts := v1.EnvVar{Name: ar.AgentEnvVar, Value: javaOptsVal}
 			deployObj.Spec.Template.Spec.Containers[containerIndex].Env = append(deployObj.Spec.Template.Spec.Containers[containerIndex].Env, envJavaOpts)
 		}
 		//prepend the secret ref
@@ -658,10 +805,12 @@ func (dw *DeployWorker) updateSpec(containerIndex int, result *appsv1.Deployment
 
 	//add shared volume to the deployment spec
 	volumeExists := false
-	for _, ev := range result.Spec.Template.Spec.Volumes {
-		if ev.Name == volName {
-			volumeExists = true
-			break
+	if result.Spec.Template.Spec.Volumes != nil {
+		for _, ev := range result.Spec.Template.Spec.Volumes {
+			if ev.Name == volName {
+				volumeExists = true
+				break
+			}
 		}
 	}
 	if !volumeExists {
@@ -676,11 +825,23 @@ func (dw *DeployWorker) updateSpec(containerIndex int, result *appsv1.Deployment
 	}
 
 	//add volume mount to the application container
-	volumeMount := v1.VolumeMount{Name: volName, MountPath: volumePath}
-	if result.Spec.Template.Spec.Containers[containerIndex].VolumeMounts == nil || len(result.Spec.Template.Spec.Containers[containerIndex].VolumeMounts) == 0 {
-		result.Spec.Template.Spec.Containers[containerIndex].VolumeMounts = []v1.VolumeMount{volumeMount}
-	} else {
-		result.Spec.Template.Spec.Containers[containerIndex].VolumeMounts = append(result.Spec.Template.Spec.Containers[containerIndex].VolumeMounts, volumeMount)
+	volumeMountExists := false
+	if result.Spec.Template.Spec.Containers[containerIndex].VolumeMounts != nil {
+		for _, vm := range result.Spec.Template.Spec.Containers[containerIndex].VolumeMounts {
+			if vm.Name == volName {
+				volumeMountExists = true
+				break
+			}
+		}
+	}
+
+	if volumeMountExists == false {
+		volumeMount := v1.VolumeMount{Name: volName, MountPath: volumePath}
+		if result.Spec.Template.Spec.Containers[containerIndex].VolumeMounts == nil || len(result.Spec.Template.Spec.Containers[containerIndex].VolumeMounts) == 0 {
+			result.Spec.Template.Spec.Containers[containerIndex].VolumeMounts = []v1.VolumeMount{volumeMount}
+		} else {
+			result.Spec.Template.Spec.Containers[containerIndex].VolumeMounts = append(result.Spec.Template.Spec.Containers[containerIndex].VolumeMounts, volumeMount)
+		}
 	}
 
 	if envUpdate {
@@ -730,6 +891,10 @@ func (dw *DeployWorker) buildInitContainer(agentrequest *m.AgentRequest) v1.Cont
 	mounts := []v1.VolumeMount{volumeMount}
 
 	cmd := []string{"cp", "-ra", fmt.Sprintf("%s/.", bag.AgentMountPath), bag.InitContainerDir}
+
+	if bag.AgentUserOverride != "" {
+		cmd = []string{"/bin/sh", "-c", fmt.Sprintf("cp -ra %s/. %s && chown -R %s %s ", bag.AgentMountPath, bag.InitContainerDir, bag.AgentUserOverride, bag.InitContainerDir)}
+	}
 
 	reqCPU, reqMem, limitCpu, limitMem := dw.getResourceLimits("init")
 
