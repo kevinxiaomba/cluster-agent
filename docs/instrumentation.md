@@ -111,9 +111,9 @@ instrumentRule:
     namespaces:
     - dev
     tech: dotnet
-   ```
-   
-#### Use case 4
+```
+
+#### Use case 5
 Use instrumentation rule to instrument Java apps with the name matching "java-app" in namespace ns1. Use the value of pod label "name" for the AppDynamics application name. 
 The Java agent will be logging to a custom location, /dev/myapp/logs. All directories with AppDynamics agent artifacts will be accessible for read/write operations by user 2000 / group 2000.
 
@@ -125,4 +125,15 @@ The Java agent will be logging to a custom location, /dev/myapp/logs. All direct
     - java-app
     agentLogOverride: /dev/myapp/logs
     agentUserOverride: 2000:2000
+```
+
+#### Use case 6
+All Java deployments in namespaces ns1 will be instrumented. These apps leverage a custom `$APM_OPTIONS` environment variable. All deployments will be grouped under application `appd-application01` in AppDynamics.
+
+```
+instrumentationMethod: "mountEnv"
+appNameLiteral: appd-application01
+agentEnvVar: APM_OPTIONS
+nsToInstrument:
+- ns1
 ```
