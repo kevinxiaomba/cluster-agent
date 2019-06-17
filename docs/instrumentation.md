@@ -137,3 +137,17 @@ agentEnvVar: APM_OPTIONS
 nsToInstrument:
 - ns1
 ```
+
+#### Use case 7
+To remove AppDynamics application agents from the application deployments, change one of the following instrumentation settings in the `clusteragent` spec:
+
+* instrumentationMethod (set to "none")
+* instrumentMatchString
+* nsToInstrument
+* agentEnvVar
+* appNameLiteral
+* appDAppLabel
+* biqService
+
+If, following the configuration change, the instrumented deployments no longer match the filter or their properties differ from the original instrumentation request (e.g. the Application Name in AppDynamics has changed) the specs of the affectet deployments will be reverted to the original state (before the AppDynamics instrumentation).
+Note that following the de-instrumentation, the old application with its data will remain in the AppDynamics controller until explicitely removed by an authorized user.
