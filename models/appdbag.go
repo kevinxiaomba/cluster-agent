@@ -236,7 +236,7 @@ func GetDefaultProperties() *AppDBag {
 		AgentSSLCert:                "",
 		EventAPILimit:               100,
 		MetricsSyncInterval:         60,
-		SnapshotSyncInterval:        15,
+		SnapshotSyncInterval:        30,
 		PodSchemaName:               "kube_pod_snapshots",
 		NodeSchemaName:              "kube_node_snapshots",
 		EventSchemaName:             "kube_event_snapshots",

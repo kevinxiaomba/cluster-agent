@@ -464,3 +464,20 @@ func (ar *AgentRequest) String() string {
 func (ar *AgentRequest) Valid() bool {
 	return ar.Method == "" || ar.Method == MountAttach || ar.Method == MountEnv || ar.Method == CopyAttach || ar.Method == None
 }
+
+func (self *AgentRequestList) Equals(al *AgentRequestList) bool {
+	if len(self.Items) != len(al.Items) {
+		return false
+	}
+	for i, r := range self.Items {
+		other := al.Items[i]
+		if !r.Equals(&other) {
+			return false
+		}
+	}
+	return true
+}
+
+func (self *AgentRequest) Equals(ar *AgentRequest) bool {
+	return self.Method == ar.Method && self.AgentEnvVar == ar.AgentEnvVar && self.AppName == ar.AppName && self.BiQ == ar.BiQ && self.TierName == ar.TierName && self.Tech == ar.Tech
+}

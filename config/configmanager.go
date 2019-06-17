@@ -160,12 +160,12 @@ func (self *MutexConfigManager) reconcile(updated *m.AppDBag) {
 	self.validate()
 	self.Mutex.Unlock()
 
-	//	if self.Get().InstrumentationUpdated {
-	//		go self.InstrumentCallback()
-	//		self.Mutex.Lock()
-	//		self.Conf.InstrumentationUpdated = false
-	//		self.Mutex.Unlock()
-	//	}
+	if self.Get().InstrumentationUpdated {
+		go self.InstrumentCallback()
+		self.Mutex.Lock()
+		self.Conf.InstrumentationUpdated = false
+		self.Mutex.Unlock()
+	}
 }
 
 func (self *MutexConfigManager) Get() *m.AppDBag {

@@ -172,7 +172,7 @@ func (c *MainController) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 
 func (c *MainController) startAppIDUpdater(stopCh <-chan struct{}) {
 	bag := (*c.ConfManager).Get()
-	c.appAppIDTicker(stopCh, time.NewTicker(time.Duration(bag.MetricsSyncInterval)*time.Second))
+	c.appAppIDTicker(stopCh, time.NewTicker(time.Duration(bag.SnapshotSyncInterval)*time.Second))
 }
 
 func (c *MainController) appAppIDTicker(stop <-chan struct{}, ticker *time.Ticker) {

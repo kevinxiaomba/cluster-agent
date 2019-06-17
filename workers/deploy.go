@@ -46,7 +46,7 @@ func NewDeployWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
 	dw := DeployWorker{Client: client, ConfigManager: cm, SummaryMap: make(map[string]m.ClusterDeployMetrics), WQ: queue,
 		AppdController: controller, PendingCache: []string{}, FailedCache: make(map[string]m.AttachStatus), Logger: l}
-	//	cm.SubscribeToInstrumentationUpdates(dw.uninstrument)
+	cm.SubscribeToInstrumentationUpdates(dw.uninstrument)
 	dw.initDeployInformer(client)
 	return dw
 }
@@ -542,10 +542,11 @@ func (dw *DeployWorker) uninstrument() {
 		if v, ok := deployObject.Spec.Template.Annotations[instr.APPD_ATTACH_PENDING]; ok {
 			if v != instr.APPD_ATTACH_FAILED {
 				newReq := instr.GetAgentRequestsForDeployment(deployObject, bag, dw.Logger)
-				//if instrumented, but does not have any matching requests based on new rules
-				if newReq == nil {
-					//re-create request from annotaion
-					oldRequests := m.FromAnnotation(v)
+				//if instrumented, but does not have any matching requests based on new rules or differs from
+				//the original request
+				//re-create request from annotaion
+				oldRequests := m.FromAnnotation(v)
+				if newReq == nil || !newReq.Equals(oldRequests) {
 					dw.Logger.Infof("Deployment %s does not match the instrumentation rules any longer. Removing instrumentation...", deployObject.Name)
 					// call ReverseDeploymentInstrumentation
 					ReverseDeploymentInstrumentation(deployObject.Name, deployObject.Namespace, oldRequests, true, bag, dw.Logger, dw.Client)
@@ -601,8 +602,8 @@ func ReverseDeploymentInstrumentation(deployName string, namespace string, agent
 
 		//strip env vars
 		match := []string{"Dappdynamics", "javaagent"}
-		stripEnvVars(d, agentRequests.GetFirstRequest().AgentEnvVar, match)
-		stripEnvVars(d, "APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY", []string{})
+		stripEnvVars(d, agentRequests.GetFirstRequest().AgentEnvVar, match, l)
+		stripEnvVars(d, "APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY", []string{}, l)
 
 		//strip volumes and volume mounts
 		if d.Spec.Template.Spec.Volumes != nil {
@@ -695,7 +696,7 @@ func ReverseDeploymentInstrumentation(deployName string, namespace string, agent
 	}
 }
 
-func stripEnvVars(d *appsv1.Deployment, envVarName string, match []string) {
+func stripEnvVars(d *appsv1.Deployment, envVarName string, match []string, l *log.Logger) {
 	//strip only what was added
 	envVarIndex := -1
 	containerIndex := -1
@@ -709,26 +710,40 @@ func stripEnvVars(d *appsv1.Deployment, envVarName string, match []string) {
 		}
 	}
 	if containerIndex >= 0 && envVarIndex >= 0 {
+		l.Infof("Container env var %s found", envVarName)
 		if len(match) > 0 {
+			l.Infof("Matching strings %v provided", match)
 			envVar := d.Spec.Template.Spec.Containers[containerIndex].Env[envVarIndex]
 			ar := strings.Fields(envVar.Value)
+			l.Infof("Current value split: %v", ar)
 			noApm := []string{}
 			for _, v := range ar {
+				l.Infof("Checking segment: %s ", v)
+				keep := true
 				for _, ms := range match {
-					if !strings.Contains(v, ms) {
-						noApm = append(noApm, v)
+					if strings.Contains(v, ms) {
+						keep = false
+						break
 					}
+				}
+				if keep {
+					l.Infof("Matching string %s is not present. Keeping the segment %", v)
+					noApm = append(noApm, v)
 				}
 			}
 			if len(noApm) > 0 {
+				l.Infof("NoAPM values detected: %v", noApm)
 				originalValue := strings.Join(noApm, " ")
+				l.Infof("Restoring the original value: %s", originalValue)
 				d.Spec.Template.Spec.Containers[containerIndex].Env[envVarIndex].Value = originalValue
 			} else {
+				l.Infof("Only APM values detected. Deleting the variable")
 				d.Spec.Template.Spec.Containers[containerIndex].Env[envVarIndex] = d.Spec.Template.Spec.Containers[containerIndex].Env[len(d.Spec.Template.Spec.Containers[containerIndex].Env)-1]
 				d.Spec.Template.Spec.Containers[containerIndex].Env = d.Spec.Template.Spec.Containers[containerIndex].Env[:len(d.Spec.Template.Spec.Containers[containerIndex].Env)-1]
 			}
 
 		} else {
+			l.Infof("No match. Deleting the entire variable")
 			d.Spec.Template.Spec.Containers[containerIndex].Env[envVarIndex] = d.Spec.Template.Spec.Containers[containerIndex].Env[len(d.Spec.Template.Spec.Containers[containerIndex].Env)-1]
 			d.Spec.Template.Spec.Containers[containerIndex].Env = d.Spec.Template.Spec.Containers[containerIndex].Env[:len(d.Spec.Template.Spec.Containers[containerIndex].Env)-1]
 		}
