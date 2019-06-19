@@ -458,7 +458,6 @@ func (dw *DashboardWorker) updateClusterOverview(bag *m.DashboardBag) error {
 				}
 			}
 		}
-
 		//update dashboard with static widgets
 		savedDash, errSaveDash := dw.saveDashboard(dashboard)
 
@@ -722,7 +721,7 @@ func (dw *DashboardWorker) validateDimensions(currentX, currentY, lastLine, heig
 }
 
 func (dw *DashboardWorker) updateHealthWidget(widget *map[string]interface{}, bag *m.DashboardBag) {
-	//determin if the widget is for the agent or a different app
+	//determine if the widget is for the agent or a different app
 	if (*widget)["label"] == "appd" {
 		(*widget)["applicationId"] = bag.ClusterAppID
 		(*widget)["entityIds"] = []int{bag.ClusterNodeID}

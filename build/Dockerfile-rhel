@@ -23,7 +23,7 @@ LABEL name="AppDynamics ClusterAgent" \
 
 
 COPY --from=builder /usr/local/go/src/github.com/appdynamics/cluster-agent/cluster-agent /opt/appdynamics/cluster-agent
-COPY --from=builder /usr/local/go/src/github.com/appdynamics/cluster-agent/build/systemSSL.crt /opt/appdynamics/ssl/systemSSL.crt
+COPY --from=builder /usr/local/go/src/github.com/appdynamics/cluster-agent/build/appdsaascert.pem /opt/appdynamics/ssl/appdsaascert.pem
 COPY --from=builder /usr/local/go/src/github.com/appdynamics/cluster-agent/templates/*.json /opt/appdynamics/templates/
 COPY --from=builder /usr/local/go/src/github.com/appdynamics/cluster-agent/vendor/appdynamics/lib/libappdynamics.so /opt/appdynamics/lib/libappdynamics.so
 

@@ -232,7 +232,7 @@ func GetDefaultProperties() *AppDBag {
 		TierName:                    "ClusterAgent",
 		NodeName:                    "Node1",
 		AgentServerPort:             8989,
-		SystemSSLCert:               "/opt/appdynamics/ssl/systemSSL.crt",
+		SystemSSLCert:               "/opt/appdynamics/ssl/appdsaascert.pem",
 		AgentSSLCert:                "",
 		EventAPILimit:               100,
 		MetricsSyncInterval:         60,

@@ -289,9 +289,12 @@ func (c *ControllerClient) GetMetricID(appID int, metricPath string) (float64, e
 
 	bag := (*c.ConfManager).Get()
 	// if controller version is less than 4.5.7.5 use an older restui call
+	c.logger.Debugf("Controller version: %d.%d.%d.%d", bag.ControllerVer1, bag.ControllerVer2, bag.ControllerVer3, bag.ControllerVer4)
 	if bag.CompareControllerVersions(4, 5, 7, 5) < 0 {
 		c.logger.Debug("Using older version of GetMetricID call")
 		return c.GetMetricID457(appID, metricPath)
+	} else {
+		c.logger.Debug("Using the new version of GetMetricID call")
 	}
 
 	path := "restui/metricBrowser/async/metric-tree/root"

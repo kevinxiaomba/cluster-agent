@@ -93,6 +93,15 @@ func (self *MutexConfigManager) Set(conf *m.AppDBag) {
 		conf.SchemaSkipCache = self.Conf.SchemaSkipCache
 	}
 
+	conf.ControllerVer1 = self.Conf.ControllerVer1
+	conf.ControllerVer2 = self.Conf.ControllerVer2
+	conf.ControllerVer3 = self.Conf.ControllerVer3
+	conf.ControllerVer4 = self.Conf.ControllerVer4
+
+	conf.AppID = self.Conf.AppID
+	conf.TierID = self.Conf.TierID
+	conf.NodeID = self.Conf.NodeID
+
 	self.Conf = conf
 
 	self.validate()
@@ -146,6 +155,14 @@ func (self *MutexConfigManager) validate() {
 
 func (self *MutexConfigManager) reconcile(updated *m.AppDBag) {
 	self.Mutex.Lock()
+	updated.ControllerVer1 = self.Conf.ControllerVer1
+	updated.ControllerVer2 = self.Conf.ControllerVer2
+	updated.ControllerVer3 = self.Conf.ControllerVer3
+	updated.ControllerVer4 = self.Conf.ControllerVer4
+	updated.AppID = self.Conf.AppID
+	updated.TierID = self.Conf.TierID
+	updated.NodeID = self.Conf.NodeID
+
 	updatedVal := reflect.ValueOf(*updated)
 	currentVal := reflect.ValueOf(self.Conf)
 	for i := 0; i < updatedVal.Type().NumField(); i++ {
