@@ -539,18 +539,19 @@ func (dw *DeployWorker) uninstrument() {
 	for _, obj := range dw.informer.GetStore().List() {
 		deployObject := obj.(*appsv1.Deployment)
 		count++
-		if v, ok := deployObject.Spec.Template.Annotations[instr.APPD_ATTACH_PENDING]; ok {
-			if v != instr.APPD_ATTACH_FAILED {
-				newReq := instr.GetAgentRequestsForDeployment(deployObject, bag, dw.Logger)
-				//if instrumented, but does not have any matching requests based on new rules or differs from
-				//the original request
-				//re-create request from annotaion
-				oldRequests := m.FromAnnotation(v)
-				if newReq == nil || !newReq.Equals(oldRequests) {
-					dw.Logger.Infof("Deployment %s does not match the instrumentation rules any longer. Removing instrumentation...", deployObject.Name)
-					// call ReverseDeploymentInstrumentation
-					ReverseDeploymentInstrumentation(deployObject.Name, deployObject.Namespace, oldRequests, true, bag, dw.Logger, dw.Client)
-				}
+		_, biqExists := deployObject.Annotations[instr.DEPLOY_BIQ_ANNOTATION]
+		_, instrExists := deployObject.Annotations[instr.DEPLOY_ANNOTATION]
+		v, ok := deployObject.Spec.Template.Annotations[instr.APPD_ATTACH_PENDING]
+		if biqExists || instrExists || (ok && v != instr.APPD_ATTACH_FAILED) {
+			newReq := instr.GetAgentRequestsForDeployment(deployObject, bag, dw.Logger)
+			//if instrumented, but does not have any matching requests based on new rules or differs from
+			//the original request
+			//re-create request from annotaion
+			oldRequests := m.FromAnnotation(v)
+			if newReq == nil || !newReq.Equals(oldRequests) {
+				dw.Logger.Infof("Deployment %s does not match the instrumentation rules any longer. Removing instrumentation...", deployObject.Name)
+				// call ReverseDeploymentInstrumentation
+				ReverseDeploymentInstrumentation(deployObject.Name, deployObject.Namespace, oldRequests, true, bag, dw.Logger, dw.Client)
 			}
 		} else {
 			//check if needs to be instrumented
@@ -679,6 +680,7 @@ func ReverseDeploymentInstrumentation(deployName string, namespace string, agent
 			}
 			if d.Annotations != nil {
 				delete(d.Annotations, instr.DEPLOY_ANNOTATION)
+				delete(d.Annotations, instr.DEPLOY_BIQ_ANNOTATION)
 			}
 		}
 

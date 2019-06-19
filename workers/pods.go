@@ -745,6 +745,7 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 		}
 		lockServices.RUnlock()
 
+		lockEPs.RLock()
 		for _, ep := range pw.EndpointCache {
 			if ep.Namespace == podObject.Namespace {
 				summaryNS.EndpointCount++
@@ -756,6 +757,8 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 				}
 			}
 		}
+		lockEPs.RUnlock()
+
 		pw.SummaryMap[podObject.Namespace] = summaryNS
 	}
 
