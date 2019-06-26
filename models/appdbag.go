@@ -73,6 +73,7 @@ type AppDBag struct {
 	MetricsSyncInterval         int // Frequency of metrics pushes to the controller, sec
 	SnapshotSyncInterval        int // Frequency of snapshot pushes to events api, sec
 	AgentServerPort             int
+	NetVizPort                  int
 	NsToMonitor                 []string
 	NsToMonitorExclude          []string
 	DeploysToDashboard          []string
@@ -173,7 +174,13 @@ func UpdateField(fieldName string, current *reflect.Value, updated *reflect.Valu
 /// current controller version is -1 = older, 1 - newer or equal
 func (bag *AppDBag) CompareControllerVersions(ver1 int, ver2 int, ver3 int, ver4 int) int {
 	if bag.ControllerVer1 > 0 && bag.ControllerVer2 > 0 && bag.ControllerVer3 > 0 && bag.ControllerVer4 > 0 {
-		if bag.ControllerVer1 >= ver1 && bag.ControllerVer2 >= ver2 && bag.ControllerVer3 >= ver3 && bag.ControllerVer4 >= ver4 {
+		if bag.ControllerVer1 > ver1 {
+			return 1
+		} else if bag.ControllerVer1 == ver1 && bag.ControllerVer2 > ver2 {
+			return 1
+		} else if bag.ControllerVer2 == ver2 && bag.ControllerVer3 > ver3 {
+			return 1
+		} else if bag.ControllerVer3 == ver3 && bag.ControllerVer4 >= ver4 {
 			return 1
 		} else {
 			return -1
@@ -290,6 +297,7 @@ func GetDefaultProperties() *AppDBag {
 		InitRequestCpu:              "0.1",
 		BiqRequestMem:               "600",
 		BiqRequestCpu:               "0.1",
+		NetVizPort:                  0,
 		ProxyUrl:                    "",
 		ProxyUser:                   "",
 		ProxyPass:                   "",

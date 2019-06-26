@@ -499,6 +499,10 @@ func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tier
 		cmd = fmt.Sprintf("%s,appdynamics.agent.logs.dir=%s", cmd, ai.Bag.AgentLogOverride)
 	}
 
+	if ai.Bag.NetVizPort > 0 {
+		cmd = fmt.Sprintf("%s,-Dappdynamics.socket.collection.bci.enable=true", cmd)
+	}
+
 	//BIQ instrumentation. If Analytics agent is remote, provide the url when attaching
 	ai.Logger.Infof("BiQ deployment option is %s.", biQDeploymentOption)
 	if agentRequest.IsBiQRemote() {

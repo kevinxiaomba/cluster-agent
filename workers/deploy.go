@@ -82,13 +82,31 @@ func (dw *DeployWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	wg.Add(1)
 	go dw.informer.Run(stopCh)
 
+	if !cache.WaitForCacheSync(stopCh, dw.HasSynced) {
+		dw.Logger.Errorf("Timed out waiting for deployment caches to sync")
+	}
+	dw.Logger.Infof("Deployment Cache syncronized. Starting the processing...")
+
 	wg.Add(1)
 	go dw.startMetricsWorker(stopCh)
 
 	wg.Add(1)
 	go dw.startEventQueueWorker(stopCh)
 
+	//instrumentation check timer
+	bag := (*dw.ConfigManager).Get()
+	uninstrumentTimer := time.NewTimer(time.Second * time.Duration(bag.SnapshotSyncInterval))
+	go func() {
+		<-uninstrumentTimer.C
+		dw.Logger.Info("Running initial check to validate instrumentation")
+		dw.uninstrument()
+	}()
+
 	<-stopCh
+}
+
+func (dw *DeployWorker) HasSynced() bool {
+	return dw.informer.HasSynced()
 }
 
 func (pw *DeployWorker) qualifies(p *appsv1.Deployment) bool {
@@ -605,6 +623,8 @@ func ReverseDeploymentInstrumentation(deployName string, namespace string, agent
 		match := []string{"Dappdynamics", "javaagent"}
 		stripEnvVars(d, agentRequests.GetFirstRequest().AgentEnvVar, match, l)
 		stripEnvVars(d, "APPDYNAMICS_AGENT_ACCOUNT_ACCESS_KEY", []string{}, l)
+		stripEnvVars(d, "APPDYNAMICS_NETVIZ_AGENT_HOST", []string{}, l)
+		stripEnvVars(d, "APPDYNAMICS_NETVIZ_AGENT_PORT", []string{}, l)
 
 		//strip volumes and volume mounts
 		if d.Spec.Template.Spec.Volumes != nil {
@@ -623,7 +643,6 @@ func ReverseDeploymentInstrumentation(deployName string, namespace string, agent
 
 				analyticsIndex := -1
 				for i, ev := range d.Spec.Template.Spec.Volumes {
-
 					if ev.Name == bag.AppLogMountName {
 						analyticsIndex = i
 					}
@@ -651,7 +670,6 @@ func ReverseDeploymentInstrumentation(deployName string, namespace string, agent
 
 							volMountBiq := -1
 							for i, vm := range d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts {
-
 								if vm.Name == bag.AppLogMountName {
 									volMountBiq = i
 								}
@@ -667,11 +685,17 @@ func ReverseDeploymentInstrumentation(deployName string, namespace string, agent
 			}
 		}
 
+		//validate clean removal (sanity check)
+		removeVolume(bag.AppLogMountName, d, bag, l)
+		javaVolume := fmt.Sprintf("%s-%s", bag.AgentMountName, m.Java)
+		removeVolume(javaVolume, d, bag, l)
+		dotNetVolume := fmt.Sprintf("%s-%s", bag.AgentMountName, m.DotNet)
+		removeVolume(dotNetVolume, d, bag, l)
+
 		if removeAnnotations == false {
 			if d.Spec.Template.Annotations == nil {
 				d.Spec.Template.Annotations = make(map[string]string)
 			}
-
 			d.Spec.Template.Annotations[instr.APPD_ATTACH_PENDING] = instr.APPD_ATTACH_FAILED
 		} else {
 			if d.Spec.Template.Annotations != nil {
@@ -695,6 +719,37 @@ func ReverseDeploymentInstrumentation(deployName string, namespace string, agent
 		l.Errorf("Failed to reverse instrumentation of the deployment %s: %v\n", deployName, retryErr)
 	} else {
 		l.Info("Successfully removed instrumentation from %s", deployName)
+	}
+}
+
+func removeVolume(volName string, d *appsv1.Deployment, bag *m.AppDBag, l *log.Logger) {
+	volumeIndex := -1
+	for i, ev := range d.Spec.Template.Spec.Volumes {
+		if ev.Name == volName {
+			volumeIndex = i
+		}
+	}
+
+	if volumeIndex >= 0 {
+		d.Spec.Template.Spec.Volumes[volumeIndex] = d.Spec.Template.Spec.Volumes[len(d.Spec.Template.Spec.Volumes)-1]
+		d.Spec.Template.Spec.Volumes = d.Spec.Template.Spec.Volumes[:len(d.Spec.Template.Spec.Volumes)-1]
+	}
+
+	for containerIndex, _ := range d.Spec.Template.Spec.Containers {
+		//strip appd-volume mounts
+		if d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts != nil {
+			volMountIndex := -1
+			for i, vm := range d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts {
+				if vm.Name == volName {
+					volMountIndex = i
+				}
+			}
+
+			if volMountIndex >= 0 {
+				d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts[volMountIndex] = d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts[len(d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts)-1]
+				d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts = d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts[:len(d.Spec.Template.Spec.Containers[containerIndex].VolumeMounts)-1]
+			}
+		}
 	}
 }
 
@@ -729,7 +784,7 @@ func stripEnvVars(d *appsv1.Deployment, envVarName string, match []string, l *lo
 					}
 				}
 				if keep {
-					l.Infof("Matching string %s is not present. Keeping the segment %", v)
+					l.Infof("Matching string is not present. Keeping the segment %", v)
 					noApm = append(noApm, v)
 				}
 			}
@@ -793,6 +848,10 @@ func (dw *DeployWorker) updateContainerEnv(ar *m.AgentRequest, deployObj *appsv1
 			javaOptsVal = fmt.Sprintf("%s -Dappdynamics.agent.logs.dir=%s", javaOptsVal, bag.AgentLogOverride)
 		}
 
+		if bag.NetVizPort > 0 {
+			javaOptsVal = fmt.Sprintf("%s -Dappdynamics.socket.collection.bci.enable=true", javaOptsVal)
+		}
+
 		if deployObj.Spec.Template.Spec.Containers[containerIndex].Env == nil {
 			deployObj.Spec.Template.Spec.Containers[containerIndex].Env = []v1.EnvVar{}
 		} else {
@@ -804,6 +863,7 @@ func (dw *DeployWorker) updateContainerEnv(ar *m.AgentRequest, deployObj *appsv1
 				}
 			}
 		}
+
 		//key reference
 		keyRef := v1.SecretKeySelector{Key: instr.APPD_SECRET_KEY_NAME, LocalObjectReference: v1.LocalObjectReference{
 			Name: instr.APPD_SECRET_NAME}}
@@ -814,6 +874,19 @@ func (dw *DeployWorker) updateContainerEnv(ar *m.AgentRequest, deployObj *appsv1
 		}
 		//prepend the secret ref
 		deployObj.Spec.Template.Spec.Containers[containerIndex].Env = append([]v1.EnvVar{envVarKey}, deployObj.Spec.Template.Spec.Containers[containerIndex].Env...)
+
+		//netviz
+		if bag.NetVizPort > 0 {
+			fieldRef := v1.ObjectFieldSelector{FieldPath: "status.hostIP"}
+			netVizHostVar := v1.EnvVar{Name: "APPDYNAMICS_NETVIZ_AGENT_HOST",
+				ValueFrom: &v1.EnvVarSource{FieldRef: &fieldRef}}
+			deployObj.Spec.Template.Spec.Containers[containerIndex].Env = append(deployObj.Spec.Template.Spec.Containers[containerIndex].Env, netVizHostVar)
+
+			netVizHostPort := v1.EnvVar{Name: "APPDYNAMICS_NETVIZ_AGENT_PORT",
+				Value: strconv.Itoa(bag.NetVizPort)}
+			deployObj.Spec.Template.Spec.Containers[containerIndex].Env = append(deployObj.Spec.Template.Spec.Containers[containerIndex].Env, netVizHostPort)
+		}
+
 	}
 
 }
