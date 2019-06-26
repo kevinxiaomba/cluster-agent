@@ -138,7 +138,19 @@ nsToInstrument:
 - ns1
 ```
 
-#### Use case 7
+#### Use case 7. Network visibility
+All Java deployments in namespaces ns1 will be instrumented with Network visibility. These apps leverage a custom `$APM_OPTIONS` environment variable. All deployments will be grouped under application `appd-application01` in AppDynamics.
+
+```
+instrumentationMethod: "mountEnv"
+appNameLiteral: appd-application01
+agentEnvVar: APM_OPTIONS
+netVizPort: 3892
+nsToInstrument:
+- ns1
+```
+
+#### Use case 8
 To remove AppDynamics application agents from the application deployments, change one of the following instrumentation settings in the `clusteragent` spec:
 
 * instrumentationMethod (set to "none")
