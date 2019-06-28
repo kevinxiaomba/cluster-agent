@@ -116,6 +116,8 @@ instrumentRule:
 #### Use case 5
 Use instrumentation rule to instrument Java apps with the name matching "java-app" in namespace ns1. Use the value of pod label "name" for the AppDynamics application name. 
 The Java agent will be logging to a custom location, /dev/myapp/logs. All directories with AppDynamics agent artifacts will be accessible for read/write operations by user 2000 / group 2000.
+ 
+**Note** that users and groups must be referenced by their numeric identifiers.
 
 ```instrumentRule:
   - appDAppLabel: name
