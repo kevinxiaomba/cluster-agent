@@ -23,6 +23,7 @@ import (
 
 const (
 	GET_JAVA_PID_CMD             string = "ps -o pid,comm,args | grep java | awk '{print$1,$2,$3}'"
+	GET_JAVA_PID_CMD_ALT         string = "pgrep java"
 	ATTACHED_ANNOTATION          string = "appd-attached"
 	APPD_ATTACH_PENDING          string = "appd-attach-pending"
 	APPD_ATTACH_FAILED           string = "Failed. Image unavailable"
@@ -288,6 +289,20 @@ func ShouldInstrumentDeployment(deployObj *appsv1.Deployment, bag *m.AppDBag, pe
 	return initRequested, biq, agentRequests
 }
 
+func (ai *AgentInjector) getContainerUniqueID(agentRequest *m.AgentRequest, podObj *v1.Pod) string {
+
+	for _, st := range podObj.Status.ContainerStatuses {
+		if st.Name == agentRequest.ContainerName {
+			trimmed := strings.Replace(st.ContainerID, "docker://", "", 1)
+			uhId := trimmed[0:12]
+			agentRequest.UniqueHostID = uhId
+			return uhId
+		}
+	}
+
+	return ""
+}
+
 func (ai *AgentInjector) findContainer(agentRequest *m.AgentRequest, podObj *v1.Pod) *v1.Container {
 
 	for _, c := range podObj.Spec.Containers {
@@ -324,6 +339,9 @@ func (ai AgentInjector) EnsureInstrumentation(statusChanel chan m.AttachStatus, 
 				c := ai.findContainer(&r, podObj)
 				if r.Method == m.MountAttach {
 					ai.Logger.Infof("Container %s requested. Instrumenting...", c.Name)
+					if r.UniqueHostIDRequested() {
+						r.UniqueHostID = ai.getContainerUniqueID(&r, podObj)
+					}
 					err := ai.instrumentContainer(r.AppName, r.TierName, c, podObj, m.BiQDeploymentOption(r.BiQ), &r)
 					statusChanel <- ai.buildAttachStatus(podObj, &r, err, false)
 				} else {
@@ -376,13 +394,19 @@ func (ai AgentInjector) instrumentContainer(appName string, tierName string, con
 		if err != nil {
 			return fmt.Errorf("Unable to instrument. Failed to copy necessary artifacts into the pod. %v", err)
 		}
-		fmt.Println("Artifacts copied. Starting instrumentation...")
+		ai.Logger.Info("Artifacts copied. Starting instrumentation...")
 	} else {
-		fmt.Println("Artifacts mounted. Starting instrumentation...")
+		ai.Logger.Info("Artifacts mounted. Starting instrumentation...")
 	}
 
 	//run attach
 	code, output, err := exec.RunCommandInPod(podObj.Name, podObj.Namespace, container.Name, "", GET_JAVA_PID_CMD)
+	ai.Logger.Infof("First attempt to get the process ID using %s. Exec error code = %d. Output: %s, Error = %v\n", GET_JAVA_PID_CMD, code, output, err)
+	if code != 0 || err != nil || len(output) == 0 {
+		ai.Logger.Infof("Unable to determine process using 'ps' command. Attempting with 'pgrep'.... Error: %v", err)
+		code, output, err = exec.RunCommandInPod(podObj.Name, podObj.Namespace, container.Name, "", GET_JAVA_PID_CMD_ALT)
+		ai.Logger.Infof("Result of second attempt to get the process ID using %s. Exec error code = %d. Output: %s, Error = %v\n", GET_JAVA_PID_CMD_ALT, code, output, err)
+	}
 	if code == 0 {
 		legit := true
 		//split by line
@@ -403,7 +427,7 @@ func (ai AgentInjector) instrumentContainer(appName string, tierName string, con
 			pid, err := strconv.Atoi(fields[0])
 			if err == nil {
 				ai.Logger.Debugf("PID: %d, Name: %s, Args: %s\n", pid, procName, args)
-				if strings.Contains(procName, "java") {
+				if procName == "" || strings.Contains(procName, "java") {
 					procID = pid
 				}
 			}
@@ -412,10 +436,15 @@ func (ai AgentInjector) instrumentContainer(appName string, tierName string, con
 			ai.Logger.Infof("Instrumenting process %d", procID)
 			return ai.instrument(podObj, procID, appName, tierName, container.Name, &exec, biQDeploymentOption, agentRequest)
 		} else {
-			return fmt.Errorf("Enable to determine process to instrument")
+			if !legit {
+				return fmt.Errorf("The process %d appears to be already instrumented with AppD", procID)
+			} else {
+				return fmt.Errorf("Unable to determine process to instrument\n")
+			}
 		}
 	} else {
-		return fmt.Errorf("Exec error code = %d. Output: %s, Error = %v\n", code, output, err)
+		ai.Logger.Errorf("Unable to determine process to instrument. Exec error code = %d. Output: %s, Error = %v\n", code, output, err)
+		return fmt.Errorf("Unable to determine process to instrument. Exec error code = %d. Output: %s, Error = %v\n", code, output, err)
 	}
 	return nil
 }
@@ -503,6 +532,11 @@ func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tier
 		cmd = fmt.Sprintf("%s,-Dappdynamics.socket.collection.bci.enable=true", cmd)
 	}
 
+	//unique hostID
+	if agentRequest.UniqueHostIDDefined() {
+		cmd = fmt.Sprintf("%s,-Dappdynamics.agent.uniqueHostId=%s", cmd, agentRequest.UniqueHostID)
+	}
+
 	//BIQ instrumentation. If Analytics agent is remote, provide the url when attaching
 	ai.Logger.Infof("BiQ deployment option is %s.", biQDeploymentOption)
 	if agentRequest.IsBiQRemote() {
@@ -511,6 +545,7 @@ func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tier
 			cmd = fmt.Sprintf("%s,appdynamics.analytics.agent.url=%s/v2/sinks/bt", cmd, ai.Bag.AnalyticsAgentUrl)
 		}
 	}
+	ai.Logger.Infof("Executing Java attach command %s", cmd)
 	code, output, err := exec.RunCommandInPod(podObj.Name, podObj.Namespace, containerName, "", cmd)
 	if code == 0 {
 		ai.Logger.Info("AppDynamics Java agent attached.")

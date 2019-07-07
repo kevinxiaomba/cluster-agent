@@ -91,6 +91,7 @@ type AppDBag struct {
 	InitRequestCpu              string
 	BiqRequestMem               string
 	BiqRequestCpu               string
+	UniqueHostID                string
 	LogLines                    int //0 - no logging
 	PodEventNumber              int
 	RemoteBiqProtocol           string
@@ -297,6 +298,7 @@ func GetDefaultProperties() *AppDBag {
 		InitRequestCpu:              "0.1",
 		BiqRequestMem:               "600",
 		BiqRequestCpu:               "0.1",
+		UniqueHostID:                "",
 		NetVizPort:                  0,
 		ProxyUrl:                    "",
 		ProxyUser:                   "",

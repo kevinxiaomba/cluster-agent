@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -18,6 +19,7 @@ const (
 	ALL_CONTAINERS    string         = "all"
 	FIRST_CONTAINER   string         = "all"
 	VERSION_LATEST    string         = "latest"
+	AUTO_UH_ID        string         = "auto"
 )
 
 type InstrumentationMethod string
@@ -44,6 +46,7 @@ type AgentRequest struct {
 
 	AppNameLiteral string
 	AgentEnvVar    string
+	UniqueHostID   string //"auto"
 }
 
 type AgentRequestList struct {
@@ -59,6 +62,7 @@ func (ar *AgentRequest) Clone() AgentRequest {
 	clone.Tech = ar.Tech
 	clone.ContainerName = ar.ContainerName
 	clone.Version = ar.Version
+	clone.UniqueHostID = ar.UniqueHostID
 	clone.MatchString = []string{}
 	for _, ms := range ar.MatchString {
 		clone.MatchString = append(clone.MatchString, ms)
@@ -98,6 +102,10 @@ func NewAgentRequest(appdAgentLabel string, appName string, tierName string, biq
 
 	if agentRequest.BiQ == "" && agentRequest.BiQ != string(NoBiq) {
 		agentRequest.BiQ = bag.BiqService
+	}
+
+	if agentRequest.UniqueHostID == "" {
+		agentRequest.UniqueHostID = bag.UniqueHostID
 	}
 
 	return agentRequest
@@ -144,6 +152,9 @@ func NewAgentRequestListFromArray(ar []AgentRequest, bag *AppDBag, containers []
 		}
 		if r.AppNameLiteral != "" {
 			r.AppName = r.AppNameLiteral
+		}
+		if r.UniqueHostID == "" {
+			r.UniqueHostID = bag.UniqueHostID
 		}
 
 		list.Items = append(list.Items, r)
@@ -239,6 +250,7 @@ func getDefaultAgentRequest(appName string, tierName string, biq string, bag *Ap
 	}
 
 	r.AgentEnvVar = bag.AgentEnvVar
+	r.UniqueHostID = bag.UniqueHostID
 
 	r.Version = VERSION_LATEST
 	return r
@@ -346,6 +358,23 @@ func (al *AgentRequestList) BiQRequested() bool {
 	return false
 }
 
+func (al *AgentRequestList) UniqueHostIDRequested() bool {
+	for _, r := range al.Items {
+		if r.UniqueHostIDRequested() {
+			return true
+		}
+	}
+	return false
+}
+
+func (ar *AgentRequest) UniqueHostIDRequested() bool {
+	return ar.UniqueHostID == AUTO_UH_ID
+}
+
+func (ar *AgentRequest) UniqueHostIDDefined() bool {
+	return ar.UniqueHostID != "" && ar.UniqueHostID != AUTO_UH_ID
+}
+
 func (ar *AgentRequest) BiQRequested() bool {
 
 	return ar.BiQ != "" && ar.BiQ != string(NoBiq)
@@ -375,7 +404,7 @@ func (al *AgentRequestList) ToAnnotation() string {
 }
 
 func (ar *AgentRequest) ToAnnotation() string {
-	return fmt.Sprintf("%s__%s__%s__%s__%s__%s__%s__%s", ar.Method, ar.Tech, ar.ContainerName, ar.AppName, ar.TierName, ar.BiQ, ar.Version, ar.AgentEnvVar)
+	return fmt.Sprintf("%s__%s__%s__%s__%s__%s__%s__%s__%s", ar.Method, ar.Tech, ar.ContainerName, ar.AppName, ar.TierName, ar.BiQ, ar.Version, ar.AgentEnvVar, ar.UniqueHostID)
 }
 
 func FromAnnotation(annotation string) *AgentRequestList {
@@ -446,6 +475,17 @@ func RequestFromAnnotation(annotation string) AgentRequest {
 		r.Version = arr[6]
 		r.AgentEnvVar = arr[7]
 	}
+	if len(arr) > 8 {
+		r.Method = InstrumentationMethod(arr[0])
+		r.Tech = TechnologyName(arr[1])
+		r.ContainerName = arr[2]
+		r.AppName = arr[3]
+		r.TierName = arr[4]
+		r.BiQ = arr[5]
+		r.Version = arr[6]
+		r.AgentEnvVar = arr[7]
+		r.UniqueHostID = arr[8]
+	}
 	return r
 }
 
@@ -480,4 +520,23 @@ func (self *AgentRequestList) Equals(al *AgentRequestList) bool {
 
 func (self *AgentRequest) Equals(ar *AgentRequest) bool {
 	return self.Method == ar.Method && self.AgentEnvVar == ar.AgentEnvVar && self.AppName == ar.AppName && self.BiQ == ar.BiQ && self.TierName == ar.TierName && self.Tech == ar.Tech
+}
+
+func (self *AgentRequest) ToJson() (string, error) {
+	data := ""
+	d, err := json.Marshal(self)
+	if err != nil {
+		return "", fmt.Errorf("Unable to serialize agent request. %v", err)
+	}
+	data = string(d)
+	return data, nil
+}
+
+func FromJson(data string) (*AgentRequest, error) {
+	var ar AgentRequest
+	err := json.Unmarshal([]byte(data), &ar)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to serialize agent request. %v", err)
+	}
+	return &ar, nil
 }
