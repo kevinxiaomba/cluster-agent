@@ -435,14 +435,14 @@ func (dw *DeployWorker) updateDeployment(deployObj *appsv1.Deployment, init bool
 			return fmt.Errorf("Failed to get latest version of Deployment: %v", getErr)
 		}
 
-		if agentRequests.EnvRequired() {
-			dw.Logger.Debug("Ensuring secret...")
-			errSecret := dw.ensureSecret(deployObj.Namespace)
-			if errSecret != nil {
-				dw.Logger.Debugf("Failed to ensure secret in namespace %s: %v\n", deployObj.Namespace, errSecret)
-				return fmt.Errorf("Failed to ensure secret in namespace %s: %v\n", deployObj.Namespace, errSecret)
-			}
+		//		if agentRequests.EnvRequired() {
+		dw.Logger.Debug("Ensuring secret...")
+		errSecret := dw.ensureSecret(deployObj.Namespace)
+		if errSecret != nil {
+			dw.Logger.Debugf("Failed to ensure secret in namespace %s: %v\n", deployObj.Namespace, errSecret)
+			return fmt.Errorf("Failed to ensure secret in namespace %s: %v\n", deployObj.Namespace, errSecret)
 		}
+		//		}
 		var biqContainerIndex int = -1
 		initMap := []string{}
 		for _, r := range agentRequests.Items {

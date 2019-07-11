@@ -15,7 +15,7 @@ MAINTAINER AppDynamics
 
 LABEL name="AppDynamics ClusterAgent" \
       vendor="AppDynamics" \
-      version="0.x" \
+      version="0.2.4" \
       release="1" \
       url="https://www.appdynamics.com" \
       summary="AppDynamics monitoring solution for applications deployed to Kubernetes clusters" \

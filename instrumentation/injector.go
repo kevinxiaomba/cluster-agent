@@ -23,7 +23,7 @@ import (
 
 const (
 	GET_JAVA_PID_CMD             string = "ps -o pid,comm,args | grep java | awk '{print$1,$2,$3}'"
-	GET_JAVA_PID_CMD_ALT         string = "pgrep java"
+	GET_JAVA_PID_CMD_ALT         string = "pidof java"
 	ATTACHED_ANNOTATION          string = "appd-attached"
 	APPD_ATTACH_PENDING          string = "appd-attach-pending"
 	APPD_ATTACH_FAILED           string = "Failed. Image unavailable"
@@ -403,7 +403,7 @@ func (ai AgentInjector) instrumentContainer(appName string, tierName string, con
 	code, output, err := exec.RunCommandInPod(podObj.Name, podObj.Namespace, container.Name, "", GET_JAVA_PID_CMD)
 	ai.Logger.Infof("First attempt to get the process ID using %s. Exec error code = %d. Output: %s, Error = %v\n", GET_JAVA_PID_CMD, code, output, err)
 	if code != 0 || err != nil || len(output) == 0 {
-		ai.Logger.Infof("Unable to determine process using 'ps' command. Attempting with 'pgrep'.... Error: %v", err)
+		ai.Logger.Infof("Unable to determine process using 'ps' command. Attempting with '%s'.... Error: %v", GET_JAVA_PID_CMD_ALT, err)
 		code, output, err = exec.RunCommandInPod(podObj.Name, podObj.Namespace, container.Name, "", GET_JAVA_PID_CMD_ALT)
 		ai.Logger.Infof("Result of second attempt to get the process ID using %s. Exec error code = %d. Output: %s, Error = %v\n", GET_JAVA_PID_CMD_ALT, code, output, err)
 	}

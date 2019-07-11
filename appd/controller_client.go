@@ -31,13 +31,28 @@ func NewControllerClient(cm *config.MutexConfigManager, logger *log.Logger) (*Co
 	cfg := appd.Config{}
 
 	bag := (*cm).Get()
-
 	cfg.AppName = bag.AppName
 	cfg.TierName = bag.TierName
 	cfg.NodeName = bag.NodeName
 	cfg.Controller.Host = bag.ControllerUrl
 	cfg.Controller.Port = bag.ControllerPort
 	cfg.Controller.UseSSL = bag.SSLEnabled
+
+	if bag.ProxyHost != "" {
+		cfg.Controller.HTTPProxy.Host = bag.ProxyHost
+		p, err := strconv.Atoi(bag.ProxyPort)
+		if err != nil {
+			logger.Errorf("Proxy port value is invalid. %v", err)
+		} else {
+			cfg.Controller.HTTPProxy.Port = uint16(p)
+		}
+
+	}
+	if bag.ProxyUser != "" {
+		cfg.Controller.HTTPProxy.Username = bag.ProxyUser
+		cfg.Controller.HTTPProxy.PasswordFile = bag.ProxyPass
+	}
+
 	if bag.SSLEnabled {
 		if bag.AgentSSLCert != "" {
 			logger.Infof("Setting custom agent cert:  %s", bag.AgentSSLCert)
