@@ -66,6 +66,22 @@ func (dni *DotNetInjector) AddEnvVars(container *v1.Container, agentRequest *m.A
 	container.Env = append(container.Env, envVarNodeReuse)
 	container.Env = append(container.Env, envVarNodePrefix)
 
+	if dni.Bag.ProxyHost != "" {
+		envVarProxyHost := v1.EnvVar{Name: "APPDYNAMICS_PROXY_HOST_NAME", Value: dni.Bag.ProxyHost}
+		envVarProxyPort := v1.EnvVar{Name: "APPDYNAMICS_PROXY_PORT", Value: dni.Bag.ProxyPort}
+
+		container.Env = append(container.Env, envVarProxyHost)
+		container.Env = append(container.Env, envVarProxyPort)
+	}
+
+	if dni.Bag.ProxyUser != "" {
+		envVarProxyUser := v1.EnvVar{Name: "APPDYNAMICS_PROXY_AUTH_USER", Value: dni.Bag.ProxyUser}
+		envVarProxyPass := v1.EnvVar{Name: "APPDYNAMICS_PROXY_AUTH_PASSWORD", Value: dni.Bag.ProxyPass}
+
+		container.Env = append(container.Env, envVarProxyUser)
+		container.Env = append(container.Env, envVarProxyPass)
+	}
+
 	if agentRequest.BiQRequested() {
 		if agentRequest.BiQ == string(m.Sidecar) {
 			envVarBiqHost := v1.EnvVar{Name: "APPDYNAMICS_ANALYTICS_HOST_NAME", Value: "localhost"}

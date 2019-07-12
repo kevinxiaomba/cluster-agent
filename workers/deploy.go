@@ -852,6 +852,14 @@ func (dw *DeployWorker) updateContainerEnv(ar *m.AgentRequest, deployObj *appsv1
 			javaOptsVal = fmt.Sprintf("%s -Dappdynamics.socket.collection.bci.enable=true", javaOptsVal)
 		}
 
+		if bag.ProxyHost != "" {
+			javaOptsVal = fmt.Sprintf("%s -Dappdynamics.http.proxyHost=%s -Dappdynamics.http.proxyPort=%s", javaOptsVal, bag.ProxyHost, bag.ProxyPort)
+		}
+
+		if bag.ProxyUser != "" {
+			javaOptsVal = fmt.Sprintf("%s -Dappdynamics.http.proxyUser=%s -Dappdynamics.http.proxyPasswordFile=%s", javaOptsVal, bag.ProxyUser, bag.ProxyPass)
+		}
+
 		if deployObj.Spec.Template.Spec.Containers[containerIndex].Env == nil {
 			deployObj.Spec.Template.Spec.Containers[containerIndex].Env = []v1.EnvVar{}
 		} else {

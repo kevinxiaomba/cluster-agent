@@ -529,12 +529,21 @@ func (ai AgentInjector) instrument(podObj *v1.Pod, pid int, appName string, tier
 	}
 
 	if ai.Bag.NetVizPort > 0 {
-		cmd = fmt.Sprintf("%s,-Dappdynamics.socket.collection.bci.enable=true", cmd)
+		cmd = fmt.Sprintf("%s,appdynamics.socket.collection.bci.enable=true", cmd)
 	}
 
 	//unique hostID
 	if agentRequest.UniqueHostIDDefined() {
-		cmd = fmt.Sprintf("%s,-Dappdynamics.agent.uniqueHostId=%s", cmd, agentRequest.UniqueHostID)
+		cmd = fmt.Sprintf("%s,appdynamics.agent.uniqueHostId=%s", cmd, agentRequest.UniqueHostID)
+	}
+
+	//proxy
+	if ai.Bag.ProxyHost != "" {
+		cmd = fmt.Sprintf("%s,appdynamics.http.proxyHost=%s,appdynamics.http.proxyPort=%s", cmd, ai.Bag.ProxyHost, ai.Bag.ProxyPort)
+	}
+
+	if ai.Bag.ProxyUser != "" {
+		cmd = fmt.Sprintf("%s,appdynamics.http.proxyUser=%s,appdynamics.http.proxyPasswordFile=%s", cmd, ai.Bag.ProxyUser, ai.Bag.ProxyPass)
 	}
 
 	//BIQ instrumentation. If Analytics agent is remote, provide the url when attaching
