@@ -634,6 +634,10 @@ func (pw *PodWorker) buildAppDMetrics() {
 		}
 	}
 
+	if count == 0 {
+		pw.SummaryMap[m.ALL] = m.NewClusterPodMetrics(bag, m.ALL, m.ALL)
+	}
+
 	pw.processNamespaces()
 
 	ml := pw.builAppDMetricsList()
