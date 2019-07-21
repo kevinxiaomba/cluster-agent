@@ -98,9 +98,17 @@ func (self *MutexConfigManager) Set(conf *m.AppDBag) {
 	conf.ControllerVer3 = self.Conf.ControllerVer3
 	conf.ControllerVer4 = self.Conf.ControllerVer4
 
-	conf.AppID = self.Conf.AppID
-	conf.TierID = self.Conf.TierID
-	conf.NodeID = self.Conf.NodeID
+	if self.Conf.AppID > 0 {
+		conf.AppID = self.Conf.AppID
+	}
+
+	if self.Conf.TierID > 0 {
+		conf.TierID = self.Conf.TierID
+	}
+
+	if self.Conf.NodeID > 0 {
+		conf.NodeID = self.Conf.NodeID
+	}
 
 	self.Conf = conf
 
@@ -159,9 +167,17 @@ func (self *MutexConfigManager) reconcile(updated *m.AppDBag) {
 	updated.ControllerVer2 = self.Conf.ControllerVer2
 	updated.ControllerVer3 = self.Conf.ControllerVer3
 	updated.ControllerVer4 = self.Conf.ControllerVer4
-	updated.AppID = self.Conf.AppID
-	updated.TierID = self.Conf.TierID
-	updated.NodeID = self.Conf.NodeID
+	if self.Conf.AppID > 0 {
+		updated.AppID = self.Conf.AppID
+	}
+
+	if self.Conf.TierID > 0 {
+		updated.TierID = self.Conf.TierID
+	}
+
+	if self.Conf.NodeID > 0 {
+		updated.NodeID = self.Conf.NodeID
+	}
 
 	updatedVal := reflect.ValueOf(*updated)
 	currentVal := reflect.ValueOf(self.Conf)

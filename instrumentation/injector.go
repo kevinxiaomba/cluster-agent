@@ -603,9 +603,9 @@ func (ai AgentInjector) Associate(podObj *v1.Pod, exec *Executor, agentRequest *
 		podObj.Annotations[containerAppID] = strconv.Itoa(appID)
 		podObj.Annotations[containerTierID] = strconv.Itoa(tierID)
 	}
-	if appID == 0 {
+	if appID == 0 || tierID == 0 {
 		//mark to retry to give the agent time to initialize
-		ai.Logger.Warnf("Association error. No appID for app %s", agentRequest.AppName)
+		ai.Logger.Warnf("Association error. The app is not fully registered with the controller. App: %s, AppID: %d, TierID: %d", agentRequest.AppName, appID, tierID)
 		associateError = APPD_ASSOCIATE_ERROR
 	}
 
@@ -643,7 +643,6 @@ func (ai AgentInjector) Associate(podObj *v1.Pod, exec *Executor, agentRequest *
 						podObj.Annotations[containerAppID] = strconv.Itoa(app)
 						podObj.Annotations[containerTierID] = strconv.Itoa(tier)
 						podObj.Annotations[containerNodeID] = strconv.Itoa(nodeID)
-						//TODO: if analytics was intstrumented, queue up to enable the app for analytics
 					}
 				} else {
 					ai.Logger.Warnf("Association error. Empty node name: %s (%s)\n", nodeName, folderName)

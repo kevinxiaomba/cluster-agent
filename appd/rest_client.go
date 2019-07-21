@@ -517,6 +517,57 @@ func (rc *RestClient) GetControllerVersion() ([]byte, error) {
 	return b, nil
 }
 
+func (rc *RestClient) GetNodeInfo(appName string, nodeName string) (int, int, error) {
+	var nodeID int = 0
+	var tierID int = 0
+
+	url := fmt.Sprintf("%srest/applications/%s/nodes/%s?output=json", rc.getControllerUrl(), appName, nodeName)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return tierID, nodeID, fmt.Errorf("Unable to get node info. %v\n", err)
+	}
+	ar := strings.Split(rc.Bag.RestAPICred, ":")
+	if len(ar) != 2 {
+		return tierID, nodeID, fmt.Errorf("Rest API credentials are formatted incorrectly. Must be <username>@<account>:<password>")
+	}
+
+	req.SetBasicAuth(ar[0], ar[1])
+	client := rc.getClient(req)
+	resp, err := client.Do(req)
+	if err != nil {
+		rc.logger.Errorf("Failed to get controller version. %v", err)
+		return tierID, nodeID, err
+	}
+	defer resp.Body.Close()
+
+	b, _ := ioutil.ReadAll(resp.Body)
+
+	if resp.StatusCode < 200 || resp.StatusCode > 202 {
+		return tierID, nodeID, fmt.Errorf("Controller request failed with status %s", resp.Status)
+	}
+
+	var nodeList []interface{}
+	errJson := json.Unmarshal(b, &nodeList)
+	if errJson != nil {
+		return tierID, nodeID, fmt.Errorf("Unable to deserialize tier object")
+	}
+
+	for _, n := range nodeList {
+		nodeObj := n.(map[string]interface{})
+		for key, val := range nodeObj {
+			if key == "id" {
+				nodeID = int(val.(float64))
+			}
+			if key == "tierId" {
+				tierID = int(val.(float64))
+			}
+		}
+	}
+
+	return tierID, nodeID, nil
+}
+
 func (rc *RestClient) validateLicense(accountID int) (bool, error) {
 	licenseExists := false
 	url := fmt.Sprintf("%sapi/accounts/%d/licensemodules", rc.getControllerUrl(), accountID)

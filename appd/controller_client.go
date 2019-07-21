@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -210,11 +211,22 @@ func (c *ControllerClient) DetermineNodeID(appName string, tierName string, node
 		return appID, 0, 0, err
 	}
 
-	tierID, nodeID, e := c.FindNodeID(appID, tierName, nodeName)
+	c.logger.Infof("Obtaining Tier and Node IDs... for app %s %d. Tier name: %s Node name: %s\n", appName, appID, tierName, nodeName)
+	rc := NewRestClient((*c.ConfManager).Get(), c.logger)
+
+	tierID, nodeID, e := rc.GetNodeInfo(appName, nodeName)
+
+	//	tierID, nodeID, e := c.FindNodeID(appID, tierName, nodeName)
 
 	if e != nil {
 		return appID, tierID, nodeID, e
 	}
+
+	if tierID == 0 || nodeID == 0 {
+		return appID, tierID, nodeID, fmt.Errorf("Tier ID or Node ID are not assigned by the controller.")
+	}
+
+	c.logger.Infof("Obtained AppID: %d, TierID: %d, nodeID: %d\n", appID, tierID, nodeID)
 
 	return appID, tierID, nodeID, nil
 }
@@ -239,18 +251,22 @@ func (c *ControllerClient) FindAppID(appName string) (int, error) {
 			break
 		}
 	}
-	c.logger.Debugf("Loaded App ID = %d \n", appID)
+	c.logger.Infof("Loaded App ID = %d \n", appID)
 	return appID, nil
 }
 
 func (c *ControllerClient) FindNodeID(appID int, tierName string, nodeName string) (int, int, error) {
 	var nodeID int = 0
 	var tierID int = 0
+	now := time.Now().UnixNano() / int64(time.Millisecond)
+	after := time.Now().Add(-5 * time.Minute)
+	earlier := after.UnixNano() / int64(time.Millisecond)
+
 	path := "restui/tiers/list/health"
-	jsonData := fmt.Sprintf(`{"requestFilter": {"queryParams": {"applicationId": %d, "performanceDataFilter": "REPORTING"}, "filters": []}, "resultColumns": ["TIER_NAME"], "columnSorts": [{"column": "TIER_NAME", "direction": "ASC"}], "searchFilters": [], "limit": -1, "offset": 0}`, appID)
+	jsonData := fmt.Sprintf(`{"requestFilter": {"queryParams": {"applicationId": %d, "performanceDataFilter": "REPORTING"}, "filters": []}, "resultColumns": ["TIER_NAME"], "columnSorts": [{"column": "TIER_NAME", "direction": "ASC"}], "searchFilters": [], "limit": -1, "offset": 0, "timeRangeStart": %d, "timeRangeEnd": %d}`, appID, earlier, now)
 	d := []byte(jsonData)
 
-	//	fmt.Printf("Node ID JSON data: %s", jsonData)
+	c.logger.Infof("Node ID JSON data: %s", jsonData)
 
 	rc := NewRestClient((*c.ConfManager).Get(), c.logger)
 	data, err := rc.CallAppDController(path, "POST", d)
@@ -263,6 +279,7 @@ func (c *ControllerClient) FindNodeID(appID int, tierName string, nodeName strin
 	if errJson != nil {
 		return tierID, nodeID, fmt.Errorf("Unable to deserialize tier object")
 	}
+	c.logger.Infof("Determine node payload: %v", tierObj)
 	for key, val := range tierObj {
 		if key == "data" {
 			if val != nil {
@@ -275,6 +292,7 @@ func (c *ControllerClient) FindNodeID(appID int, tierName string, nodeName strin
 					}
 					tierID = int(tier["id"].(float64))
 					if nodeName == "" {
+						c.logger.Infof("Determine node. Node Id = 0 TierID: %d\n", tierID)
 						return tierID, 0, nil
 					}
 					for k, prop := range tier {
@@ -285,7 +303,7 @@ func (c *ControllerClient) FindNodeID(appID int, tierName string, nodeName strin
 									for i, p := range nodeObj {
 										if i == "nodeName" && p == nodeName {
 											nodeID = int(nodeObj["nodeId"].(float64))
-											c.logger.Debugf("Obtained TierID: %d, nodeID: %d\n", tierID, nodeID)
+											c.logger.Infof("Obtained TierID: %d, nodeID: %d\n", tierID, nodeID)
 											return tierID, nodeID, nil
 										}
 									}
@@ -297,6 +315,7 @@ func (c *ControllerClient) FindNodeID(appID int, tierName string, nodeName strin
 			}
 		}
 	}
+	c.logger.Infof("Determine node last return: TierID: %d, nodeID: %d\n", tierID, nodeID)
 	return tierID, nodeID, nil
 }
 

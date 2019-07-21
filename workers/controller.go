@@ -185,11 +185,13 @@ func (c *MainController) appAppIDTicker(stop <-chan struct{}, ticker *time.Ticke
 			if errAppd != nil {
 				c.Logger.Errorf("Enable to fetch component IDs. Error: %v\n", errAppd)
 			} else {
-				c.Logger.Info("Retrieved Agent Application ID. Stopping the job ...")
+				c.Logger.Infof("Retrieved Agent Application ID: %d %d %d  Stopping the job ...", appID, tierID, nodeID)
 				bag.AppID = appID
 				bag.TierID = tierID
 				bag.NodeID = nodeID
 				(*c.ConfManager).Set(bag)
+				updated := (*c.ConfManager).Get()
+				c.Logger.Infof("Agent Application ID in the internal cache: %d %d %d", updated.AppID, updated.TierID, updated.NodeID)
 				ticker.Stop()
 			}
 		case <-stop:

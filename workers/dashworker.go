@@ -367,6 +367,11 @@ func (dw *DashboardWorker) validateTierDashboardBag(bag *m.DashboardBag) error {
 
 //cluster dashboard
 func (dw *DashboardWorker) updateClusterOverview(bag *m.DashboardBag) error {
+	dw.Logger.Infof("Cluster Overview Dashboard. AppID: %d, TierID: %d, NodeID: %d", bag.ClusterAppID, bag.ClusterTierID, bag.ClusterNodeID)
+	if bag.ClusterAppID == 0 || bag.ClusterTierID == 0 {
+		return fmt.Errorf("Cluster cannot be created until the application is fully registered in the controller. AppID: %d TierID: %d", bag.ClusterAppID, bag.ClusterTierID)
+	}
+
 	fileName := fmt.Sprintf("/deploy%s", FULL_CLUSTER)
 	dashboard, err, exists := dw.loadDashboardTemplate(fileName)
 	if err != nil && exists {

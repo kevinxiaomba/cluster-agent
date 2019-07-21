@@ -587,7 +587,7 @@ func (pw *PodWorker) buildAppDMetrics() {
 	pw.Logger.Debugf("Deployments configured for dashboarding: %s \n", bag.DeploysToDashboard)
 
 	var clusterBag *m.DashboardBag = nil
-	if !pw.DelayDashboard {
+	if !pw.DelayDashboard && bag.AppID > 0 && bag.TierID > 0 {
 		//create cluster dashboard bag
 		clusterBag = m.NewDashboardBagCluster()
 	}
@@ -649,10 +649,9 @@ func (pw *PodWorker) buildAppDMetrics() {
 	pw.AppdController.StopBT(bth)
 
 	//delay dashboard generation
-	if !pw.DelayDashboard && clusterBag != nil {
+	if !pw.DelayDashboard && clusterBag != nil && bag.AppID > 0 && bag.TierID > 0 {
 		clusterBag.ClusterName = bag.AppName
 		clusterBag.ClusterAppID = bag.AppID
-		clusterBag.ClusterTierID = bag.TierID
 		clusterBag.ClusterTierID = bag.TierID
 		clusterBag.ClusterNodeID = bag.NodeID
 		dash[bag.AppName] = *clusterBag
@@ -1163,12 +1162,14 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 		}
 		lockServices.RUnlock()
 
+		lockEPs.RLock()
 		for _, ep := range pw.EndpointCache {
 			epSelector := labels.SelectorFromSet(ep.Labels)
 			if ep.Namespace == podObject.Namespace && epSelector.Matches(podLabels) {
 				podObject.Endpoints = append(podObject.Endpoints, ep)
 			}
 		}
+		lockEPs.RUnlock()
 
 		podObject.InitContainerCount = len(p.Spec.InitContainers)
 		podObject.ContainerCount = len(p.Spec.Containers)
