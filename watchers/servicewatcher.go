@@ -21,18 +21,17 @@ import (
 )
 
 type ServiceWatcher struct {
-	Client      *kubernetes.Clientset
-	SvcCache    map[string]m.ServiceSchema
-	ConfManager *config.MutexConfigManager
-	Listener    *WatchListener
-	UpdateDelay bool
-	Logger      *log.Logger
+	Client       *kubernetes.Clientset
+	LockServices *sync.RWMutex
+	SvcCache     map[string]m.ServiceSchema
+	ConfManager  *config.MutexConfigManager
+	Listener     *WatchListener
+	UpdateDelay  bool
+	Logger       *log.Logger
 }
 
-var lockServices = sync.RWMutex{}
-
-func NewServiceWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]m.ServiceSchema, listener WatchListener, l *log.Logger) *ServiceWatcher {
-	sw := ServiceWatcher{Client: client, SvcCache: *cache, ConfManager: cm, Listener: &listener, Logger: l}
+func NewServiceWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]m.ServiceSchema, listener WatchListener, l *log.Logger, lock *sync.RWMutex) *ServiceWatcher {
+	sw := ServiceWatcher{Client: client, SvcCache: *cache, ConfManager: cm, Listener: &listener, Logger: l, LockServices: lock}
 	sw.UpdateDelay = true
 	return &sw
 }
@@ -105,10 +104,12 @@ func (pw ServiceWatcher) onDeleteService(svc *v1.Service) {
 	if !pw.qualifies(svc) {
 		return
 	}
+	pw.LockServices.RLock()
 	_, ok := pw.SvcCache[utils.GetK8sServiceKey(svc)]
+	pw.LockServices.RUnlock()
 	if ok {
-		lockServices.Lock()
-		defer lockServices.Unlock()
+		pw.LockServices.Lock()
+		defer pw.LockServices.Unlock()
 		delete(pw.SvcCache, utils.GetK8sServiceKey(svc))
 		pw.notifyListener(svc.Namespace)
 	}
@@ -122,8 +123,8 @@ func (pw ServiceWatcher) onUpdateService(svc *v1.Service) {
 }
 
 func (pw ServiceWatcher) updateMap(svc *v1.Service) {
-	lockServices.Lock()
-	defer lockServices.Unlock()
+	pw.LockServices.Lock()
+	defer pw.LockServices.Unlock()
 	key := utils.GetK8sServiceKey(svc)
 	svcSchema := m.NewServiceSchema(svc)
 	pw.SvcCache[key] = *svcSchema
@@ -131,8 +132,8 @@ func (pw ServiceWatcher) updateMap(svc *v1.Service) {
 }
 
 func (pw ServiceWatcher) CloneMap() map[string]m.ServiceSchema {
-	lockServices.RLock()
-	defer lockServices.RUnlock()
+	pw.LockServices.RLock()
+	defer pw.LockServices.RUnlock()
 	m := make(map[string]m.ServiceSchema)
 	for key, val := range pw.SvcCache {
 		m[key] = val
@@ -141,7 +142,7 @@ func (pw ServiceWatcher) CloneMap() map[string]m.ServiceSchema {
 }
 
 func (pw *ServiceWatcher) UpdateServiceCache() {
-	lockServices.RLock()
+	pw.LockServices.RLock()
 
 	external := make(map[string]m.ServiceSchema)
 	for key, svcSchema := range pw.SvcCache {
@@ -149,25 +150,25 @@ func (pw *ServiceWatcher) UpdateServiceCache() {
 			external[key] = svcSchema
 		}
 	}
-	lockServices.RUnlock()
+	pw.LockServices.RUnlock()
 
 	//check validity of external services
 	for k, headless := range external {
 		svcObj, kk := pw.findExternalService(headless.ExternalName)
 		if svcObj != nil {
-			lockServices.Lock()
+			pw.LockServices.Lock()
 			headless.ExternalSvcValid = true
 			pw.SvcCache[k] = headless
 			svcObj.ExternallyReferenced(true)
 			pw.SvcCache[kk] = *svcObj
-			lockServices.Unlock()
+			pw.LockServices.Unlock()
 		}
 	}
 }
 
 func (pw *ServiceWatcher) findExternalService(headlessName string) (*m.ServiceSchema, string) {
-	lockServices.RLock()
-	defer lockServices.RUnlock()
+	pw.LockServices.RLock()
+	defer pw.LockServices.RUnlock()
 	for kk, svcObj := range pw.SvcCache {
 		path := fmt.Sprintf("%s.%s", svcObj.Name, svcObj.Namespace)
 		if strings.Contains(headlessName, path) {

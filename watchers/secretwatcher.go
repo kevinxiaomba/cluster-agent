@@ -19,6 +19,7 @@ import (
 
 type SecretWathcer struct {
 	Client      *kubernetes.Clientset
+	LockSecrets *sync.RWMutex
 	SecretCache map[string]v1.Secret
 	ConfManager *config.MutexConfigManager
 	Listener    *WatchListener
@@ -26,10 +27,8 @@ type SecretWathcer struct {
 	Logger      *log.Logger
 }
 
-var lockSecrets = sync.RWMutex{}
-
-func NewSecretWathcer(client *kubernetes.Clientset, secret *config.MutexConfigManager, cache *map[string]v1.Secret, listener WatchListener, l *log.Logger) *SecretWathcer {
-	sw := SecretWathcer{Client: client, SecretCache: *cache, ConfManager: secret, Listener: &listener, Logger: l}
+func NewSecretWathcer(client *kubernetes.Clientset, secret *config.MutexConfigManager, cache *map[string]v1.Secret, listener WatchListener, l *log.Logger, lock *sync.RWMutex) *SecretWathcer {
+	sw := SecretWathcer{Client: client, SecretCache: *cache, ConfManager: secret, Listener: &listener, Logger: l, LockSecrets: lock}
 	sw.UpdateDelay = true
 	return &sw
 }
@@ -95,10 +94,12 @@ func (pw SecretWathcer) onDeleteConfig(secret *v1.Secret) {
 	if !pw.qualifies(secret) {
 		return
 	}
+	pw.LockSecrets.RLock()
 	_, ok := pw.SecretCache[utils.GetSecretKey(secret)]
+	pw.LockSecrets.RUnlock()
 	if ok {
-		lockSecrets.Lock()
-		defer lockSecrets.Unlock()
+		pw.LockSecrets.Lock()
+		defer pw.LockSecrets.Unlock()
 		delete(pw.SecretCache, utils.GetSecretKey(secret))
 		pw.notifyListener(secret.Namespace)
 	}
@@ -118,15 +119,15 @@ func (pw SecretWathcer) notifyListener(namespace string) {
 }
 
 func (pw SecretWathcer) updateMap(secret *v1.Secret) {
-	lockSecrets.Lock()
-	defer lockSecrets.Unlock()
+	pw.LockSecrets.Lock()
+	defer pw.LockSecrets.Unlock()
 	pw.SecretCache[utils.GetSecretKey(secret)] = *secret
 	pw.notifyListener(secret.Namespace)
 }
 
 func (pw SecretWathcer) CloneMap() map[string]v1.Secret {
-	lockSecrets.RLock()
-	defer lockSecrets.RUnlock()
+	pw.LockSecrets.RLock()
+	defer pw.LockSecrets.RUnlock()
 	m := make(map[string]v1.Secret)
 	for key, val := range pw.SecretCache {
 		m[key] = val

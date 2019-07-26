@@ -20,18 +20,17 @@ import (
 	"github.com/appdynamics/cluster-agent/utils"
 )
 
-var lockRQ = sync.RWMutex{}
-
 type RQWatcher struct {
 	Client       *kubernetes.Clientset
+	LockRQ       *sync.RWMutex
 	RQCache      map[string]v1.ResourceQuota
 	ConfManager  *config.MutexConfigManager
 	UpdatedCache map[string]m.RqSchema
 	Logger       *log.Logger
 }
 
-func NewRQWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]v1.ResourceQuota, l *log.Logger) *RQWatcher {
-	epw := RQWatcher{Client: client, RQCache: *cache, ConfManager: cm, UpdatedCache: make(map[string]m.RqSchema), Logger: l}
+func NewRQWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]v1.ResourceQuota, l *log.Logger, lock *sync.RWMutex) *RQWatcher {
+	epw := RQWatcher{Client: client, RQCache: *cache, ConfManager: cm, UpdatedCache: make(map[string]m.RqSchema), Logger: l, LockRQ: lock}
 	return &epw
 }
 
@@ -111,10 +110,14 @@ func (pw RQWatcher) onDeleteResourceQuota(rq *v1.ResourceQuota) {
 		return
 	}
 	key := utils.GetKey(rq.Namespace, rq.Name)
+
+	pw.LockRQ.RLock()
 	_, ok := pw.RQCache[key]
+	pw.LockRQ.RUnlock()
+
 	if ok {
-		lockRQ.Lock()
-		defer lockRQ.Unlock()
+		pw.LockRQ.Lock()
+		defer pw.LockRQ.Unlock()
 		delete(pw.RQCache, key)
 		delete(pw.UpdatedCache, key)
 	}
@@ -128,8 +131,8 @@ func (pw RQWatcher) onUpdateResourceQuota(rq *v1.ResourceQuota) {
 }
 
 func (pw RQWatcher) updateMap(rq *v1.ResourceQuota) {
-	lockRQ.Lock()
-	defer lockRQ.Unlock()
+	pw.LockRQ.Lock()
+	defer pw.LockRQ.Unlock()
 	key := utils.GetKey(rq.Namespace, rq.Name)
 	pw.RQCache[key] = *rq
 	schema := m.NewRQSchema(rq)
@@ -137,8 +140,8 @@ func (pw RQWatcher) updateMap(rq *v1.ResourceQuota) {
 }
 
 func (pw RQWatcher) CloneMap() map[string]v1.ResourceQuota {
-	lockRQ.RLock()
-	defer lockRQ.RUnlock()
+	pw.LockRQ.RLock()
+	defer pw.LockRQ.RUnlock()
 	m := make(map[string]v1.ResourceQuota)
 	for key, val := range pw.RQCache {
 		m[key] = val

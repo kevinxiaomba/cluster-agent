@@ -19,6 +19,7 @@ import (
 
 type ConfigWatcher struct {
 	Client      *kubernetes.Clientset
+	LockConfigs *sync.RWMutex
 	CMCache     map[string]v1.ConfigMap
 	ConfManager *config.MutexConfigManager
 	Listener    *WatchListener
@@ -26,10 +27,8 @@ type ConfigWatcher struct {
 	Logger      *log.Logger
 }
 
-var lockConfigs = sync.RWMutex{}
-
-func NewConfigWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]v1.ConfigMap, listener WatchListener, l *log.Logger) *ConfigWatcher {
-	sw := ConfigWatcher{Client: client, CMCache: *cache, ConfManager: cm, Listener: &listener, Logger: l}
+func NewConfigWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]v1.ConfigMap, listener WatchListener, l *log.Logger, lock *sync.RWMutex) *ConfigWatcher {
+	sw := ConfigWatcher{Client: client, CMCache: *cache, ConfManager: cm, Listener: &listener, Logger: l, LockConfigs: lock}
 	sw.UpdateDelay = true
 	return &sw
 }
@@ -102,10 +101,13 @@ func (pw ConfigWatcher) onDeleteConfig(cm *v1.ConfigMap) {
 	if !pw.qualifies(cm) {
 		return
 	}
+	pw.LockConfigs.RLock()
 	_, ok := pw.CMCache[utils.GetConfigMapKey(cm)]
+	pw.LockConfigs.RUnlock()
+
 	if ok {
-		lockConfigs.Lock()
-		defer lockConfigs.Unlock()
+		pw.LockConfigs.Lock()
+		defer pw.LockConfigs.Unlock()
 		delete(pw.CMCache, utils.GetConfigMapKey(cm))
 		pw.notifyListener(cm.Namespace)
 	}
@@ -119,14 +121,14 @@ func (pw ConfigWatcher) onUpdateConfig(cm *v1.ConfigMap) {
 }
 
 func (pw ConfigWatcher) updateMap(cm *v1.ConfigMap) {
-	lockConfigs.Lock()
-	defer lockConfigs.Unlock()
+	pw.LockConfigs.Lock()
+	defer pw.LockConfigs.Unlock()
 	pw.CMCache[utils.GetConfigMapKey(cm)] = *cm
 }
 
 func (pw ConfigWatcher) CloneMap() map[string]v1.ConfigMap {
-	lockConfigs.RLock()
-	defer lockConfigs.RUnlock()
+	pw.LockConfigs.RLock()
+	defer pw.LockConfigs.RUnlock()
 	m := make(map[string]v1.ConfigMap)
 	for key, val := range pw.CMCache {
 		m[key] = val

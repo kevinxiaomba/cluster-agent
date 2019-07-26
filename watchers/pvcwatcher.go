@@ -17,15 +17,14 @@ import (
 
 type PVCWatcher struct {
 	Client      *kubernetes.Clientset
+	LockPVC     *sync.RWMutex
 	PVCCache    map[string]v1.PersistentVolumeClaim
 	ConfManager *config.MutexConfigManager
 	Logger      *log.Logger
 }
 
-var lockPVC = sync.RWMutex{}
-
-func NewPVCWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]v1.PersistentVolumeClaim, l *log.Logger) *PVCWatcher {
-	epw := PVCWatcher{Client: client, PVCCache: *cache, ConfManager: cm, Logger: l}
+func NewPVCWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]v1.PersistentVolumeClaim, l *log.Logger, lock *sync.RWMutex) *PVCWatcher {
+	epw := PVCWatcher{Client: client, PVCCache: *cache, ConfManager: cm, Logger: l, LockPVC: lock}
 	return &epw
 }
 
@@ -84,10 +83,13 @@ func (pw PVCWatcher) onDeletePVC(pvc *v1.PersistentVolumeClaim) {
 	if !pw.qualifies(pvc) {
 		return
 	}
+	pw.LockPVC.RLock()
 	_, ok := pw.PVCCache[utils.GetKey(pvc.Namespace, pvc.Name)]
+	pw.LockPVC.RUnlock()
+
 	if ok {
-		lockPVC.Lock()
-		defer lockPVC.Unlock()
+		pw.LockPVC.Lock()
+		defer pw.LockPVC.Unlock()
 		delete(pw.PVCCache, utils.GetKey(pvc.Namespace, pvc.Name))
 		pw.Logger.WithField("name", pvc.Name).Debug("Deleted PVC")
 	}
@@ -102,14 +104,14 @@ func (pw PVCWatcher) onUpdatePVC(pvc *v1.PersistentVolumeClaim) {
 }
 
 func (pw PVCWatcher) updateMap(pvc *v1.PersistentVolumeClaim) {
-	lockPVC.Lock()
-	defer lockPVC.Unlock()
+	pw.LockPVC.Lock()
+	defer pw.LockPVC.Unlock()
 	pw.PVCCache[utils.GetKey(pvc.Namespace, pvc.Name)] = *pvc
 }
 
 func (pw PVCWatcher) CloneMap() map[string]v1.PersistentVolumeClaim {
-	lockPVC.RLock()
-	defer lockPVC.RUnlock()
+	pw.LockPVC.RLock()
+	defer pw.LockPVC.RUnlock()
 	m := make(map[string]v1.PersistentVolumeClaim)
 	for key, val := range pw.PVCCache {
 		m[key] = val

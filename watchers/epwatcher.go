@@ -17,18 +17,18 @@ import (
 
 type EndpointWatcher struct {
 	Client        *kubernetes.Clientset
+	LockEP        *sync.RWMutex
 	EndpointCache map[string]v1.Endpoints
 	UpdatedCache  map[string]v1.Endpoints
 	ConfManager   *config.MutexConfigManager
 	Logger        *log.Logger
 }
 
-var lockEP = sync.RWMutex{}
 var lockUpdated = sync.RWMutex{}
 
-func NewEndpointWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]v1.Endpoints, l *log.Logger) *EndpointWatcher {
+func NewEndpointWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]v1.Endpoints, l *log.Logger, lock *sync.RWMutex) *EndpointWatcher {
 	epw := EndpointWatcher{Client: client, EndpointCache: *cache, UpdatedCache: make(map[string]v1.Endpoints),
-		ConfManager: cm, Logger: l}
+		ConfManager: cm, Logger: l, LockEP: lock}
 	return &epw
 }
 
@@ -87,10 +87,13 @@ func (pw EndpointWatcher) onDeleteEndpoint(ep *v1.Endpoints) {
 	if !pw.qualifies(ep) {
 		return
 	}
+	pw.LockEP.RLock()
 	_, ok := pw.EndpointCache[utils.GetEndpointKey(ep)]
+	pw.LockEP.RUnlock()
+
 	if ok {
-		lockEP.Lock()
-		defer lockEP.Unlock()
+		pw.LockEP.Lock()
+		defer pw.LockEP.Unlock()
 		delete(pw.EndpointCache, utils.GetEndpointKey(ep))
 	}
 }
@@ -104,8 +107,8 @@ func (pw EndpointWatcher) onUpdateEndpoint(ep *v1.Endpoints) {
 }
 
 func (pw EndpointWatcher) updateMap(ep *v1.Endpoints) {
-	lockEP.Lock()
-	defer lockEP.Unlock()
+	pw.LockEP.Lock()
+	defer pw.LockEP.Unlock()
 	pw.EndpointCache[utils.GetEndpointKey(ep)] = *ep
 }
 
@@ -115,8 +118,8 @@ func (pw EndpointWatcher) updateChanged(ep *v1.Endpoints) {
 	pw.UpdatedCache[utils.GetEndpointKey(ep)] = *ep
 }
 func (pw EndpointWatcher) CloneMap() map[string]v1.Endpoints {
-	lockEP.RLock()
-	defer lockEP.RUnlock()
+	pw.LockEP.RLock()
+	defer pw.LockEP.RUnlock()
 	m := make(map[string]v1.Endpoints)
 	for key, val := range pw.EndpointCache {
 		m[key] = val

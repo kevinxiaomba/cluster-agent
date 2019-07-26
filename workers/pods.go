@@ -76,6 +76,8 @@ type PodWorker struct {
 	ContainerCache          map[string]m.ContainerSchema
 }
 
+var lockRQ = sync.RWMutex{}
+
 var lockOwnerMap = sync.RWMutex{}
 var lockDashboards = sync.RWMutex{}
 var lockNS = sync.RWMutex{}
@@ -87,6 +89,9 @@ var lockServices = sync.RWMutex{}
 var lockEPs = sync.RWMutex{}
 var lockNSMap = sync.RWMutex{}
 var lockContainerCache = sync.RWMutex{}
+var lockConfigs = sync.RWMutex{}
+var lockSecrets = sync.RWMutex{}
+var lockPVC = sync.RWMutex{}
 
 func NewPodWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, controller *app.ControllerClient, config *rest.Config, l *log.Logger, nw *NodesWorker) PodWorker {
 	queue := workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter())
@@ -99,13 +104,13 @@ func NewPodWorker(client *kubernetes.Clientset, cm *config.MutexConfigManager, c
 		CMCache: make(map[string]v1.ConfigMap), SecretCache: make(map[string]v1.Secret), NSCache: make(map[string]m.NsSchema), DashboardCache: make(map[string]m.PodSchema),
 		ContainerCache: make(map[string]m.ContainerSchema)}
 	pw.initPodInformer(client)
-	pw.ServiceWatcher = w.NewServiceWatcher(client, cm, &pw.ServiceCache, pw, l)
-	pw.EndpointWatcher = w.NewEndpointWatcher(client, cm, &pw.EndpointCache, l)
-	pw.PVCWatcher = w.NewPVCWatcher(client, cm, &pw.PVCCache, l)
-	pw.RQWatcher = w.NewRQWatcher(client, cm, &pw.RQCache, pw.Logger)
-	pw.CMWatcher = w.NewConfigWatcher(client, cm, &pw.CMCache, pw, l)
-	pw.SecretWatcher = w.NewSecretWathcer(client, cm, &pw.SecretCache, pw, l)
-	pw.NSWatcher = w.NewNSWatcher(client, cm, &pw.NSCache, l)
+	pw.ServiceWatcher = w.NewServiceWatcher(client, cm, &pw.ServiceCache, pw, l, &lockServices)
+	pw.EndpointWatcher = w.NewEndpointWatcher(client, cm, &pw.EndpointCache, l, &lockEPs)
+	pw.PVCWatcher = w.NewPVCWatcher(client, cm, &pw.PVCCache, l, &lockPVC)
+	pw.RQWatcher = w.NewRQWatcher(client, cm, &pw.RQCache, pw.Logger, &lockRQ)
+	pw.CMWatcher = w.NewConfigWatcher(client, cm, &pw.CMCache, pw, l, &lockConfigs)
+	pw.SecretWatcher = w.NewSecretWathcer(client, cm, &pw.SecretCache, pw, l, &lockSecrets)
+	pw.NSWatcher = w.NewNSWatcher(client, cm, &pw.NSCache, l, &lockNS)
 	pw.DelayDashboard = true
 	pw.NodesMonitor = nw
 
@@ -394,12 +399,16 @@ func (pw *PodWorker) onDeletePod(obj interface{}) {
 }
 
 func (pw *PodWorker) clearContainerCache(podObject *m.PodSchema) {
-	lockContainerCache.Lock()
-	defer lockContainerCache.Unlock()
+
 	for _, c := range podObject.Containers {
 		key := utils.GetContainerKey(podObject, &c)
-		if _, exists := pw.ContainerCache[key]; exists {
+		lockContainerCache.RLock()
+		_, exists := pw.ContainerCache[key]
+		lockContainerCache.RUnlock()
+		if exists {
+			lockContainerCache.Lock()
 			delete(pw.ContainerCache, key)
+			lockContainerCache.Unlock()
 		}
 	}
 }
@@ -489,28 +498,45 @@ func (pw PodWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	}
 	pw.Logger.Infof("Pod Cache syncronized. Starting the processing...")
 
+	bag := (*pw.ConfManager).Get()
+
 	wg.Add(1)
 	go pw.startMetricsWorker(stopCh)
 
-	wg.Add(1)
-	go pw.startEventQueueWorker(stopCh)
+	// delay the start of the metric collection job (30 sec by default)
+	metricsTimer := time.NewTimer(time.Duration(bag.SnapshotSyncInterval*2) * time.Second)
+	go func() {
+		<-metricsTimer.C
+		pw.Logger.Infof("Starting data syncronization job...")
+		wg.Add(1)
+		go pw.startEventQueueWorker(stopCh)
+	}()
 
-	go pw.ServiceWatcher.WatchServices()
-	go pw.EndpointWatcher.WatchEndpoints()
-	go pw.RQWatcher.WatchResourceQuotas()
+	// delay the start of the service EP collection job (5 sec by default)
+	epTimer := time.NewTimer(time.Second * time.Duration(5))
+	go func() {
+		<-epTimer.C
+		pw.Logger.Infof("Starting Service End Point collection jobs...")
+		go pw.EndpointWatcher.WatchEndpoints()
+		go pw.ServiceWatcher.WatchServices()
+	}()
 
-	go pw.PVCWatcher.WatchPVC()
-
-	go pw.CMWatcher.WatchConfigs()
-
-	go pw.SecretWatcher.WatchSecrets()
+	// delay the start of the dependency object collection job (15 sec by default)
+	dependencyTimer := time.NewTimer(time.Duration(bag.SnapshotSyncInterval) * time.Second)
+	go func() {
+		<-dependencyTimer.C
+		pw.Logger.Infof("Starting Dependency Object collection jobs...")
+		go pw.RQWatcher.WatchResourceQuotas()
+		go pw.PVCWatcher.WatchPVC()
+		go pw.CMWatcher.WatchConfigs()
+		go pw.SecretWatcher.WatchSecrets()
+	}()
 
 	go pw.NSWatcher.WatchNamespaces()
 
 	go pw.startRetryQueueWorker(stopCh)
 
 	//dashbard timer
-	bag := (*pw.ConfManager).Get()
 	dashTimer := time.NewTimer(time.Minute * time.Duration(bag.DashboardDelayMin))
 	go func() {
 		<-dashTimer.C
@@ -663,10 +689,13 @@ func (pw *PodWorker) buildAppDMetrics() {
 func (pw *PodWorker) processNamespaces() {
 	summary, okSum := pw.SummaryMap[m.ALL]
 	if okSum {
-		lockNS.Lock()
-		defer lockNS.Unlock()
+		//apply writable lock to resource quotas
+		lockRQ.RLock()
+		defer lockRQ.RUnlock()
 		updated := []m.NsSchema{}
+		lockNS.RLock()
 		summary.NamespaceCount = int64(len(pw.NSCache))
+		tempNS := make(map[string]m.NsSchema)
 		for k, ns := range pw.NSCache {
 			count := 0
 			for _, rq := range pw.RQCache {
@@ -680,12 +709,22 @@ func (pw *PodWorker) processNamespaces() {
 			if ns.Quotas != count {
 				ns.Quotas = count
 				updated = append(updated, ns)
-				pw.NSCache[k] = ns
+				tempNS[k] = ns
 			}
 		}
+		lockNS.RUnlock()
+
 		if len(updated) > 0 {
 			go pw.postNSBatchRecords(&updated)
 		}
+
+		//apply writable lock to namespaces
+		lockNS.Lock()
+		for tempKey, tempVal := range tempNS {
+			pw.NSCache[tempKey] = tempVal
+		}
+		lockNS.Unlock()
+
 		pw.SummaryMap[m.ALL] = summary
 	}
 }
@@ -775,6 +814,9 @@ func (pw *PodWorker) summarize(podObject *m.PodSchema) {
 
 		//get quotas that apply to the Tier/Deployment
 		var theQuota *m.RQSchemaObj = nil
+		//apply writable lock to resource quotas
+		lockRQ.RLock()
+		defer lockRQ.RUnlock()
 		for _, rq := range pw.RQCache {
 			rqSchema := m.NewRQ(&rq)
 			if rqSchema.AppliesToPod(podObject) {
@@ -1393,7 +1435,9 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 			pw.Logger.Debugf("Pending time: %s/%s %d. StartTimeMillis: %d, RunningStartTimeMillis: %d, TerminationTimeMillis: %d BreakPointMillis: %d\n", podObject.Namespace, podObject.Name, podObject.PendingTime, podObject.StartTimeMillis, podObject.RunningStartTimeMillis, podObject.TerminationTimeMillis, podObject.BreakPointMillis)
 			if firstContainer != nil {
 				firstContKey := utils.GetContainerKey(&podObject, firstContainer)
+				lockContainerCache.RLock()
 				oldSnapshot, exists := pw.ContainerCache[firstContKey]
+				lockContainerCache.RUnlock()
 				if exists {
 					if oldSnapshot.PendingTime != podObject.PendingTime {
 						changed = true
@@ -1437,7 +1481,9 @@ func (pw *PodWorker) processObject(p *v1.Pod, old *v1.Pod) (m.PodSchema, bool) {
 
 					podObject.Containers[cname] = c
 					key := utils.GetContainerKey(&podObject, &c)
+					lockContainerCache.RLock()
 					lastSnapshot, ok := pw.ContainerCache[key]
+					lockContainerCache.RUnlock()
 					if ok {
 						if lastSnapshot.CpuUse != c.CpuUse ||
 							lastSnapshot.MemUse != c.MemUse ||
@@ -1517,7 +1563,9 @@ func (pw PodWorker) updateConatainerStatus(podObject *m.PodSchema, containerObj 
 	}
 
 	key := utils.GetContainerKey(podObject, containerObj)
+	lockContainerCache.RLock()
 	lastSnapshot, ok := pw.ContainerCache[key]
+	lockContainerCache.RUnlock()
 	if ok {
 		if lastSnapshot.Restarts != st.RestartCount ||
 			containerObj.LastTerminationTime == nil && st.LastTerminationState.Terminated != nil {
@@ -1649,32 +1697,40 @@ func (pw PodWorker) processContainer(podObj *v1.Pod, podSchema *m.PodSchema, c v
 	for _, ev := range c.Env {
 		if ev.ValueFrom != nil && ev.ValueFrom.ConfigMapKeyRef != nil {
 			cmKey := utils.GetKey(podObj.Namespace, ev.ValueFrom.ConfigMapKeyRef.Name)
+			lockConfigs.RLock()
 			if _, okCM := pw.CMCache[cmKey]; !okCM {
 				pw.Logger.Debugf("CM with key %s not found\n", cmKey)
 				containerObj.MissingConfigs += fmt.Sprintf("%s;", ev.ValueFrom.ConfigMapKeyRef.Name)
 			}
+			lockConfigs.RUnlock()
 		}
 		if ev.ValueFrom != nil && ev.ValueFrom.SecretKeyRef != nil {
 			sKey := utils.GetKey(podObj.Namespace, ev.ValueFrom.SecretKeyRef.Name)
+			lockSecrets.RLock()
 			if _, okS := pw.SecretCache[sKey]; !okS {
 				containerObj.MissingSecrets += fmt.Sprintf("%s;", ev.ValueFrom.SecretKeyRef.Name)
 			}
+			lockSecrets.RUnlock()
 		}
 	}
 
 	for _, evf := range c.EnvFrom {
 		if evf.ConfigMapRef != nil {
 			cmKey := utils.GetKey(podObj.Namespace, evf.ConfigMapRef.Name)
+			lockConfigs.RLock()
 			if _, okCM := pw.CMCache[cmKey]; !okCM {
 				containerObj.MissingConfigs += fmt.Sprintf("%s;", evf.ConfigMapRef.Name)
 			}
+			lockConfigs.RUnlock()
 		}
 
 		if evf.SecretRef != nil {
 			sKey := utils.GetKey(podObj.Namespace, evf.SecretRef.Name)
+			lockSecrets.RLock()
 			if _, okS := pw.SecretCache[sKey]; !okS {
 				containerObj.MissingSecrets += fmt.Sprintf("%s;", evf.SecretRef.Name)
 			}
+			lockSecrets.RUnlock()
 		}
 	}
 
@@ -1688,7 +1744,9 @@ func (pw PodWorker) processContainer(podObj *v1.Pod, podSchema *m.PodSchema, c v
 					claim := vm.PersistentVolumeClaim
 					//lookup claim by name in the cache of known claims
 					key := utils.GetKey(podSchema.Namespace, claim.ClaimName)
+					lockPVC.RLock()
 					pvc, ok := pw.PVCCache[key]
+					lockPVC.RUnlock()
 					if ok {
 						pvcReq, exists := pvc.Spec.Resources.Requests[v1.ResourceStorage]
 						if exists {
@@ -1706,15 +1764,19 @@ func (pw PodWorker) processContainer(podObj *v1.Pod, podSchema *m.PodSchema, c v
 				//check missing dependencies
 				if vm.ConfigMap != nil && vm.Name == vol.Name {
 					cmKey := utils.GetKey(podObj.Namespace, vm.ConfigMap.Name)
+					lockConfigs.RLock()
 					if _, okCM := pw.CMCache[cmKey]; !okCM {
 						containerObj.MissingConfigs += fmt.Sprintf("%s;", vm.ConfigMap.Name)
 					}
+					lockConfigs.RUnlock()
 				}
 				if vm.Secret != nil && vm.Name == vol.Name {
 					sKey := utils.GetKey(podObj.Namespace, vm.Secret.SecretName)
+					lockSecrets.RLock()
 					if _, okS := pw.SecretCache[sKey]; !okS {
 						containerObj.MissingSecrets += fmt.Sprintf("%s;", vm.Secret.SecretName)
 					}
+					lockSecrets.RUnlock()
 				}
 			}
 		}
@@ -2068,10 +2130,10 @@ func (pw *PodWorker) purgeAssociationQueue(retryObjects []m.AgentRetryRequest) {
 
 func (pw *PodWorker) OnPodErrorEvent(podName string, eventSchema m.EventSchema) {
 	bag := (*pw.ConfManager).Get()
-	lockEventLock.Lock()
-	defer lockEventLock.Unlock()
 	key := utils.GetKey(eventSchema.Namespace, podName)
+	lockEventLock.RLock()
 	list, ok := pw.EventMap[key]
+	lockEventLock.RUnlock()
 	if !ok {
 		list = []m.EventSchema{}
 	}
@@ -2083,7 +2145,9 @@ func (pw *PodWorker) OnPodErrorEvent(podName string, eventSchema m.EventSchema) 
 	pw.Logger.Debugf("Registering pod event %s %s", eventSchema.Reason, eventSchema.Message)
 	list = append(list, eventSchema)
 
+	lockEventLock.Lock()
 	pw.EventMap[key] = list
+	lockEventLock.Unlock()
 
 	//check if pending pod is failing due to inability to load image
 	issuePod, ok, err := pw.informer.GetStore().GetByKey(key)

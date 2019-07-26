@@ -16,17 +16,16 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var lockNS = sync.RWMutex{}
-
 type NSWatcher struct {
 	Client      *kubernetes.Clientset
+	LockNS      *sync.RWMutex
 	NSCache     map[string]m.NsSchema
 	ConfManager *config.MutexConfigManager
 	Logger      *log.Logger
 }
 
-func NewNSWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]m.NsSchema, l *log.Logger) *NSWatcher {
-	epw := NSWatcher{Client: client, NSCache: *cache, ConfManager: cm, Logger: l}
+func NewNSWatcher(client *kubernetes.Clientset, cm *config.MutexConfigManager, cache *map[string]m.NsSchema, l *log.Logger, lock *sync.RWMutex) *NSWatcher {
+	epw := NSWatcher{Client: client, NSCache: *cache, ConfManager: cm, Logger: l, LockNS: lock}
 	return &epw
 }
 
@@ -87,10 +86,13 @@ func (pw NSWatcher) onDeleteNamespace(ns *v1.Namespace) {
 		return
 	}
 	key := ns.Name
+	pw.LockNS.RLock()
 	_, ok := pw.NSCache[key]
+	pw.LockNS.RUnlock()
+
 	if ok {
-		lockNS.Lock()
-		defer lockNS.Unlock()
+		pw.LockNS.Lock()
+		defer pw.LockNS.Unlock()
 		delete(pw.NSCache, key)
 	}
 }
@@ -103,15 +105,15 @@ func (pw NSWatcher) onUpdateNamespace(ns *v1.Namespace) {
 }
 
 func (pw NSWatcher) updateMap(ns *v1.Namespace) {
-	lockNS.Lock()
-	defer lockNS.Unlock()
+	pw.LockNS.Lock()
+	defer pw.LockNS.Unlock()
 	nsSchema := m.NewNsSchema(ns, (*pw.ConfManager).Get())
 	pw.NSCache[ns.Name] = nsSchema
 }
 
 func (pw NSWatcher) CloneMap() map[string]m.NsSchema {
-	lockNS.RLock()
-	defer lockNS.RUnlock()
+	pw.LockNS.RLock()
+	defer pw.LockNS.RUnlock()
 	m := make(map[string]m.NsSchema)
 	for key, val := range pw.NSCache {
 		m[key] = val

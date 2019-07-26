@@ -103,7 +103,10 @@ func (c *MainController) ValidateParameters() error {
 		return fmt.Errorf("Rest API user account is required. Create a user account in AppD and add it to the cluster-agent-secret (key api-user) in this form <user>@<account>:<pass>")
 	}
 	if bag.AccessKey == "" || bag.Account == "" || bag.GlobalAccount == "" {
-		app.ValidateAccount(bag, c.Logger)
+		valErr := app.ValidateAccount(bag, c.Logger)
+		if valErr != nil {
+			return fmt.Errorf("Account validation failed. %v", valErr)
+		}
 	}
 	if bag.EventKey == "" {
 		c.Logger.Printf("Event API key not specified. Trying to obtain an existing key...\n")
