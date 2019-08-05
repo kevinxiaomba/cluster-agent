@@ -17,7 +17,6 @@ import (
 
 	app "github.com/appdynamics/cluster-agent/appd"
 	batchTypes "k8s.io/api/batch/v1"
-	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
@@ -62,7 +61,7 @@ func (nw *JobsWorker) initJobInformer(client *kubernetes.Clientset) cache.Shared
 				return batchClient.Jobs(metav1.NamespaceAll).Watch(options)
 			},
 		},
-		&v1.Node{},
+		&batchTypes.Job{},
 		0,
 		cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc},
 	)
@@ -214,9 +213,13 @@ func (pw *JobsWorker) processObject(j *batchTypes.Job) m.JobSchema {
 
 	jobObject.Failed = j.Status.Failed
 
+	if j.Status.StartTime.IsZero() {
+		pw.Logger.Error("Job start time is not yet set")
+		return jobObject
+	}
 	jobObject.StartTime = j.Status.StartTime.Time
 
-	if j.Status.CompletionTime != nil {
+	if !j.Status.CompletionTime.IsZero() {
 		jobObject.EndTime = j.Status.CompletionTime.Time
 		jobObject.Duration = jobObject.EndTime.Sub(jobObject.StartTime).Seconds()
 	} else {
