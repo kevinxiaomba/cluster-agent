@@ -467,12 +467,11 @@ func metricsWorkerSingleNode(finished chan *m.NodeMetricsObj, client *kubernetes
 
 		data, err := client.RESTClient().Get().AbsPath(path).DoRaw()
 		if err != nil {
-			fmt.Printf("Issues when requesting metrics from metrics with path %s from server %s\n", path, err.Error())
-		}
-
-		merde := json.Unmarshal(data, &metricsObj)
-		if merde != nil {
-			fmt.Printf("Unmarshal issues. %v\n", merde)
+			fmt.Printf("Issues when requesting metrics with path [%s]: %s\n", path, err.Error())
+		} else {
+			if err = json.Unmarshal(data, &metricsObj); err != nil {
+				fmt.Printf("Unmarshal issues. %v\n", err)
+			}
 		}
 	}
 	finished <- &metricsObj

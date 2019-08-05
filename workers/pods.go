@@ -1938,20 +1938,18 @@ func (pw PodWorker) GetPodMetricsSingle(p *v1.Pod, namespace string, podName str
 func metricsWorkerPods(finished chan *m.PodMetricsObjList, client *kubernetes.Clientset, l *log.Logger) {
 	l.Debug("Metrics Worker Pods: Started")
 	var path string = "apis/metrics.k8s.io/v1beta1/pods"
+	var list m.PodMetricsObjList
 
 	data, err := client.RESTClient().Get().AbsPath(path).DoRaw()
 	if err != nil {
-		l.Errorf("Issues when requesting metrics from metrics with path %s from server %s\n", path, err.Error())
+		l.Errorf("Issues when requesting metrics with path [%s]: %s\n", path, err.Error())
+	} else {
+		if err = json.Unmarshal(data, &list); err != nil {
+			l.Errorf("Unmarshal issues. %v\n", err)
+		}
+		fmt.Println("Metrics Worker Pods: Finished. Metrics records: %d", len(list.Items))
+		fmt.Println(&list)
 	}
-
-	var list m.PodMetricsObjList
-	merde := json.Unmarshal(data, &list)
-	if merde != nil {
-		l.Errorf("Unmarshal issues. %v\n", merde)
-	}
-
-	fmt.Println("Metrics Worker Pods: Finished. Metrics records: %d", len(list.Items))
-	fmt.Println(&list)
 	finished <- &list
 }
 
@@ -1963,14 +1961,12 @@ func metricsWorkerSingle(finished chan *m.PodMetricsObj, client *kubernetes.Clie
 
 		data, err := client.RESTClient().Get().AbsPath(path).DoRaw()
 		if err != nil {
-			l.Errorf("Issues when requesting metrics from metrics with path %s from server %s\n", path, err.Error())
+			l.Errorf("Issues when requesting metrics with path [%s]: %s\n", path, err.Error())
+		} else {
+			if err = json.Unmarshal(data, &metricsObj); err != nil {
+				l.Errorf("Unmarshal issues when getting pods metrics. %v\n", err)
+			}
 		}
-
-		merde := json.Unmarshal(data, &metricsObj)
-		if merde != nil {
-			l.Errorf("Unmarshal issues when getting pods metrics. %v\n", merde)
-		}
-
 	}
 
 	finished <- &metricsObj
