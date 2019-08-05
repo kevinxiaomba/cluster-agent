@@ -123,7 +123,7 @@ func (pw JobsWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	if !cache.WaitForCacheSync(stopCh, pw.HasSynced) {
 		pw.Logger.Error("Timed out waiting for caches to sync")
 	}
-	pw.Logger.Info("Cache syncronized. Starting Jobs processing...")
+	pw.Logger.Info("Cache synchronized. Starting Jobs processing...")
 
 	wg.Add(1)
 	go pw.startMetricsWorker(stopCh)

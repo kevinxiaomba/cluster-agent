@@ -496,7 +496,7 @@ func (pw PodWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	if !cache.WaitForCacheSync(stopCh, pw.HasSynced) {
 		pw.Logger.Errorf("Timed out waiting for caches to sync")
 	}
-	pw.Logger.Infof("Pod Cache syncronized. Starting the processing...")
+	pw.Logger.Infof("Pod Cache synchronized. Starting the processing...")
 
 	bag := (*pw.ConfManager).Get()
 
@@ -507,7 +507,7 @@ func (pw PodWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	metricsTimer := time.NewTimer(time.Duration(bag.SnapshotSyncInterval*2) * time.Second)
 	go func() {
 		<-metricsTimer.C
-		pw.Logger.Infof("Starting data syncronization job...")
+		pw.Logger.Infof("Starting data synchronization job...")
 		wg.Add(1)
 		go pw.startEventQueueWorker(stopCh)
 	}()

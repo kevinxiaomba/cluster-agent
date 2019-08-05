@@ -85,7 +85,7 @@ func (dw *DeployWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	if !cache.WaitForCacheSync(stopCh, dw.HasSynced) {
 		dw.Logger.Errorf("Timed out waiting for deployment caches to sync")
 	}
-	dw.Logger.Infof("Deployment Cache syncronized. Starting the processing...")
+	dw.Logger.Infof("Deployment Cache synchronized. Starting the processing...")
 
 	wg.Add(1)
 	go dw.startMetricsWorker(stopCh)

@@ -358,7 +358,7 @@ func (ai AgentInjector) EnsureInstrumentation(statusChanel chan m.AttachStatus, 
 
 func (ai AgentInjector) finilizeAttach(statusChanel chan m.AttachStatus, podObj *v1.Pod, agentRequest *m.AgentRequest) {
 	if agentRequest.Tech == m.DotNet || agentRequest.Method == m.MountEnv {
-		ai.Logger.Infof("Finilizing instrumentation for container %s...", agentRequest.ContainerName)
+		ai.Logger.Infof("Finalizing instrumentation for container %s...", agentRequest.ContainerName)
 		exec := NewExecutor(ai.ClientSet, ai.K8sConfig, ai.Logger)
 		updateErr := ai.Associate(podObj, &exec, agentRequest)
 		if updateErr != nil {

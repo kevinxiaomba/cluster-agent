@@ -122,7 +122,7 @@ func (pw NodesWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	if !cache.WaitForCacheSync(stopCh, pw.HasSynced) {
 		pw.Logger.Errorf("Timed out waiting for node caches to sync")
 	}
-	pw.Logger.Info("Node Cache syncronized. Starting node processing...")
+	pw.Logger.Info("Node Cache synchronized. Starting node processing...")
 
 	wg.Add(1)
 	go pw.startMetricsWorker(stopCh)

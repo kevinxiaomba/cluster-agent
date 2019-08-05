@@ -498,7 +498,7 @@ func (al *AgentRequestList) String() string {
 }
 
 func (ar *AgentRequest) String() string {
-	return fmt.Sprintf("AppName: %s, TieName: %s, BiQ:%s, Tech: %s, Method: %s, Container: %s, Version: %s, EnvVar: %s", ar.AppName, ar.TierName, ar.BiQ, ar.Tech, ar.Method, ar.ContainerName, ar.Version, ar.AgentEnvVar)
+	return fmt.Sprintf("AppName: %s, TierName: %s, BiQ:%s, Tech: %s, Method: %s, Container: %s, Version: %s, EnvVar: %s", ar.AppName, ar.TierName, ar.BiQ, ar.Tech, ar.Method, ar.ContainerName, ar.Version, ar.AgentEnvVar)
 }
 
 func (ar *AgentRequest) Valid() bool {
