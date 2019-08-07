@@ -19,7 +19,7 @@ LABEL name="AppDynamics ClusterAgent" \
       release="1" \
       url="https://www.appdynamics.com" \
       summary="AppDynamics monitoring solution for applications deployed to Kubernetes clusters" \
-      description="The ClusterAgent monitors state of Kuberenetes resources and derives metrics to provide visibility into common application impacting issues."
+      description="The ClusterAgent monitors state of Kubernetes resources and derives metrics to provide visibility into common application impacting issues."
 
 RUN yum install -y bash && \
     yum clean all && \

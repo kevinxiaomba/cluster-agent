@@ -122,7 +122,7 @@ func (pw JobsWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	if !cache.WaitForCacheSync(stopCh, pw.HasSynced) {
 		pw.Logger.Error("Timed out waiting for caches to sync")
 	}
-	pw.Logger.Info("Cache syncronized. Starting Jobs processing...")
+	pw.Logger.Info("Cache synchronized. Starting Jobs processing...")
 
 	wg.Add(1)
 	go pw.startMetricsWorker(stopCh)
@@ -213,9 +213,13 @@ func (pw *JobsWorker) processObject(j *batchTypes.Job) m.JobSchema {
 
 	jobObject.Failed = j.Status.Failed
 
+	if j.Status.StartTime.IsZero() {
+		pw.Logger.Error("Job start time is not yet set")
+		return jobObject
+	}
 	jobObject.StartTime = j.Status.StartTime.Time
 
-	if j.Status.CompletionTime != nil {
+	if !j.Status.CompletionTime.IsZero() {
 		jobObject.EndTime = j.Status.CompletionTime.Time
 		jobObject.Duration = jobObject.EndTime.Sub(jobObject.StartTime).Seconds()
 	} else {

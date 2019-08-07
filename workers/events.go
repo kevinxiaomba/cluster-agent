@@ -92,7 +92,7 @@ func (ew *EventWorker) Observe(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	if !cache.WaitForCacheSync(stopCh, ew.HasSynced) {
 		fmt.Errorf("Timed out waiting for events caches to sync")
 	}
-	ew.Logger.Info("Cache syncronized. Starting Events processing...")
+	ew.Logger.Info("Cache synchronized. Starting Events processing...")
 
 	wg.Add(1)
 	go ew.startMetricsWorker(stopCh)
