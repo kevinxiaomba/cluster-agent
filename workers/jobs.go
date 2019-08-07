@@ -17,7 +17,6 @@ import (
 
 	app "github.com/appdynamics/cluster-agent/appd"
 	batchTypes "k8s.io/api/batch/v1"
-	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
@@ -62,7 +61,7 @@ func (nw *JobsWorker) initJobInformer(client *kubernetes.Clientset) cache.Shared
 				return batchClient.Jobs(metav1.NamespaceAll).Watch(options)
 			},
 		},
-		&v1.Node{},
+		&batchTypes.Job{},
 		0,
 		cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc},
 	)
