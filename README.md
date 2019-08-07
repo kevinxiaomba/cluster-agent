@@ -1,5 +1,7 @@
 # AppDynamics ClusterAgent
 
+**Thank you for your interest in the cluster-agent project.  We are actively seeking to integrate this functionality into an official AppDynamics beta offering, and as a result we are making this project private while we work on the integration.  If you are interested in participating in the beta program for our Kubernetes Cluster Agent, please contact your AppDynamics account manager.**
+
 AppDynamics ClusterAgent is an application for monitoring workloads on Kubernetes clusters. It is implemented in Golang as a native Kubernetes component. The ClusterAgent is designed to work with AppDynamics controller and is associated with a specific AppDynamics tenant. 
 
 The ClusterAgent has 2 purposes.
