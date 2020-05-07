@@ -16,7 +16,7 @@ import (
 )
 
 const CONFIG_FILE = "/opt/appdynamics/config/cluster-agent-config.json"
-
+/* some comments here */
 /*
  Simple interface that allows us to switch out both implementations of the Manager
 */
